@@ -1,0 +1,13 @@
+{
+  "name": "chris-plugins",
+  "owner": {
+    "name": "Chris"
+  },
+  "plugins": [
+    {
+      "name": "ship-pipeline",
+      "source": "./",
+      "description": "Multi-persona delivery pipeline (/ship)"
+    }
+  ]
+}

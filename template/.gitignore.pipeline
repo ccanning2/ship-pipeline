@@ -1,0 +1,3 @@
+# Append to .gitignore
+.claude/.pipeline-ticket
+.claude/settings.local.json

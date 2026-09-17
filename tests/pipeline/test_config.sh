@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+source "$(dirname "$0")/lib.sh"
+echo "plugin layout / agents / commands / workflows"
+cd "$REPO_SRC"
+# Locate agents/commands whether we run in the plugin repo or an installed project.
+if [ -d agents ] && [ -f .claude-plugin/plugin.json ]; then A=agents; C=commands; else A=.claude/agents; C=.claude/commands; fi
+agents=(market-researcher product-owner business-analyst senior-engineer qa-tester app-specialist marketing-specialist)
+fm() { awk 'NR==1 && $0=="---"{f=1;next} f && $0=="---"{exit} f' "$1"; }
+fmval() { fm "$1" | grep -m1 -E "^$2:" | sed -E "s/^$2:[[:space:]]*//"; }
+
+[ "$(ls "$A"/*.md | wc -l | tr -d ' ')" = "${#agents[@]}" ] && ok "exactly ${#agents[@]} agents" || bad "exactly ${#agents[@]} agents"
+for a in "${agents[@]}"; do
+  f="$A/$a.md"; [ -f "$f" ] || { bad "$a: exists"; continue; }
+  python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"))' "$f" 2>/dev/null && ok "$a: frontmatter parses" || bad "$a: frontmatter parses"
+  [ "$(fmval "$f" name)" = "$a" ] && ok "$a: name matches file" || bad "$a: name matches file"
+  case "$(fmval "$f" model)" in opus|sonnet|haiku|inherit) ok "$a: valid model";; *) bad "$a: valid model";; esac
+  [ -z "$(fmval "$f" tools)" ] && ok "$a: no tools allowlist (keeps tracker MCP tools)" || bad "$a: no tools allowlist"
+  grep -q "CONTEXT.md" "$f" && grep -q "TICKETS.md" "$f" && ok "$a: reads CONTEXT + TICKETS" || bad "$a: reads CONTEXT + TICKETS"
+  if grep -qiwE "reputabill|curate|chris|paystack" "$f"; then bad "$a: project-agnostic"; else ok "$a: project-agnostic"; fi
+done
+d() { fmval "$A/$1.md" disallowedTools; }
+denies() { case ", $(d "$1")," in *", $2,"*) return 0;; esac; return 1; }
+denies app-specialist Write && denies app-specialist Edit && ok "app-specialist cannot write code" || bad "app-specialist cannot write code"
+for a in product-owner business-analyst market-researcher marketing-specialist; do denies "$a" Bash && ok "$a has no Bash" || bad "$a has no Bash"; done
+[ -z "$(d senior-engineer)" ] && ok "engineer unrestricted" || bad "engineer unrestricted"
+for a in market-researcher product-owner business-analyst qa-tester marketing-specialist; do
+  fm "$A/$a.md" | grep -q "allow-paths.sh" && ok "$a: write-boundary hook" || bad "$a: write-boundary hook"
+done
+grep -q "promote-dev" "$A/senior-engineer.md" && grep -q "dev-check.md" "$A/senior-engineer.md" && grep -qi "never write them yourself" "$A/senior-engineer.md" && ok "engineer: dev self-check, cannot self-approve go-live" || bad "engineer: dev self-check, cannot self-approve go-live"
+grep -q "vX.Y.Z" "$A/senior-engineer.md" && grep -q "staging" "$A/senior-engineer.md" && ok "engineer knows branch/tag model" || bad "engineer knows branch/tag model"
+grep -q "eng. child tickets" "$A/business-analyst.md" && ok "BA creates eng tickets" || bad "BA creates eng tickets"
+for a in qa-tester app-specialist marketing-specialist; do grep -q "defect" "$A/$a.md" && ok "$a raises defect tickets" || bad "$a raises defect tickets"; done
+grep -q "Launch content" "$A/marketing-specialist.md" && ok "marketing creates launch ticket" || bad "marketing creates launch ticket"
+grep -qi "first" "$A/market-researcher.md" && ok "researcher goes first" || bad "researcher goes first"
+
+if [ "$A" = agents ]; then
+s="$C/ship.md"; [ -f "$s" ] && ok "/ship exists" || bad "/ship exists"
+for step in intake.sh "promote-dev" "promote-staging" "promote-production" "next-version.sh" "Version:" "Go-live: approved by" "argument-hint: <TICKET-ID>" "tracker connector" "CLAUDE_CODE_REMOTE" ".pipeline-ticket" "/pipeline-init"; do
+  grep -qF "$step" "$s" && ok "/ship includes: $step" || bad "/ship includes: $step"
+done
+if grep -qiwE "reputabill|curate|chris" "$s"; then bad "/ship project-agnostic"; else ok "/ship project-agnostic"; fi
+order=$(python3 - "$s" <<'PY'
+import sys; s=open(sys.argv[1]).read()
+seq=["## 1. Research","`market-researcher`","`product-owner`","`business-analyst`","mode **build**","promote-dev","`qa-tester`","promote-staging","`app-specialist`","`marketing-specialist`","next-version.sh","Go-live: approved","promote-production"]
+idx=[s.find(x) for x in seq]; print("yes" if all(i>=0 for i in idx) and idx==sorted(idx) else f"no {idx}")
+PY
+)
+assert_eq "/ship stage order" "yes" "$order"
+[ -f "$C/pipeline-status.md" ] && ok "/pipeline-status exists" || bad "/pipeline-status exists"
+fi
+if [ "$A" = agents ]; then
+  [ -f "$C/pipeline-init.md" ] && grep -q 'CLAUDE_PLUGIN_ROOT' "$C/pipeline-init.md" && ok "/pipeline-init uses plugin root" || bad "/pipeline-init uses plugin root"
+  python3 -c 'import json; d=json.load(open(".claude-plugin/plugin.json")); assert d["name"]=="ship-pipeline" and d["commands"] and d["agents"]' && ok "plugin.json valid" || bad "plugin.json valid"
+  python3 -c 'import json; d=json.load(open(".claude-plugin/marketplace.json")); assert d["plugins"][0]["name"]=="ship-pipeline"' && ok "marketplace.json valid" || bad "marketplace.json valid"
+  [ -d profiles/reputabill ] && [ -f profiles/reputabill/CONTEXT.md ] && ok "reputabill profile present" || bad "reputabill profile present"
+  T=template
+else
+  T=.
+fi
+for f in "$T/.github/workflows/deploy.yml" "$T/.github/workflows/pipeline-gate.yml"; do python3 -c "import yaml; yaml.safe_load(open('$f'))" && ok "$f valid yaml" || bad "$f valid yaml"; done
+python3 - "$T/.github/workflows/deploy.yml" <<'PY' && ok "deploy.yml: branch/tag triggers, build on dev, tag-image on production" || bad "deploy.yml: branch/tag triggers, build on dev, tag-image on production"
+import yaml,sys
+w=yaml.safe_load(open(sys.argv[1])); on=w.get("on") or w.get(True); j=w["jobs"]
+ok = on["push"]["branches"]==["master","staging"] and any("v[0-9]" in t for t in on["push"]["tags"]) \
+  and "docs/pipeline/**" in on["push"]["paths-ignore"] \
+  and j["build"]["if"]=="needs.resolve.outputs.env == 'dev'" and j["tag-image"]["if"]=="needs.resolve.outputs.env == 'production'" \
+  and any("imagetools create" in s.get("run","") for s in j["tag-image"]["steps"]) \
+  and any("gate.sh" in s.get("run","") for s in j["resolve"]["steps"]) \
+  and any("rollback.sh" in s.get("run","") for s in j["deploy"]["steps"])
+sys.exit(0 if ok else 1)
+PY
+python3 - "$T/.github/workflows/pipeline-gate.yml" <<'PY' && ok "pipeline-gate.yml: PRs to master/staging gated" || bad "pipeline-gate.yml: PRs to master/staging gated"
+import yaml,sys
+w=yaml.safe_load(open(sys.argv[1])); on=w.get("on") or w.get(True)
+sys.exit(0 if on["pull_request"]["branches"]==["master","staging"] and any("gate.sh" in s.get("run","") and "stage" in s.get("run","") for s in w["jobs"]["gate"]["steps"]) else 1)
+PY
+for tpl in STATUS product requirements clarifications research impl-notes dev-check qa-report signoff marketing releases tickets; do
+  [ -f "$T/docs/pipeline/_templates/$tpl.md" ] && ok "template $tpl.md" || bad "template $tpl.md"
+done
+grep -q '^Version:' "$T/docs/pipeline/_templates/releases.md" && ok "releases template has Version" || bad "releases template has Version"
+for f in TICKETS BRANCHING CLOUD; do [ -f "$T/docs/pipeline/$f.md" ] && ok "doc $f.md" || bad "doc $f.md"; done
+if [ "$A" = agents ]; then
+  grep -q "__PROJECT_NAME__" template/docs/pipeline/CONTEXT.md && grep -q "__TEAM_KEY__" template/scripts/pipeline/pipeline.env && ok "templates have placeholders" || bad "templates have placeholders"
+  for sec in "Domain risks" "Security" "Data & migrations" "Tickets"; do grep -q "^## .*$sec" template/RELEASE_CHECKLIST.md && ok "generic checklist: $sec" || bad "generic checklist: $sec"; done
+fi
+for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup}.sh scripts/pipeline/hooks/{allow-paths,guard-merge}.sh scripts/deploy/{deploy,rollback,smoke}.sh; do
+  [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax"
+done
+[ -f scripts/pipeline/merge.sh ] && bad "merge.sh removed (promote.sh dev merges)" || ok "merge.sh removed (promote.sh dev merges)"
+summary
