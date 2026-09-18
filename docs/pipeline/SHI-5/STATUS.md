@@ -25,15 +25,10 @@ compatibility for existing installs a release-blocking acceptance criterion (BR-
 capability fail-closed (BR-8).
 
 ## Waiting on the owner
-Two open `To: Owner` questions in `clarifications.md`. Neither blocks the analysis stage; both must
-be answered before stage 5 (build).
-- **Q-1** — SHI-5 is `User-facing: yes`, so today its own production gate requires a completed
-  `marketing` ticket. Switching this repo onto the new settings during the build (BR-15) turns its
-  marketing capability off with immediate effect, including for SHI-5's own remaining stages. Should
-  SHI-5 finish under the old rules or the new ones? PO recommendation: the new ones.
-- **Q-2** — CONTEXT.md requires a stop-and-ask before `gate.sh`'s pass/fail conditions change, and
-  this work changes them. PO recommendation: approve the specific before/after list once the BA has
-  written it into `requirements.md`, rather than granting blanket permission now.
+- nothing currently open. Q-1 and Q-2 answered 2026-09-18 (see clarifications.md): SHI-5 runs under
+  the new rules (marketing capability off during build); gate.sh condition-change approval is
+  deferred until the BA writes the exact before/after list into requirements.md — bring it back to
+  the owner before stage 5 (build) starts.
 
 Previously raised, now closed:
 - `scripts/pipeline/hooks/allow-paths.sh` Windows backslash path bug — **fixed and verified** in

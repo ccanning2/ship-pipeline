@@ -4,7 +4,7 @@
 
 ### Q-1
 To: Owner
-State: open
+State: answered
 Asked by: product-owner
 Needed by: stage 5 (build) — does not block analysis
 Question:
@@ -16,11 +16,12 @@ stage for this release, flip the setting afterwards), or under the new ones (fli
 SHI-5 skips marketing and is the first release to prove the new behaviour)?
 Recommendation: flip during the build. This repo has no marketing function, and dogfooding it is the
 point of the ticket.
-Answer:
+Answer: New rules — flip this repo's marketing capability off during the build. SHI-5 skips its own
+marketing stage. (2026-09-18)
 
 ### Q-2
 To: Owner
-State: open
+State: answered
 Asked by: product-owner
 Needed by: stage 5 (build) — does not block analysis
 Question:
@@ -31,4 +32,5 @@ stop-and-ask before the gate's pass/fail conditions change. Do you approve that 
 and do you want to review the exact before/after conditions before the engineer starts?
 Recommendation: hold the approval until the business analyst has written the exact conditions into
 requirements.md, then approve that specific list — not a blanket permission to edit the gate.
-Answer:
+Answer: Not approved yet — wait for the business analyst to write the exact before/after gate.sh
+conditions into requirements.md, then bring that specific list back for approval. (2026-09-18)
