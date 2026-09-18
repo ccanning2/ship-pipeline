@@ -11,17 +11,17 @@ Rework loops used: 0/3
 | 3 | product | product-owner | done | approved · feature · User-facing: yes · P2 · 9 stories → SHI-7/8/9, follow-ups SHI-10/11/12 |
 | 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
 | 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
-| 6 | dev | senior-engineer (merge → master, self-check) | pending | |
-| 7 | qa | qa-tester | pending | |
+| 6 | dev | senior-engineer (merge → master, self-check) | done | Dev = QA = 2e9552d · self-check pass (throwaway-repo install from the ref) · suite 613 / 0 |
+| 7 | qa | qa-tester | in progress | staging branch = 2e9552d |
 | 8 | staging | app-specialist + marketing-specialist | pending | |
 | 9 | go-live | the owner | pending | |
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-Stage 6 (dev): `bash scripts/pipeline/promote.sh SHI-5 dev` merges the branch into `master`. Ask the
-owner before running it — it changes `master` for everyone. `gate.sh SHI-5 dev` already PASSes under
-the new rules (marketing=off, deploy-envs=off). With deploy-envs off, promote.sh skips the deploy
-wait/dispatch/smoke; the dev self-check is then done against the master ref (DEV_URL), per CONTEXT.md.
+qa-tester verifies requirements.md's ACs against the staging ref (no host: install from the ref and run
+the flow). Defects come back as `defect` tickets to the engineer, then re-enter at dev. On pass, run
+promote-staging (`promote.sh SHI-5 staging`, a no-op dispatch here) and hand to the app-specialist.
+Marketing is skipped for this ticket by configuration (PIPELINE_HAS_MARKETING=no).
 
 ## Waiting on the owner
 - Nothing blocking. Two things to decide by go-live (also in impl-notes.md, Known limitations):
