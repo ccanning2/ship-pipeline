@@ -36,6 +36,65 @@ assert_contains "reports kept files" "$out" "kept"
 assert_eq "gitignore not duplicated" "1" "$(grep -c '.claude/.pipeline-ticket' "$P/.gitignore")"
 out=$(bash "$INIT" --project-dir "$P" --force-tooling 2>&1); cmp -s "$P/scripts/deploy/deploy.sh" "$REPO_SRC/scripts/deploy/deploy.sh" && ok "--force-tooling refreshes deploy scripts" || bad "--force-tooling refreshes deploy scripts"
 
+# ---- declaring the project's shape at install time ----
+P3="$(mktemp -d)"; git -C "$P3" init -q -b master; git -C "$P3" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
+out=$(bash "$INIT" --project-dir "$P3" --name solo --team-key SOL --no-deploy-envs 2>&1); assert_exit "AC-21: --no-deploy-envs install" 0 $? "$out"
+for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh scripts/deploy/smoke.sh .github/workflows/deploy.yml; do
+  [ -e "$P3/$f" ] && bad "AC-21: does not create $f" || ok "AC-21: does not create $f"
+done
+[ -d "$P3/scripts/deploy" ] && bad "AC-21: does not create scripts/deploy/" || ok "AC-21: does not create scripts/deploy/"
+for f in .github/workflows/pipeline-gate.yml scripts/pipeline/gate.sh scripts/pipeline/promote.sh docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md tests/pipeline/run-all.sh; do
+  [ -f "$P3/$f" ] && ok "AC-21: still installs $f" || bad "AC-21: still installs $f"
+done
+E3="$P3/scripts/pipeline/pipeline.env"
+assert_contains "AC-22: declares no deployable environments" "$(cat "$E3")" 'PIPELINE_HAS_DEPLOY_ENVS="no"'
+assert_contains "AC-22: marketing stays on when not opted out" "$(cat "$E3")" 'PIPELINE_HAS_MARKETING="yes"'
+for k in DEPLOY_WORKFLOW HEALTH_PATH DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do
+  grep -q "^$k=\"\"$" "$E3" && ok "AC-23: $k present but empty" || bad "AC-23: $k present but empty"
+done
+grep -q '__' "$E3" && bad "AC-23: no placeholder survives" || ok "AC-23: no placeholder survives"
+assert_contains "AC-21: reports the declared capabilities" "$out" "capabilities: deploy-envs=no marketing=yes"
+
+P4="$(mktemp -d)"; git -C "$P4" init -q -b master; git -C "$P4" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
+out=$(bash "$INIT" --project-dir "$P4" --name duo --team-key DUO 2>&1); assert_exit "AC-22: install with no flags" 0 $? "$out"
+assert_contains "AC-22: deploy envs default to yes" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_DEPLOY_ENVS="yes"'
+assert_contains "AC-22: marketing defaults to yes" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="yes"'
+assert_contains "AC-22: default install still has the deploy URLs" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'DEV_URL="https://dev.duo.example"'
+
+P5="$(mktemp -d)"; git -C "$P5" init -q -b master; git -C "$P5" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
+out=$(bash "$INIT" --project-dir "$P5" --no-deploy-env 2>&1); assert_exit "AC-24: unknown flag fails" 1 $? "$out"
+assert_eq "AC-24: unknown flag creates nothing" "" "$(ls -A "$P5" | grep -v '^.git$' || true)"
+
+# BR-13 / AC-25: a re-run never deletes or edits what an earlier install created
+echo "MY DEPLOY" > "$P/scripts/deploy/deploy.sh"; echo "MY WORKFLOW" > "$P/.github/workflows/deploy.yml"; echo "MY ENV2" > "$P/scripts/pipeline/pipeline.env"
+out=$(bash "$INIT" --project-dir "$P" --no-deploy-envs 2>&1); assert_exit "AC-25: re-run with --no-deploy-envs" 0 $? "$out"
+assert_eq "AC-25: keeps deploy.sh byte-identical" "MY DEPLOY" "$(cat "$P/scripts/deploy/deploy.sh")"
+assert_eq "AC-25: keeps deploy.yml byte-identical" "MY WORKFLOW" "$(cat "$P/.github/workflows/deploy.yml")"
+assert_eq "AC-25: keeps pipeline.env byte-identical" "MY ENV2" "$(cat "$P/scripts/pipeline/pipeline.env")"
+assert_contains "AC-25: reports the deploy files as kept" "$out" "kept    scripts/deploy/deploy.sh"
+assert_contains "AC-25: reports deploy.yml as kept" "$out" ".github/workflows/deploy.yml"
+assert_contains "AC-25: tells the owner to set the key by hand" "$out" 'set PIPELINE_HAS_DEPLOY_ENVS="no" in scripts/pipeline/pipeline.env yourself'
+assert_contains "AC-25: tells the owner the deploy files were left" "$out" "delete scripts/deploy/* and .github/workflows/deploy.yml if you no longer want them"
+out=$(bash "$INIT" --project-dir "$P" --no-deploy-envs --force-tooling 2>&1); assert_exit "AC-26: --force-tooling with --no-deploy-envs" 0 $? "$out"
+assert_eq "AC-26: --force-tooling does not resurrect deploy.sh" "MY DEPLOY" "$(cat "$P/scripts/deploy/deploy.sh")"
+
+# AC-27: idempotent, and the installed project's own suite is green with both capabilities off
+P6="$(mktemp -d)"; git -C "$P6" init -q -b master; git -C "$P6" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
+out=$(bash "$INIT" --project-dir "$P6" --name lean --team-key LEA --no-deploy-envs --no-marketing 2>&1); assert_exit "AC-27: opted-out install" 0 $? "$out"
+assert_contains "AC-27: declares no marketing function" "$(cat "$P6/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="no"'
+before6=$(cd "$P6" && find . -path ./.git -prune -o -type f -exec cksum {} \; | sort)
+out=$(bash "$INIT" --project-dir "$P6" --name lean --team-key LEA --no-deploy-envs --no-marketing 2>&1); assert_exit "AC-27: second identical run" 0 $? "$out"
+after6=$(cd "$P6" && find . -path ./.git -prune -o -type f -exec cksum {} \; | sort)
+assert_eq "AC-27: second run changes nothing" "$before6" "$after6"
+out=$(cd "$P6" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install && bash tests/pipeline/run-all.sh 2>&1 | tail -1)
+assert_eq "AC-27: opted-out project self-test passes" "ALL PIPELINE TESTS PASSED" "$out"
+
+# AC-28: /pipeline-init asks the two capability questions
+I="$REPO_SRC/commands/pipeline-init.md"
+for s in "--no-deploy-envs" "--no-marketing" "deployable environments" "marketing function" "CONTEXT.md"; do
+  grep -qF -e "$s" "$I" && ok "AC-28: /pipeline-init mentions $s" || bad "AC-28: /pipeline-init mentions $s"
+done
+
 # profile install
 P2="$(mktemp -d)"; git -C "$P2" init -q -b master; git -C "$P2" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
 out=$(bash "$INIT" --project-dir "$P2" --profile reputabill 2>&1); assert_exit "profile install" 0 $? "$out"

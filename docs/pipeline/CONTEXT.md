@@ -30,27 +30,41 @@ The personas are generic; THIS file is what makes them behave correctly here. Th
 - Tests: `bash tests/pipeline/run-all.sh`, which runs `test_config.sh test_init.sh test_gate.sh
   test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh
   test_deploy_scripts.sh` in turn. This is the only test command; there is no separate
-  frontend/backend suite.
+  frontend/backend suite. `python-docx`, `pandoc` and `poppler-utils` are **optional**: the
+  `intake.sh` document tests skip themselves when they are absent, they do not fail.
 - Lint/build: none. Syntax is checked in-suite (`bash -n`); keep every `scripts/**/*.sh` executable.
-- Docker: **not applicable.** No image is built or promoted; ignore "build once, promote the image"
-  in the generic docs — the promoted artefact is the git sha, then the version tag.
+- Docker: **not applicable.** No image is built or promoted; the promoted artefact is the git sha,
+  then the version tag.
 - Architecture docs to keep updated: `README.md` (layout + install), `docs/pipeline/BRANCHING.md`,
   `docs/pipeline/TICKETS.md`, `docs/pipeline/CLOUD.md`.
 - Version lives in `.claude-plugin/plugin.json`; it must match the `vX.Y.Z` tag cut at go-live.
 
 ## Environments (see BRANCHING.md)
-- The branch/tag model still applies, but an "environment" here is **a ref people can install from**,
-  not a host: dev ← merge to `master` · qa ← push to `staging` · staging ← same sha · production ←
-  tag `vX.Y.Z`. The URLs in `scripts/pipeline/pipeline.env` point at those refs.
+- An "environment" here is **a ref people can install from**, not a host: dev ← merge to `master` ·
+  qa ← push to `staging` · staging ← same sha · production ← tag `vX.Y.Z`. The URLs in
+  `scripts/pipeline/pipeline.env` point at those refs. Every review stage still applies, and the same
+  sha still travels the whole path.
 - **Verification is done by installing the plugin from the ref into a throwaway git repo** and
-  running the flow there — not by hitting a health endpoint. `scripts/deploy/*` and `smoke.sh` are
-  templates shipped to consumers; they are not used to release this repo.
+  running the flow there. `scripts/deploy/*` and `smoke.sh` are templates shipped to consumers; they
+  are not used to release this repo.
 - Test data policy: fixtures only, under `mktemp -d`. Tests must never touch the user's real repos,
   tracker or network.
 
+## Project shape (the two capability settings)
+Declared in `scripts/pipeline/pipeline.env`; both default to `yes` and are off only for an explicit `no`.
+- `PIPELINE_HAS_DEPLOY_ENVS="no"` — there is nothing to deploy to. `promote.sh` performs no deploy
+  wait, no staging workflow dispatch and no smoke call. `.github/workflows/deploy.yml` and
+  `scripts/deploy/*` stay in the repo as the templates consumers receive; this project does not use
+  them to release itself.
+- `PIPELINE_HAS_MARKETING="no"` — this project has no marketing function, so the marketing-specialist
+  never runs and the production gate never asks for launch content. Release notes live in `README.md`
+  and on the version tag. `User-facing: yes|no` on a ticket still means only "does this affect users".
+
 ## Engineering rules
-- The seven personas stay **project-agnostic**. No product, person or vendor names in
-  `template/agents/*.md` or `commands/*.md` — the test suite enforces this.
+- The seven personas stay **project-agnostic**. No product, person, vendor or project-type names in
+  `agents/*.md` or `commands/*.md` — the test suite enforces this. The persona files live at
+  `agents/*.md` (the `template/` tree holds no personas), mirrored at `.claude/agents/*.md` for this
+  repo's own use; **edit both copies together**.
 - Everything project-specific belongs in `docs/pipeline/CONTEXT.md` and `RELEASE_CHECKLIST.md`,
   or in a `profiles/<name>/` pair. Never hardcode it into tooling.
 - `scripts/init.sh` is **idempotent** and must never overwrite project-owned files (CONTEXT.md,
@@ -79,5 +93,3 @@ The personas are generic; THIS file is what makes them behave correctly here. Th
 - Whether profiles should be distributable separately from the plugin.
 - How consumers upgrade tooling safely once their pipeline is live (`/pipeline-init` re-run vs a
   versioned migration step).
-- Per SHI-5: whether the marketing-specialist persona should be opt-out per project, and whether
-  projects without deployments/environments (like this one) need a distinct pipeline shape.

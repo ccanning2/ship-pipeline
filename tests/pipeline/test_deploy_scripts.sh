@@ -2,6 +2,8 @@
 source "$(dirname "$0")/lib.sh"
 echo "deploy / rollback / smoke"
 D="$REPO_SRC/scripts/deploy"
+# A project installed with --no-deploy-envs has no deploy scripts to test.
+[ -d "$D" ] || { echo "  (skipped: project has no deployable environments)"; summary; exit 0; }
 sha=0123456789abcdef0123456789abcdef01234567
 
 out=$(bash "$D/deploy.sh" 2>&1); assert_exit "deploy: no args fails" 1 $? "$out"

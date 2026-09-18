@@ -32,18 +32,24 @@ Record PASS/FAIL/N/A with evidence in `signoff.md`. A FAIL in a section marked (
       mechanism — there is nothing to migrate back).
 
 ## 5. Infrastructure & delivery
-- [ ] N/A — no image, no host. Confirm instead: the plugin installs cleanly from the staging ref
-      (`/plugin marketplace add`, `/plugin install`) into a clean checkout, and `/pipeline-init`
-      scaffolds correctly into a throwaway target repo.
+This project declares `PIPELINE_HAS_DEPLOY_ENVS="no"`: the artefact is the plugin itself, so delivery
+is verified by installing it, not by deploying it.
+- [ ] The plugin installs cleanly from the staging ref (`/plugin marketplace add`, `/plugin install`)
+      into a clean checkout, and `/pipeline-init` scaffolds correctly into a throwaway target repo.
+- [ ] The same sha reached `master`, the `staging` branch and the version tag (`releases.md`
+      Dev = QA = Staging), and `promote.sh` reported that no deploy step was required.
 - [ ] `.claude-plugin/plugin.json` version matches the proposed `vX.Y.Z` tag.
 - [ ] Previous production version tag recorded for rollback.
 
 ## 6. Product & brand
+This project declares `PIPELINE_HAS_MARKETING="no"`: there is no marketing function, so the
+marketing-specialist does not run and the production gate does not ask for launch content.
 - [ ] product.md and requirements.md approved; research complete (features); no open clarifications.
-- [ ] User-facing: marketing.md `ready` (only for changes visible to the installing developer, e.g.
-      README/command UX — most engine-only changes are not user-facing; N/A otherwise), launch
-      ticket done, copy defects verified.
-- [ ] No product, person or vendor names introduced into `template/agents/*.md` or `commands/*.md`
+- [ ] `User-facing:` is set honestly on its own merits — it describes the change, it does not decide
+      which personas run. Marketing is recorded as skipped by configuration.
+- [ ] Anything an installing developer sees (README, command UX, `/pipeline-init` output, release
+      notes) reads correctly and matches what the release actually does.
+- [ ] No product, person, vendor or project-type names introduced into `agents/*.md` or `commands/*.md`
       (the seven personas must stay project-agnostic — enforced by the test suite).
 
 ## 7. Tickets (blocking)
