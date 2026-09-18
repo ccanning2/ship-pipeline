@@ -1,0 +1,25 @@
+name: Pipeline Gate
+# PRs into master must pass the "dev" gate; PRs into staging the "qa" gate. Make this a required check.
+on:
+  pull_request:
+    branches: [master, staging]
+permissions: { contents: read }
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha }}" }
+      - name: Pipeline tooling self-test
+        run: bash tests/pipeline/run-all.sh
+      - name: Verify gate for target branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          t=$(printf '%s %s' "$HEAD_REF" "$PR_TITLE" | grep -oiE '[A-Z][A-Z0-9]+-[0-9]+' | head -1 | tr a-z A-Z || true)
+          [ -n "$t" ] || { echo "::error::No ticket id in branch name or PR title"; exit 1; }
+          [ "$BASE" = staging ] && stage=qa || stage=dev
+          bash scripts/pipeline/status.sh "$t" || true
+          PIPELINE_BASE_REF="origin/master" bash scripts/pipeline/gate.sh "$t" "$stage"

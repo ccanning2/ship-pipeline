@@ -21,12 +21,12 @@ out=$(printf '{"tool_input":{}}' | bash "$H" 'x' 2>&1); assert_exit "no path ign
 # every restricted agent's frontmatter hook must block a source write and allow its own artifact
 cd "$REPO_SRC"; AD=.claude/agents; [ -d agents ] && [ -f .claude-plugin/plugin.json ] && AD=agents
 for a in market-researcher product-owner business-analyst qa-tester marketing-specialist; do
-  cmd=$(python3 -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); print(yaml.safe_load(s)["hooks"]["PreToolUse"][0]["hooks"][0]["command"])' "$AD/$a.md")
+  cmd=$($PY -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); print(yaml.safe_load(s)["hooks"]["PreToolUse"][0]["hooks"][0]["command"])' "$AD/$a.md")
   out=$(printf '{"tool_input":{"file_path":"%s/src/main/java/Escrow.java"}}' "$REPO_SRC" | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$cmd" 2>&1); assert_exit "$a: cannot write production code" 2 $? "$out"
 done
 for a in market-researcher:research.md product-owner:product.md business-analyst:requirements.md qa-tester:qa-report.md marketing-specialist:marketing.md; do
   n=${a%%:*}; f=${a#*:}
-  cmd=$(python3 -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); print(yaml.safe_load(s)["hooks"]["PreToolUse"][0]["hooks"][0]["command"])' "$AD/$n.md")
+  cmd=$($PY -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); print(yaml.safe_load(s)["hooks"]["PreToolUse"][0]["hooks"][0]["command"])' "$AD/$n.md")
   out=$(printf '{"tool_input":{"file_path":"%s/docs/pipeline/REP-5/%s"}}' "$REPO_SRC" "$f" | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$cmd" 2>&1); assert_exit "$n: can write $f" 0 $? "$out"
 done
 summary

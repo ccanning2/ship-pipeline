@@ -28,7 +28,7 @@ assert_contains "intake: md content" "$(cat "$(tdir REP-71)/brief.md")" "Must su
 out=$(intake REP-72 missing.docx); assert_exit "intake: missing file fails" 1 $? "$out"
 echo x > "$R/req.xlsx"; out=$(intake REP-72 req.xlsx); assert_exit "intake: unsupported type fails" 1 $? "$out"
 
-python3 - "$R/Req.DOCX" <<'PY'
+$PY - "$R/Req.DOCX" <<'PY'
 import sys, docx
 d = docx.Document(); d.add_heading("Reputation passport", 1); d.add_paragraph("Vendors embed a verified badge."); d.save(sys.argv[1])
 PY
@@ -36,7 +36,7 @@ out=$(intake REP-73 Req.DOCX); assert_exit "intake: docx (uppercase ext)" 0 $? "
 assert_contains "intake: docx text extracted" "$(cat "$(tdir REP-73)/brief.md")" "Vendors embed a verified badge."
 
 if command -v pdftotext >/dev/null && command -v pandoc >/dev/null; then
-  python3 - "$R/req.pdf" <<'PY'
+  $PY - "$R/req.pdf" <<'PY'
 import sys
 from reportlab.pdfgen import canvas
 c = canvas.Canvas(sys.argv[1]); c.drawString(72, 720, "Escrow release after event date"); c.save()
