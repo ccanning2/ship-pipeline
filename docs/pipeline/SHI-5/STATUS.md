@@ -9,7 +9,7 @@ Rework loops used: 0/3
 | 1 | intake | orchestrator | done | brief written, branch created |
 | 2 | research | market-researcher | done | Recommendation: build (both halves together) |
 | 3 | product | product-owner | done | approved · feature · User-facing: yes · P2 · 9 stories → SHI-7/8/9, follow-ups SHI-10/11/12 |
-| 4 | analysis | business-analyst ⇄ product-owner | pending | |
+| 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
 | 5 | build | senior-engineer | pending | |
 | 6 | dev | senior-engineer (merge → master, self-check) | pending | |
 | 7 | qa | qa-tester | pending | |
@@ -18,17 +18,35 @@ Rework loops used: 0/3
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-Run business-analyst on SHI-5: write `requirements.md` and create the `eng` tickets from the three
-story tickets. Carry through the three points in the product-owner handoff comment — name the exact
-`gate.sh` before/after conditions (so the owner approves a specific diff, Q-2), make backwards
-compatibility for existing installs a release-blocking acceptance criterion (BR-5), and keep every
-capability fail-closed (BR-8).
+Run senior-engineer (mode build) on SHI-5. Work the eng tickets in dependency order:
+
+```
+SHI-13 (config keys + fail-closed resolution)   ← start here, unblocked
+   ├─► SHI-14 (gate.sh production condition)    ← BLOCKED on owner approval of requirements.md §4
+   │      └─► SHI-15 (backwards-compat proof)   ← release blocker (BR-5)
+   ├─► SHI-16 (promote.sh: no deploy/smoke)
+   ├─► SHI-17 (init.sh / pipeline-init scaffolding)
+   └─► SHI-18 (ship.md, personas, status.sh)
+SHI-14 + SHI-16 + SHI-17 ─► SHI-19 (docs + v1.1.0)
+SHI-14 + SHI-16 ─────────► SHI-20 (dogfood this repo)  ← LAST, must land before stage 6 (dev)
+```
 
 ## Waiting on the owner
-- nothing currently open. Q-1 and Q-2 answered 2026-09-18 (see clarifications.md): SHI-5 runs under
-  the new rules (marketing capability off during build); gate.sh condition-change approval is
-  deferred until the BA writes the exact before/after list into requirements.md — bring it back to
-  the owner before stage 5 (build) starts.
+- **Q-3 (open, `To: Owner`) — approve the exact `gate.sh` before/after conditions**, now written as
+  `requirements.md` §4. This is the BR-9 stop-and-ask the owner deferred in Q-2. It blocks **one**
+  eng ticket (SHI-14) and, transitively, SHI-15/SHI-19/SHI-20 — not the whole build stage. SHI-13,
+  SHI-16, SHI-17 and SHI-18 may start immediately.
+  Summary of what needs approving: at `scripts/pipeline/gate.sh:135` the production-stage marketing
+  requirement gains one conjunct — `if [ "$uf" = yes ]` becomes
+  `if [ "$uf" = yes ] && [ "$has_marketing" = yes ]`, with the three inner checks and the failure
+  message unchanged. Nothing else in `gate.sh` changes, and `PIPELINE_HAS_DEPLOY_ENVS` changes no
+  gate condition at all. Exactly one truth-table cell moves.
+
+Closed:
+- Q-1 answered 2026-09-18 — SHI-5 runs under the new rules; this repo's marketing capability is
+  flipped off during the build (SHI-20), before stage 6.
+- Q-2 answered 2026-09-18 — process answer only ("bring the specific list back"); the list is now in
+  requirements.md §4 and the approval itself is Q-3.
 
 Previously raised, now closed:
 - `scripts/pipeline/hooks/allow-paths.sh` Windows backslash path bug — **fixed and verified** in
