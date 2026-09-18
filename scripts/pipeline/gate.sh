@@ -145,7 +145,7 @@ if [ "$L" -ge 5 ]; then
   [ "$(resolve_sha "signoff.md Commit" "$(field signoff.md Commit)")" = "$st_sha" ] || fail "signoff.md approved a different sha than staging runs ($st_sha)"
   x="$(rows_where '$2=="defect" && $5!="verified" && $5!="wontfix"' | list_ids)"; [ -z "$x" ] || fail "defects not verified: $x"
   x="$(rows_where '$2=="defect" && $5=="wontfix" && $4=="high"' | list_ids)"; [ -z "$x" ] || fail "High-severity defects cannot be wontfix: $x"
-  if [ "$uf" = yes ]; then require_file marketing.md; expect marketing.md Status ready; [ -n "$(rows_where '$2=="marketing" && $5=="done"')" ] || fail "no completed marketing launch ticket"; fi
+  if [ "$uf" = yes ] && [ "$has_marketing" = yes ]; then require_file marketing.md; expect marketing.md Status ready; [ -n "$(rows_where '$2=="marketing" && $5=="done"')" ] || fail "no completed marketing launch ticket"; fi
   case "$(field releases.md Go-live)" in approved*) ;; *) fail "releases.md Go-live is not approved (the owner must give the go)";; esac
   version="$(first_word "$(field releases.md Version)")"
   [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "releases.md Version must be vMAJOR.MINOR.PATCH (got '$version')"

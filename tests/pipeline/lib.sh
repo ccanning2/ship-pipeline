@@ -40,26 +40,27 @@ new_repo() {
     cp -r "$REPO_SRC/.claude/agents" "$R/.claude/"; cp "$REPO_SRC/.claude/settings.json" "$R/.claude/"
   fi
   # Fixtures always start from the default (strict) shape, whatever the hosting project declares.
-  set_capability_quiet PIPELINE_HAS_DEPLOY_ENVS '"yes"'; set_capability_quiet PIPELINE_HAS_MARKETING '"yes"'
+  set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'; set_capability PIPELINE_HAS_MARKETING '"yes"'
   git -C "$R" add -A; git -C "$R" commit -qm "install pipeline"
 }
 
 # --- project capability fixtures (scripts/pipeline/pipeline.env) ---
+# None of these commit. gate.sh reads pipeline.env from the working tree, so an uncommitted change
+# takes effect without counting as a code change since the dev deploy (gate.sh no_code_change_since).
+# Call them before ready_build when the fixture must carry the value into its commits.
 env_file() { echo "$R/scripts/pipeline/pipeline.env"; }
 drop_env_key() { local f; f="$(env_file)"; sed -i.bak -E "/^$1=/d" "$f" && rm -f "$f.bak"; }
-# set_capability_quiet <KEY> <verbatim RHS>   e.g. set_capability_quiet PIPELINE_HAS_MARKETING '"no"'
-set_capability_quiet() { drop_env_key "$1"; printf '%s=%s\n' "$1" "$2" >> "$(env_file)"; }
-set_capability() { set_capability_quiet "$1" "$2"; commit_all "capability $1"; }
+# set_capability <KEY> <verbatim RHS>   e.g. set_capability PIPELINE_HAS_MARKETING '"no"'
+set_capability() { drop_env_key "$1"; printf '%s=%s\n' "$1" "$2" >> "$(env_file)"; }
 # as a Windows editor would write it: the value line ends with CR
-set_capability_crlf() { drop_env_key "$1"; printf '%s="%s"\r\n' "$1" "$2" >> "$(env_file)"; commit_all "capability $1 (crlf)"; }
-unset_capability() { drop_env_key "$1"; commit_all "capability $1 removed"; }
+set_capability_crlf() { drop_env_key "$1"; printf '%s="%s"\r\n' "$1" "$2" >> "$(env_file)"; }
+unset_capability() { drop_env_key "$1"; }
 # blank_deploy_keys: the shape init.sh writes for a project with no deployable environments
 blank_deploy_keys() {
   local f k; f="$(env_file)"
   for k in DEPLOY_WORKFLOW HEALTH_PATH DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do
     drop_env_key "$k"; printf '%s=""\n' "$k" >> "$f"
   done
-  commit_all "blank deploy keys"
 }
 # legacy_env: a pre-1.1.0 pipeline.env — the ten v1.0.0 keys and neither capability key (BR-5 / AC-12)
 legacy_env() {
@@ -78,7 +79,6 @@ TRACKER="linear"
 TRACKER_TEAM_KEY="REP"
 PIPELINE_TICKET_REGEX="${PIPELINE_TICKET_REGEX:-[A-Z][A-Z0-9]+-[0-9]+}"
 LEGACY
-  commit_all "legacy pipeline.env (pre-1.1.0)"
 }
 branch() { g checkout -qb "$1"; }
 tdir() { echo "$R/docs/pipeline/$1"; }

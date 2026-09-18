@@ -7,9 +7,9 @@
 | SHI-7 | story | - | - | open | business-analyst | Marketing becomes a project-level capability, not a per-ticket side effect |
 | SHI-8 | story | - | - | open | business-analyst | Deployable environments become optional; review stages stay mandatory |
 | SHI-9 | story | - | - | open | business-analyst | Safe rollout: defaults for existing installs, init scaffolding, docs, dogfood this repo |
-| SHI-13 | eng | - | - | open | engineer | Capability config keys: pipeline.env schema, fail-closed resolution, gate PASS reporting |
-| SHI-14 | eng | - | - | open | engineer | Production gate: marketing requirement becomes conditional on the project capability |
-| SHI-15 | eng | - | - | open | engineer | Release-blocking proof: a pipeline.env without the new keys behaves identically |
+| SHI-13 | eng | - | - | done | engineer | Capability config keys: pipeline.env schema, fail-closed resolution, gate PASS reporting |
+| SHI-14 | eng | - | - | done | engineer | Production gate: marketing requirement becomes conditional on the project capability |
+| SHI-15 | eng | - | - | done | engineer | Release-blocking proof: a pipeline.env without the new keys behaves identically |
 | SHI-16 | eng | - | - | open | engineer | promote.sh: skip deploy wait, workflow dispatch and smoke when the project has no deployable environments |
 | SHI-17 | eng | - | - | open | engineer | init.sh / pipeline-init: declare capabilities at install time, scaffold only what the shape needs |
 | SHI-18 | eng | - | - | open | engineer | Orchestrator, personas and status.sh: marketing is a project capability, and a skipped stage says so |
