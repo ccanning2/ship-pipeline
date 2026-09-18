@@ -7,7 +7,11 @@
 set -uo pipefail
 input="$(cat)"
 if command -v jq >/dev/null 2>&1; then cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
-else cmd="$(printf '%s' "$input" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("tool_input",{}).get("command",""))' 2>/dev/null || true)"; fi
+else
+  # A bare `python3` on PATH can be a non-functional stub (Windows), so probe for a real one.
+  py=""; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { py="$c"; break; }; done
+  cmd="$(printf '%s' "$input" | $py -c 'import sys,json; print(json.load(sys.stdin).get("tool_input",{}).get("command",""))' 2>/dev/null || true)"
+fi
 [ -n "$cmd" ] || exit 0
 project="${CLAUDE_PROJECT_DIR:-$(pwd)}"; cd "$project" 2>/dev/null || exit 0
 # shellcheck disable=SC1091

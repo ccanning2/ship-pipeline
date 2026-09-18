@@ -11,7 +11,7 @@ fmval() { fm "$1" | grep -m1 -E "^$2:" | sed -E "s/^$2:[[:space:]]*//"; }
 [ "$(ls "$A"/*.md | wc -l | tr -d ' ')" = "${#agents[@]}" ] && ok "exactly ${#agents[@]} agents" || bad "exactly ${#agents[@]} agents"
 for a in "${agents[@]}"; do
   f="$A/$a.md"; [ -f "$f" ] || { bad "$a: exists"; continue; }
-  python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"))' "$f" 2>/dev/null && ok "$a: frontmatter parses" || bad "$a: frontmatter parses"
+  $PY -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"))' "$f" 2>/dev/null && ok "$a: frontmatter parses" || bad "$a: frontmatter parses"
   [ "$(fmval "$f" name)" = "$a" ] && ok "$a: name matches file" || bad "$a: name matches file"
   case "$(fmval "$f" model)" in opus|sonnet|haiku|inherit) ok "$a: valid model";; *) bad "$a: valid model";; esac
   [ -z "$(fmval "$f" tools)" ] && ok "$a: no tools allowlist (keeps tracker MCP tools)" || bad "$a: no tools allowlist"
@@ -39,7 +39,7 @@ for step in intake.sh "promote-dev" "promote-staging" "promote-production" "next
   grep -qF "$step" "$s" && ok "/ship includes: $step" || bad "/ship includes: $step"
 done
 if grep -qiwE "reputabill|curate|chris" "$s"; then bad "/ship project-agnostic"; else ok "/ship project-agnostic"; fi
-order=$(python3 - "$s" <<'PY'
+order=$($PY - "$s" <<'PY'
 import sys; s=open(sys.argv[1]).read()
 seq=["## 1. Research","`market-researcher`","`product-owner`","`business-analyst`","mode **build**","promote-dev","`qa-tester`","promote-staging","`app-specialist`","`marketing-specialist`","next-version.sh","Go-live: approved","promote-production"]
 idx=[s.find(x) for x in seq]; print("yes" if all(i>=0 for i in idx) and idx==sorted(idx) else f"no {idx}")
@@ -50,15 +50,15 @@ assert_eq "/ship stage order" "yes" "$order"
 fi
 if [ "$A" = agents ]; then
   [ -f "$C/pipeline-init.md" ] && grep -q 'CLAUDE_PLUGIN_ROOT' "$C/pipeline-init.md" && ok "/pipeline-init uses plugin root" || bad "/pipeline-init uses plugin root"
-  python3 -c 'import json; d=json.load(open(".claude-plugin/plugin.json")); assert d["name"]=="ship-pipeline" and d["commands"] and d["agents"]' && ok "plugin.json valid" || bad "plugin.json valid"
-  python3 -c 'import json; d=json.load(open(".claude-plugin/marketplace.json")); assert d["plugins"][0]["name"]=="ship-pipeline"' && ok "marketplace.json valid" || bad "marketplace.json valid"
+  $PY -c 'import json; d=json.load(open(".claude-plugin/plugin.json")); assert d["name"]=="ship-pipeline" and d["commands"] and d["agents"]' && ok "plugin.json valid" || bad "plugin.json valid"
+  $PY -c 'import json; d=json.load(open(".claude-plugin/marketplace.json")); assert d["plugins"][0]["name"]=="ship-pipeline"' && ok "marketplace.json valid" || bad "marketplace.json valid"
   [ -d profiles/reputabill ] && [ -f profiles/reputabill/CONTEXT.md ] && ok "reputabill profile present" || bad "reputabill profile present"
   T=template
 else
   T=.
 fi
-for f in "$T/.github/workflows/deploy.yml" "$T/.github/workflows/pipeline-gate.yml"; do python3 -c "import yaml; yaml.safe_load(open('$f'))" && ok "$f valid yaml" || bad "$f valid yaml"; done
-python3 - "$T/.github/workflows/deploy.yml" <<'PY' && ok "deploy.yml: branch/tag triggers, build on dev, tag-image on production" || bad "deploy.yml: branch/tag triggers, build on dev, tag-image on production"
+for f in "$T/.github/workflows/deploy.yml" "$T/.github/workflows/pipeline-gate.yml"; do $PY -c "import yaml; yaml.safe_load(open('$f'))" && ok "$f valid yaml" || bad "$f valid yaml"; done
+$PY - "$T/.github/workflows/deploy.yml" <<'PY' && ok "deploy.yml: branch/tag triggers, build on dev, tag-image on production" || bad "deploy.yml: branch/tag triggers, build on dev, tag-image on production"
 import yaml,sys
 w=yaml.safe_load(open(sys.argv[1])); on=w.get("on") or w.get(True); j=w["jobs"]
 ok = on["push"]["branches"]==["master","staging"] and any("v[0-9]" in t for t in on["push"]["tags"]) \
@@ -69,7 +69,7 @@ ok = on["push"]["branches"]==["master","staging"] and any("v[0-9]" in t for t in
   and any("rollback.sh" in s.get("run","") for s in j["deploy"]["steps"])
 sys.exit(0 if ok else 1)
 PY
-python3 - "$T/.github/workflows/pipeline-gate.yml" <<'PY' && ok "pipeline-gate.yml: PRs to master/staging gated" || bad "pipeline-gate.yml: PRs to master/staging gated"
+$PY - "$T/.github/workflows/pipeline-gate.yml" <<'PY' && ok "pipeline-gate.yml: PRs to master/staging gated" || bad "pipeline-gate.yml: PRs to master/staging gated"
 import yaml,sys
 w=yaml.safe_load(open(sys.argv[1])); on=w.get("on") or w.get(True)
 sys.exit(0 if on["pull_request"]["branches"]==["master","staging"] and any("gate.sh" in s.get("run","") and "stage" in s.get("run","") for s in w["jobs"]["gate"]["steps"]) else 1)

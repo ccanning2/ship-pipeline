@@ -8,6 +8,9 @@ if [ ! -f "$REPO_SRC/scripts/init.sh" ]; then
 else
   INIT_MODE=init
 fi
+# A bare `python3` on PATH can be a non-functional stub (Windows), so probe for a real one.
+PY=""; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { PY="$c"; break; }; done
+
 PASS=0; FAIL=0
 
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }

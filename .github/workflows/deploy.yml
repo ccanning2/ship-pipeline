@@ -1,0 +1,149 @@
+name: Deploy
+
+# Branch/tag release model (see docs/pipeline/BRANCHING.md):
+#   push to master            -> gate "dev"        -> build image :<sha>, deploy to dev
+#   push to staging           -> gate "qa"         -> deploy :<sha> to qa
+#   workflow_dispatch staging -> gate "staging"    -> deploy :<sha> to staging
+#   push tag vX.Y.Z           -> gate "production" -> re-tag image :<version> + :latest, deploy to production
+# Configure GitHub environments dev, qa, staging, production with:
+#   secret DEPLOY_SSH_KEY; vars DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, APP_URL
+# Adapt the "Backend tests" / "Frontend tests" / Dockerfile steps to this project (the engineer does this on first build).
+
+on:
+  push:
+    branches: [master, staging]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    paths-ignore: ['docs/pipeline/**']
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Target environment
+        required: true
+        type: choice
+        options: [dev, qa, staging, production]
+      sha:
+        description: Commit sha (image tag) to deploy
+        required: true
+        type: string
+      ticket:
+        description: Pipeline ticket id
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_REPO: ghcr.io/${{ github.repository }}
+
+jobs:
+  resolve:
+    name: resolve ${{ github.event_name == 'workflow_dispatch' && inputs.env || (startsWith(github.ref, 'refs/tags/') && 'production' || (github.ref_name == 'staging' && 'qa' || 'dev')) }}
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.r.outputs.env }}
+      sha: ${{ steps.r.outputs.sha }}
+      ticket: ${{ steps.r.outputs.ticket }}
+      version: ${{ steps.r.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: r
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          IN_ENV: ${{ inputs.env }}
+          IN_SHA: ${{ inputs.sha }}
+          IN_TICKET: ${{ inputs.ticket }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            env="$IN_ENV"; sha="$(git rev-parse "$IN_SHA")"; ticket="$(printf '%s' "$IN_TICKET" | tr a-z A-Z)"
+          elif [[ "$REF" == refs/tags/* ]]; then
+            env=production; sha="$(git rev-parse "$REF^{commit}")"
+            ticket="$(git tag -l --format='%(contents:subject)' "$REF_NAME" | grep -oiE '[A-Z][A-Z0-9]+-[0-9]+' | head -1 | tr a-z A-Z || true)"
+          else
+            [ "$REF_NAME" = staging ] && env=qa || env=dev
+            sha="$(git rev-parse HEAD)"; ticket=""
+          fi
+          # ticket id: from input/tag, else from the recent commit messages (merge commits carry the branch name)
+          [ -n "$ticket" ] || ticket="$(git log -20 --format=%s%n%b "$sha" | grep -oiE '[A-Z][A-Z0-9]+-[0-9]+' | head -1 | tr a-z A-Z || true)"
+          [ -n "$ticket" ] || { echo "::error::no ticket id found for $sha"; exit 1; }
+          stage="$env"
+          # records (Dev/QA/Staging/Go-live) are synced to master by promote.sh; the pushed sha predates them
+          out="$(PIPELINE_DOCS_REF=origin/master bash scripts/pipeline/gate.sh "$ticket" "$stage" "$sha")"; echo "$out"
+          expected="$(echo "$out" | sed -n 's/^DEPLOY_SHA=//p')"
+          [ "$expected" = "$sha" ] || { echo "::error::gate expects $expected for $env, got $sha"; exit 1; }
+          version="$(echo "$out" | sed -n 's/^VERSION=//p')"
+          if [ "$env" = production ] && [ "$version" != "$REF_NAME" ] && [ "$EVENT" != workflow_dispatch ]; then echo "::error::tag $REF_NAME does not match releases.md Version $version"; exit 1; fi
+          { echo "env=$env"; echo "sha=$sha"; echo "ticket=$ticket"; echo "version=$version"; } >> "$GITHUB_OUTPUT"
+
+  build:
+    # Build once, on the way into dev. Every later environment reuses the same image tag.
+    needs: resolve
+    if: needs.resolve.outputs.env == 'dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ needs.resolve.outputs.sha }}" }
+      - name: Backend tests
+        run: |
+          if [ -f mvnw ]; then ./mvnw -B clean verify; fi
+          if [ -f gradlew ]; then ./gradlew build; fi
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Frontend tests
+        run: |
+          d=$( [ -f frontend/package.json ] && echo frontend || ( [ -f package.json ] && echo . || true ) )
+          if [ -n "$d" ]; then (cd "$d" && npm ci && npm test -- --watchAll=false && npm run build --if-present); fi
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Build & push image
+        run: |
+          docker build -t "$IMAGE_REPO:${{ needs.resolve.outputs.sha }}" .
+          docker push "$IMAGE_REPO:${{ needs.resolve.outputs.sha }}"
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_REPO }}:${{ needs.resolve.outputs.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+
+  tag-image:
+    # Production: give the exact same image a permanent version tag.
+    needs: resolve
+    if: needs.resolve.outputs.env == 'production'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - run: |
+          docker buildx imagetools create -t "$IMAGE_REPO:${{ needs.resolve.outputs.version }}" -t "$IMAGE_REPO:latest" "$IMAGE_REPO:${{ needs.resolve.outputs.sha }}"
+
+  deploy:
+    name: deploy ${{ needs.resolve.outputs.env }}
+    needs: [resolve, build, tag-image]
+    if: always() && needs.resolve.result == 'success' && needs.build.result != 'failure' && needs.tag-image.result != 'failure'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.env }}
+    concurrency: { group: "deploy-${{ needs.resolve.outputs.env }}", cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ needs.resolve.outputs.sha }}" }
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Verify image exists
+        run: docker manifest inspect "$IMAGE_REPO:${{ needs.resolve.outputs.sha }}" >/dev/null
+      - name: SSH key
+        run: install -m 700 -d ~/.ssh && echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+      - name: Deploy
+        env: { DEPLOY_HOST: "${{ vars.DEPLOY_HOST }}", DEPLOY_USER: "${{ vars.DEPLOY_USER }}", DEPLOY_PATH: "${{ vars.DEPLOY_PATH }}" }
+        run: bash scripts/deploy/deploy.sh "${{ needs.resolve.outputs.env }}" "${{ needs.resolve.outputs.sha }}"
+      - name: Smoke test
+        run: bash scripts/deploy/smoke.sh "${{ vars.APP_URL }}"
+      - name: Roll back on failure
+        if: failure() && needs.resolve.outputs.env == 'production'
+        env: { DEPLOY_HOST: "${{ vars.DEPLOY_HOST }}", DEPLOY_USER: "${{ vars.DEPLOY_USER }}", DEPLOY_PATH: "${{ vars.DEPLOY_PATH }}" }
+        run: bash scripts/deploy/rollback.sh production

@@ -3,7 +3,7 @@ source "$(dirname "$0")/lib.sh"
 echo "guard-merge.sh (branch/tag gates)"
 hook() {
   local cmd="$1" json
-  json=$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd")
+  json=$($PY -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd")
   (cd "$R" && printf '%s' "$json" | CLAUDE_PROJECT_DIR="$R" bash scripts/pipeline/hooks/guard-merge.sh 2>&1)
 }
 new_repo

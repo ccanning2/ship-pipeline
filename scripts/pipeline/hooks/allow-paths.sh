@@ -8,7 +8,9 @@ input="$(cat)"
 if command -v jq >/dev/null 2>&1; then
   path="$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null || true)"
 else
-  path="$(printf '%s' "$input" | python3 -c 'import sys,json; t=json.load(sys.stdin).get("tool_input",{}); print(t.get("file_path") or t.get("path") or "")' 2>/dev/null || true)"
+  # A bare `python3` on PATH can be a non-functional stub (Windows), so probe for a real one.
+  py=""; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { py="$c"; break; }; done
+  path="$(printf '%s' "$input" | $py -c 'import sys,json; t=json.load(sys.stdin).get("tool_input",{}); print(t.get("file_path") or t.get("path") or "")' 2>/dev/null || true)"
 fi
 [ -n "$path" ] || exit 0
 project="${CLAUDE_PROJECT_DIR:-$(pwd)}"

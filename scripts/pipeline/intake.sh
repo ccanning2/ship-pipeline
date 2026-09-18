@@ -21,7 +21,11 @@ else
     *.md|*.txt) body="$(cat "$src")";;
     *.docx)
       if command -v pandoc >/dev/null; then body="$(pandoc -t gfm "$src")"
-      else body="$(python3 -c 'import sys,docx; print("\n".join(p.text for p in docx.Document(sys.argv[1]).paragraphs))' "$src")" \
+      else
+        # A bare `python3` on PATH can be a stub that cannot run (Windows), so probe for a real one.
+        py=""; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { py="$c"; break; }; done
+        [ -n "$py" ] || { echo "intake: install pandoc or python-docx to read .docx" >&2; exit 1; }
+        body="$($py -c 'import sys,docx; print("\n".join(p.text for p in docx.Document(sys.argv[1]).paragraphs))' "$src")" \
         || { echo "intake: install pandoc or python-docx to read .docx" >&2; exit 1; }
       fi;;
     *.pdf)

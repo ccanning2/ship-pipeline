@@ -23,7 +23,7 @@ assert_contains "rollback: production path" "$out" "/opt/curate/production"
 # smoke against a local server
 port=$((20000 + RANDOM % 20000)); tmp=$(mktemp -d); mkdir -p "$tmp/actuator"
 printf '{"status":"UP"}' > "$tmp/actuator/health"
-(cd "$tmp" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) & srv=$!
+(cd "$tmp" && exec $PY -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) & srv=$!
 sleep 1
 out=$(SMOKE_RETRIES=3 SMOKE_DELAY=0 bash "$D/smoke.sh" "http://127.0.0.1:$port" 2>&1); assert_exit "smoke: healthy passes" 0 $? "$out"
 printf '{"status":"DOWN"}' > "$tmp/actuator/health"
