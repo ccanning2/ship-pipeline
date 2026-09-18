@@ -14,6 +14,9 @@ else
 fi
 [ -n "$path" ] || exit 0
 project="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+# Normalise Windows backslash paths to forward slashes before matching (tool_input paths and
+# CLAUDE_PROJECT_DIR can both be backslash-separated on Windows).
+path="${path//\\//}"; project="${project//\\//}"
 case "$path" in "$project"/*) rel="${path#"$project"/}";; /*) rel="$path";; *) rel="$path";; esac
 rel="${rel#./}"
 
