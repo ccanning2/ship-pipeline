@@ -87,5 +87,14 @@ assert_eq "AC-33: gate.sh stderr stays empty on a passing run" "" "$(cd "$R" && 
 unset_capability PIPELINE_HAS_MARKETING
 out=$(cd "$R" && PIPELINE_HAS_MARKETING=no bash scripts/pipeline/status.sh REP-80 2>&1)
 assert_contains "AC-33: the environment cannot flip a capability" "$out" "marketing=on"
+# QA (SHI-5): status.sh trims/lowercases like the gate, and shows the raw text of a typo for either key
+set_capability PIPELINE_HAS_MARKETING '" No "'; set_capability PIPELINE_HAS_DEPLOY_ENVS '"flase"'
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1); assert_exit "QA: status exits 0 with a typo in deploy-envs" 0 $? "$out"
+assert_contains "QA: ' No ' shows marketing=off" "$out" "marketing=off"
+assert_contains "QA: a typo in deploy-envs resolves on" "$out" "deploy-envs=on (unrecognised value 'flase'"
+set_capability_crlf PIPELINE_HAS_MARKETING no; set_capability PIPELINE_HAS_DEPLOY_ENVS '"false"'
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
+assert_contains "QA: 'no' with a trailing CR shows marketing=off" "$out" "marketing=off"
+assert_contains "QA: 'false' is surfaced as unrecognised, not accepted as no" "$out" "deploy-envs=on (unrecognised value 'false'"
 
 summary

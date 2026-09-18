@@ -141,6 +141,53 @@ out=$(PIPELINE_SMOKE_CMD=false promote REP-86 production); assert_exit "AC-13: l
 out=$(promote REP-86 production); assert_exit "AC-13: legacy env, production promote" 0 $? "$out"
 assert_contains "AC-13: legacy env deploys production" "$(tail -1 "$LOG")" "deploy production $head REP-86"
 
+# ---- QA (SHI-5): promote.sh reads capabilities from pipeline.env only, fails closed, tolerates a sparse env ----
+# FR-3: an environment variable cannot switch deploys off; and a key that is absent still smokes (fail closed)
+new_repo; branch feature/REP-88-x; unset_capability PIPELINE_HAS_DEPLOY_ENVS
+ready_build REP-88 chore no; built REP-88; head=$(g rev-parse HEAD); : > "$LOG"
+out=$(PIPELINE_SMOKE_CMD=false promote REP-88 dev); assert_exit "QA: key absent, a failing smoke still blocks dev" 1 $? "$out"
+assert_contains "QA: key absent, smoke ran and reported" "$out" "smoke test failed on dev"
+: > "$LOG"
+out=$(PIPELINE_HAS_DEPLOY_ENVS=no promote REP-88 dev); assert_exit "FR-3: PIPELINE_HAS_DEPLOY_ENVS=no in the environment does not stop the deploy" 0 $? "$out"
+assert_contains "FR-3: the deploy still ran" "$(cat "$LOG")" "deploy dev $head REP-88"
+assert_contains "FR-3: and is reported as a real deploy" "$out" "(dev deploy)"
+new_repo; branch feature/REP-89-x; set_capability PIPELINE_HAS_DEPLOY_ENVS '"maybe"'
+ready_build REP-89 chore no; built REP-89
+out=$(PIPELINE_SMOKE_CMD=false promote REP-89 dev); assert_exit "QA: unrecognised value, a failing smoke still blocks (fail closed)" 1 $? "$out"
+# the value is trimmed, lowercased and CR-tolerant, and a project that leaves the deploy keys out altogether still promotes
+new_repo; branch feature/REP-90-x; set_capability_crlf PIPELINE_HAS_DEPLOY_ENVS "  No "
+for k in DEPLOY_WORKFLOW HEALTH_PATH DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do drop_env_key "$k"; done
+ready_build REP-90 chore no; built REP-90; head=$(g rev-parse HEAD); : > "$LOG"
+out=$(PIPELINE_SMOKE_CMD=false promote REP-90 dev); assert_exit "QA: '  No ' + CR resolves off; missing deploy keys do not trip set -u" 0 $? "$out"
+assert_contains "QA: says no deploy was performed" "$out" "no deploy: project has no deployable environments"
+if echo "$out" | grep -q "unbound variable"; then bad "QA: missing *_URL / DEPLOY_WORKFLOW keys are tolerated"; else ok "QA: missing *_URL / DEPLOY_WORKFLOW keys are tolerated"; fi
+assert_eq "QA: nothing deployed" "" "$(cat "$LOG")"
+dev_check REP-90 pass "$head"
+out=$(PIPELINE_SMOKE_CMD=false promote REP-90 qa); assert_exit "QA: qa with missing deploy keys" 0 $? "$out"
+qa_report REP-90 pass "$head"
+out=$(PIPELINE_SMOKE_CMD=false promote REP-90 staging); assert_exit "QA: staging with missing deploy keys" 0 $? "$out"
+assert_eq "QA: still nothing deployed" "" "$(cat "$LOG")"
+
+# AC-38 for real: install with both flags (no fixture patching, no deploy or smoke override), then walk one ticket to a tag
+if [ "$INIT_MODE" = init ]; then
+  R="$(mktemp -d)"; git -C "$R" init -q -b master; git -C "$R" config user.email t@t; git -C "$R" config user.name t
+  mkdir -p "$R/src"; echo "class App {}" > "$R/src/App.java"; g add -A; g commit -qm init
+  out=$(bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name lean --team-key REP --no-deploy-envs --no-marketing 2>&1); assert_exit "AC-38: opted-out install" 0 $? "$out"
+  assert_eq "AC-38: no scripts/deploy in the installed project" "no" "$([ -e "$R/scripts/deploy" ] && echo yes || echo no)"
+  commit_all "install pipeline"; branch feature/REP-91-x
+  ready_build REP-91 feature yes; built REP-91; head=$(g rev-parse HEAD)
+  instp() { (cd "$R" && env -u PIPELINE_DEPLOY_CMD -u PIPELINE_SMOKE_CMD PIPELINE_GH_CMD=/nonexistent/gh bash scripts/pipeline/promote.sh "$@" 2>&1); }
+  out=$(instp REP-91 dev); assert_exit "AC-38: dev, no overrides" 0 $? "$out"; assert_contains "AC-38: dev reports the skipped deploy" "$out" "no deploy: project has no deployable environments"
+  dev_check REP-91 pass "$head"
+  out=$(instp REP-91 qa); assert_exit "AC-38: qa, no overrides" 0 $? "$out"
+  qa_report REP-91 pass "$head"
+  out=$(instp REP-91 staging); assert_exit "AC-38: staging, no overrides (no gh dispatch)" 0 $? "$out"
+  signoff REP-91 approved "$head"; golive REP-91
+  out=$(instp REP-91 production); assert_exit "AC-38: production, user-facing, no marketing evidence, no overrides" 0 $? "$out"
+  assert_eq "AC-38: the version tag exists on the built sha" "$head" "$(g rev-parse v1.0.0^{commit})"
+  assert_contains "AC-38: the gate said marketing was off" "$out" "marketing=off"
+fi
+
 # cloud: dev promote merges via PR API
 new_repo; branch claude/session-abc; ready_build REP-82 chore no; built REP-82
 BARE="$(mktemp -d)"; git init -q --bare "$BARE"; g remote add origin "$BARE"; g push -q origin master claude/session-abc

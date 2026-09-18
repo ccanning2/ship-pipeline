@@ -267,6 +267,49 @@ done
 record REP-63 Staging "$sha"; signoff REP-63 approved "$sha"; golive REP-63
 out=$(gate REP-63 production); assert_exit "AC-12 anchor: legacy + non-user-facing + no marketing evidence passes" 0 $? "$out"
 
+# ---- QA (SHI-5): capability value edge cases; only an explicit `no` relaxes anything ----
+new_repo; full_through REP-65 feature yes staging; sha=$(dev_sha_of REP-65)
+record REP-65 Staging "$sha"; signoff REP-65 approved "$sha"; golive REP-65   # user-facing, no marketing evidence
+# cap_case <label> <off|strict> <verbatim pipeline.env line(s) that replace any PIPELINE_HAS_MARKETING line>
+cap_case() {
+  drop_env_key PIPELINE_HAS_MARKETING; printf '%s\n' "$3" >> "$(env_file)"
+  out=$(gate REP-65 production); rc=$?
+  if [ "$2" = off ]; then assert_exit "QA cap: $1 resolves off" 0 "$rc" "$out"
+  else assert_exit "QA cap: $1 stays strict" 1 "$rc" "$out"; assert_contains "QA cap: $1 still demands marketing.md" "$out" "missing marketing.md"; fi
+}
+cap_case "'no' single-quoted"                 off    "PIPELINE_HAS_MARKETING='no'"
+cap_case "No unquoted"                        off    "PIPELINE_HAS_MARKETING=No"
+cap_case "no with a trailing comment"         off    "PIPELINE_HAS_MARKETING=no # not for this project"
+cap_case "tab-padded no"                      off    $'PIPELINE_HAS_MARKETING="\tno\t"'
+cap_case "unquoted no with a CR"              off    $'PIPELINE_HAS_MARKETING=no\r'
+cap_case "duplicate key, last (no) wins"      off    $'PIPELINE_HAS_MARKETING=yes\nPIPELINE_HAS_MARKETING=no'
+cap_case "duplicate key, last (yes) wins"     strict $'PIPELINE_HAS_MARKETING=no\nPIPELINE_HAS_MARKETING=yes'
+cap_case "no inside a quoted comment"         strict 'PIPELINE_HAS_MARKETING="no # comment"'
+cap_case "n"                                  strict "PIPELINE_HAS_MARKETING=n"
+cap_case "nope"                               strict "PIPELINE_HAS_MARKETING=nope"
+cap_case "0"                                  strict "PIPELINE_HAS_MARKETING=0"
+cap_case "off"                                strict "PIPELINE_HAS_MARKETING=off"
+cap_case "false"                              strict "PIPELINE_HAS_MARKETING=false"
+cap_case "'no no'"                            strict 'PIPELINE_HAS_MARKETING="no no"'
+cap_case "'n o'"                              strict 'PIPELINE_HAS_MARKETING="n o"'
+cap_case "no, newline, yes in one value"      strict 'PIPELINE_HAS_MARKETING="$(printf "no\nyes")"'
+cap_case "yes, newline, no in one value"      strict 'PIPELINE_HAS_MARKETING="$(printf "yes\nno")"'
+# the two capabilities are independent (BR-1): deploy-envs=no relaxes nothing in the gate (FR-7)
+drop_env_key PIPELINE_HAS_MARKETING; set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
+out=$(gate REP-65 production); assert_exit "QA cap: deploy-envs=no does not relax the marketing requirement" 1 $? "$out"
+assert_contains "QA cap: deploy-envs=no still demands marketing.md" "$out" "missing marketing.md"
+# pipeline.env is the only source: the environment cannot flip a capability in either direction
+set_capability PIPELINE_HAS_MARKETING '"yes"'
+out=$(cd "$R" && PIPELINE_HAS_MARKETING=no bash scripts/pipeline/gate.sh REP-65 production 2>&1); assert_exit "QA cap: env no cannot override a file yes" 1 $? "$out"
+set_capability PIPELINE_HAS_MARKETING '"no"'
+out=$(cd "$R" && PIPELINE_HAS_MARKETING=yes bash scripts/pipeline/gate.sh REP-65 production 2>&1); assert_exit "QA cap: env yes cannot override a file no" 0 $? "$out"
+# AC-37: the plugin repo's own pipeline.env (as committed) lets a user-facing ticket through without marketing evidence
+if [ "$INIT_MODE" = init ] && grep -q '^PIPELINE_HAS_MARKETING="no"' "$REPO_SRC/scripts/pipeline/pipeline.env"; then
+  cp "$REPO_SRC/scripts/pipeline/pipeline.env" "$(env_file)"
+  out=$(gate REP-65 production); assert_exit "AC-37: this repo's own pipeline.env passes a user-facing ticket with no marketing evidence" 0 $? "$out"
+  assert_contains "AC-37: and reports marketing=off" "$out" "marketing=off"
+fi
+
 # ---- ref mode ----
 new_repo; m0=$(g rev-parse master); branch feature/REP-70-x; full_through REP-70 chore no production; g checkout -q "$m0" 2>/dev/null
 out=$(gate REP-70 dev); assert_exit "ref: working tree without ticket folder fails" 1 $? "$out"

@@ -95,6 +95,48 @@ for s in "--no-deploy-envs" "--no-marketing" "deployable environments" "marketin
   grep -qF -e "$s" "$I" && ok "AC-28: /pipeline-init mentions $s" || bad "AC-28: /pipeline-init mentions $s"
 done
 
+# ---- QA (SHI-5): arguments are validated before anything is written (FR-15) ----
+mkp() { local d; d="$(mktemp -d)"; git -C "$d" init -q -b master; git -C "$d" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init; echo "$d"; }
+for badargs in "--no-deploy-envs=no" "-no-deploy-envs" "--no-deploy-envs --bogus" "--no-marketing extra" "--no-marketing --name x --wat" "--no-deploy-envs --no-marketing --force-toolin"; do
+  Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" $badargs 2>&1); assert_exit "QA: '$badargs' is rejected" 1 $? "$out"
+  assert_eq "QA: '$badargs' creates nothing" "" "$(ls -A "$Pq" | grep -v '^\.git$' || true)"
+done
+# a duplicated flag, or a flag given before --project-dir, is harmless
+Pq="$(mkp)"; out=$(bash "$INIT" --no-deploy-envs --no-marketing --no-deploy-envs --project-dir "$Pq" --no-marketing 2>&1); assert_exit "QA: duplicate flags, flags before --project-dir" 0 $? "$out"
+assert_contains "QA: duplicate flags still declare deploy-envs no" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_DEPLOY_ENVS="no"'
+assert_contains "QA: duplicate flags still declare marketing no" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="no"'
+# --no-marketing on its own scaffolds the deploy machinery and keeps the deploy URLs
+Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" --name mkt --no-marketing 2>&1); assert_exit "QA: --no-marketing only" 0 $? "$out"
+assert_contains "QA: --no-marketing declares marketing no" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="no"'
+assert_contains "QA: --no-marketing leaves deploy-envs yes" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_DEPLOY_ENVS="yes"'
+[ -f "$Pq/scripts/deploy/smoke.sh" ] && [ -f "$Pq/.github/workflows/deploy.yml" ] && ok "QA: --no-marketing still scaffolds the deploy machinery" || bad "QA: --no-marketing still scaffolds the deploy machinery"
+# the opted-out pipeline.env sources cleanly under set -u and leaves every deploy key empty
+Pq="$(mkp)"; bash "$INIT" --project-dir "$Pq" --name lean --no-deploy-envs >/dev/null 2>&1
+assert_eq "QA: opted-out pipeline.env sources under set -u with empty deploy keys" "no||||||" \
+  "$( (set -euo pipefail; source "$Pq/scripts/pipeline/pipeline.env"; echo "$PIPELINE_HAS_DEPLOY_ENVS|$DEPLOY_WORKFLOW|$HEALTH_PATH|$DEV_URL|$QA_URL|$STAGING_URL|$PRODUCTION_URL") 2>&1 )"
+
+# BR-13, every flag combination: a re-run over an existing install never touches a project-owned file
+for flags in "" "--no-marketing" "--no-deploy-envs" "--no-deploy-envs --no-marketing" "--no-deploy-envs --force-tooling" "--no-deploy-envs --no-marketing --force-tooling"; do
+  Pq="$(mkp)"; bash "$INIT" --project-dir "$Pq" --name ex --team-key EX >/dev/null 2>&1
+  for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh scripts/deploy/smoke.sh .github/workflows/deploy.yml .github/workflows/pipeline-gate.yml \
+           scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md .claude/settings.json; do echo "MINE $f" > "$Pq/$f"; done
+  bash "$INIT" --project-dir "$Pq" $flags >/dev/null 2>&1; rc=$?; changed=""
+  for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh scripts/deploy/smoke.sh .github/workflows/deploy.yml .github/workflows/pipeline-gate.yml \
+           scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md .claude/settings.json; do
+    [ "$(cat "$Pq/$f" 2>/dev/null)" = "MINE $f" ] || changed="$changed $f"
+  done
+  assert_eq "QA: re-run [$flags] exits 0 and leaves every project-owned file byte-identical" "0|" "$rc|$changed"
+done
+
+# QA-DEF (FR-15): an unknown --profile must fail before anything is written, like every other bad argument
+Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" --profile nope 2>&1); assert_exit "QA-DEF: unknown profile is rejected" 1 $? "$out"
+assert_eq "QA-DEF: an unknown profile creates nothing (no half-applied install)" "" "$(ls -A "$Pq" | grep -v '^\.git$' || true)"
+# QA-DEF (BR-13/FR-21): a project that opted out must not get the deploy machinery back on a flagless re-run
+Pq="$(mkp)"; bash "$INIT" --project-dir "$Pq" --name lean --no-deploy-envs >/dev/null 2>&1
+out=$(bash "$INIT" --project-dir "$Pq" 2>&1); assert_exit "QA-DEF: flagless re-run over an opted-out install" 0 $? "$out"
+assert_eq "QA-DEF: pipeline.env says no deployable environments, so scripts/deploy is not recreated" "no" "$([ -e "$Pq/scripts/deploy" ] && echo yes || echo no)"
+assert_eq "QA-DEF: and neither is .github/workflows/deploy.yml" "no" "$([ -e "$Pq/.github/workflows/deploy.yml" ] && echo yes || echo no)"
+
 # profile install
 P2="$(mktemp -d)"; git -C "$P2" init -q -b master; git -C "$P2" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
 out=$(bash "$INIT" --project-dir "$P2" --profile reputabill 2>&1); assert_exit "profile install" 0 $? "$out"
