@@ -13,7 +13,7 @@ Rework loops used: 0/3
 | 5 | build | senior-engineer | pending | |
 | 6 | dev | senior-engineer (merge → master, self-check) | pending | |
 | 7 | qa | qa-tester | pending | |
-| 8 | staging | app-specialist + marketing-specialist | pending | |
+| 8 | staging | app-specialist (+ marketing-specialist when the project has a marketing function and the ticket is user-facing; otherwise skipped by configuration) | pending | |
 | 9 | go-live | the owner | pending | |
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 

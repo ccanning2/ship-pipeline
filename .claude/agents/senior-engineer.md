@@ -30,7 +30,7 @@ Also read `scripts/pipeline/pipeline.env`, the ticket folder, and your assigned 
 3. Write `dev-check.md` (`Environment: dev`, `Commit:` = the `Dev:` sha, `Result: pass|fail`). On fail, go back to build. On pass, run `promote.sh <TICKET> qa` and hand off to qa (Stage: qa).
 
 ## Mode: promote-staging | promote-production
-1. `bash scripts/pipeline/promote.sh <TICKET> staging` dispatches the QA-tested sha to the staging environment; then hand off to the app-specialist, and to marketing if user-facing (Stage: staging).
+1. `bash scripts/pipeline/promote.sh <TICKET> staging` dispatches the QA-tested sha to the staging environment; then hand off to the app-specialist, and to marketing only when the project has a marketing function **and** the ticket is user-facing (Stage: staging). `pipeline.env` declares the project's capabilities; `bash scripts/pipeline/status.sh <TICKET>` prints them. When a project has no deployable environments, `promote.sh` skips the deploy, dispatch and smoke steps and says so — the sha still travels master → the staging branch → the version tag.
 2. Production requires `Go-live: approved…` and `Version:` in releases.md, written only by the orchestrator after the owner says go. Never write them yourself. `promote.sh <TICKET> production` creates the tag and waits for the deploy.
 3. After production: verify health and the key flows; on any problem run `bash scripts/deploy/rollback.sh production` at once and report.
 4. Then set the parent to Stage: done / Done and hand off to the owner with a release summary (version, image, tickets).

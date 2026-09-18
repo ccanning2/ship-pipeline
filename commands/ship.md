@@ -8,6 +8,7 @@ You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
 - Call the ticket folder `D = docs/pipeline/<TICKET>/`.
 - If `scripts/pipeline/gate.sh` or `docs/pipeline/CONTEXT.md` is missing, stop and tell the owner to run `/pipeline-init` first.
 - Read `docs/pipeline/CONTEXT.md`, `docs/pipeline/TICKETS.md`, `docs/pipeline/BRANCHING.md` and `scripts/pipeline/pipeline.env` before anything else. The tracker ticket is the source of truth and the handoff medium.
+- **Project capabilities** come from `pipeline.env` and from nowhere else — never from the environment or from a ticket. `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` are on unless the value is exactly `no`; absent, empty or misspelt means on, which is the stricter behaviour. `bash scripts/pipeline/status.sh <TICKET>` prints the resolved values. A stage skipped because of a capability is always reported as skipped by configuration, never left out silently.
 
 ## Standing rules
 - **Tracker access.** Use the tracker connector tools in this session (Linear, or Jira if `TRACKER=jira`). If none is available, stop and ask the owner to enable it.
@@ -43,12 +44,12 @@ Merges to `master` (deploys dev, builds the image), self-checks on dev, writes `
 ## 6. QA — `qa-tester`
 Defects raised → engineer, step 4. Pass → `senior-engineer` mode **promote-staging**.
 
-## 7. Staging — `app-specialist` (+ `marketing-specialist` if User-facing: yes)
-Any defects → step 4 (a fix passes through dev and QA again). Continue only when sign-off is approved and marketing is ready or not needed.
+## 7. Staging — `app-specialist` (+ `marketing-specialist` if the project has a marketing function **and** User-facing: yes)
+Run `marketing-specialist` only when both hold. If the project has no marketing function, skip it and record `marketing: skipped — this project has no marketing function`; if the ticket is not user-facing, skip it as not needed. Any defects → step 4 (a fix passes through dev and QA again). Continue only when sign-off is approved and marketing is ready, skipped or not needed.
 
 ## 8. Go-live — owner
 1. Propose the version: `bash scripts/pipeline/next-version.sh <TICKET>`.
-2. Set Stage: go-live, Owner: owner, and send ONE summary: ticket and children; sha; proposed version; test counts; defects found/verified; sign-off; marketing launch ticket; rollback plan (previous version tag).
+2. Set Stage: go-live, Owner: owner, and send ONE summary: ticket and children; sha; proposed version; test counts; defects found/verified; sign-off; marketing launch ticket (or `marketing: skipped — this project has no marketing function`, or skipped because the ticket is not user-facing); rollback plan (previous version tag). Say the same for the deploy steps when the project has no deployable environments.
 3. Ask: **"Release `<version>` (sha `<sha>`) to production? (go / no-go / go as vX.Y.Z)"** and stop.
 4. On go: write `Version: <version>` and `Go-live: approved by <owner> <ISO timestamp>` to `D/releases.md`, comment the same on the ticket, commit, hand off to the engineer. On no-go: record the reason, Stage: on-hold, stop. Never write Go-live without an explicit go in this conversation.
 
@@ -60,5 +61,5 @@ Before each stage, if the session may be near its usage limit: stop cleanly, mak
 
 ## Output to the owner
 Only this:
-- What was done: <one bullet per stage run this session, with outcome and ticket ids>
+- What was done: <one bullet per stage run this session, with outcome and ticket ids; a stage skipped by a project capability gets its own bullet saying so, e.g. `marketing: skipped — this project has no marketing function`>
 - Impact: <current environment/sha/version, open defect tickets, what the owner must do next>

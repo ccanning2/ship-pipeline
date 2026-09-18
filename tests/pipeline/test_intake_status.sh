@@ -28,12 +28,18 @@ assert_contains "intake: md content" "$(cat "$(tdir REP-71)/brief.md")" "Must su
 out=$(intake REP-72 missing.docx); assert_exit "intake: missing file fails" 1 $? "$out"
 echo x > "$R/req.xlsx"; out=$(intake REP-72 req.xlsx); assert_exit "intake: unsupported type fails" 1 $? "$out"
 
+# .docx support is optional in intake.sh (pandoc or python-docx); only test it when we can build one.
+if $PY -c 'import docx' >/dev/null 2>&1; then
 $PY - "$R/Req.DOCX" <<'PY'
 import sys, docx
 d = docx.Document(); d.add_heading("Reputation passport", 1); d.add_paragraph("Vendors embed a verified badge."); d.save(sys.argv[1])
 PY
 out=$(intake REP-73 Req.DOCX); assert_exit "intake: docx (uppercase ext)" 0 $? "$out"
 assert_contains "intake: docx text extracted" "$(cat "$(tdir REP-73)/brief.md")" "Vendors embed a verified badge."
+else
+  ok "intake: docx (skipped — no python-docx to build a fixture)"
+  ok "intake: docx text extracted (skipped — no python-docx to build a fixture)"
+fi
 
 if command -v pdftotext >/dev/null && command -v pandoc >/dev/null; then
   $PY - "$R/req.pdf" <<'PY'
@@ -61,5 +67,25 @@ record REP-80 Staging "$full_sha"; signoff REP-80 approved "$full_sha"; golive R
 out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
 assert_contains "status: shipped" "$out" "none (shipped)"
 out=$(cd "$R" && bash scripts/pipeline/status.sh 2>&1); assert_exit "status: no args fails" 1 $? "$out"
+
+# status: project capabilities (AC-32, AC-33)
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
+assert_contains "status: capabilities line present" "$out" "Project capabilities:"
+assert_contains "status: deploy-envs on by default" "$out" "deploy-envs=on"
+assert_contains "status: marketing on by default" "$out" "marketing=on"
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'; set_capability PIPELINE_HAS_MARKETING '"no"'
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1); assert_exit "AC-32: status still exits 0" 0 $? "$out"
+assert_contains "AC-32: deploy-envs off" "$out" "deploy-envs=off"
+assert_contains "AC-32: names what deploy-envs off disables" "$out" "deploy, dispatch and smoke steps are skipped; promotion still runs"
+assert_contains "AC-32: marketing off" "$out" "marketing=off"
+assert_contains "AC-32: names what marketing off disables" "$out" "marketing-specialist and the production marketing requirement are skipped"
+set_capability PIPELINE_HAS_MARKETING '"flase"'
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
+assert_contains "AC-33: an unrecognised value resolves strict" "$out" "marketing=on"
+assert_contains "AC-33: the raw value is surfaced here and nowhere else" "$out" "unrecognised value 'flase'"
+assert_eq "AC-33: gate.sh stderr stays empty on a passing run" "" "$(cd "$R" && bash scripts/pipeline/gate.sh REP-80 build 2>&1 >/dev/null)"
+unset_capability PIPELINE_HAS_MARKETING
+out=$(cd "$R" && PIPELINE_HAS_MARKETING=no bash scripts/pipeline/status.sh REP-80 2>&1)
+assert_contains "AC-33: the environment cannot flip a capability" "$out" "marketing=on"
 
 summary

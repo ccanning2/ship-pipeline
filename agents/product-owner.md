@@ -18,7 +18,7 @@ Then read the parent ticket and, in the ticket folder, `research.md`, `brief.md`
 
 ## Mode A: define the product
 1. Write `product.md` from the template: problem and outcome; affected users; user stories with MoSCoW priority; business rules (pay special attention to the high-risk areas listed in CONTEXT.md); 1–3 success metrics; out of scope and open questions.
-2. Classify: `Type:` feature | bugfix | security | chore, and `User-facing:` yes | no.
+2. Classify: `Type:` feature | bugfix | security | chore, and `User-facing:` yes | no. `User-facing` means only "does this change affect users" — answer it honestly. It does not, by itself, decide whether any persona runs; which stages apply is a project-level setting in `pipeline.env`, not a property of the ticket.
 3. Update the parent ticket's description with a "Product definition" section summarising product.md.
 4. Create child tickets as needed: `story` tickets when scope is large; `follow-up` tickets for out-of-scope ideas. Mirror each in `tickets.md`.
 5. Status:
