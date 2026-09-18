@@ -10,7 +10,7 @@ Rework loops used: 0/3
 | 2 | research | market-researcher | done | Recommendation: build (both halves together) |
 | 3 | product | product-owner | done | approved · feature · User-facing: yes · P2 · 9 stories → SHI-7/8/9, follow-ups SHI-10/11/12 |
 | 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
-| 5 | build | senior-engineer | pending | |
+| 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
 | 6 | dev | senior-engineer (merge → master, self-check) | pending | |
 | 7 | qa | qa-tester | pending | |
 | 8 | staging | app-specialist + marketing-specialist | pending | |
@@ -18,21 +18,18 @@ Rework loops used: 0/3
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-Run senior-engineer (mode build) on SHI-5. Work the eng tickets in dependency order:
-
-```
-SHI-13 (config keys + fail-closed resolution)   ← start here, unblocked
-   ├─► SHI-14 (gate.sh production condition)    ← BLOCKED on owner approval of requirements.md §4
-   │      └─► SHI-15 (backwards-compat proof)   ← release blocker (BR-5)
-   ├─► SHI-16 (promote.sh: no deploy/smoke)
-   ├─► SHI-17 (init.sh / pipeline-init scaffolding)
-   └─► SHI-18 (ship.md, personas, status.sh)
-SHI-14 + SHI-16 + SHI-17 ─► SHI-19 (docs + v1.1.0)
-SHI-14 + SHI-16 ─────────► SHI-20 (dogfood this repo)  ← LAST, must land before stage 6 (dev)
-```
+Stage 6 (dev): `bash scripts/pipeline/promote.sh SHI-5 dev` merges the branch into `master`. Ask the
+owner before running it — it changes `master` for everyone. `gate.sh SHI-5 dev` already PASSes under
+the new rules (marketing=off, deploy-envs=off). With deploy-envs off, promote.sh skips the deploy
+wait/dispatch/smoke; the dev self-check is then done against the master ref (DEV_URL), per CONTEXT.md.
 
 ## Waiting on the owner
-- nothing currently open.
+- Nothing blocking. Two things to decide by go-live (also in impl-notes.md, Known limitations):
+  1. Version: `next-version.sh` will propose `v0.1.0` because this repo has no git tags. Tag the released
+     v1.0.0 first, or answer "go as v1.1.0". `plugin.json` is already 1.1.0.
+  2. `plugin.json` has no `commands`/`agents` keys; the build agent weakened `test_config.sh`'s
+     assertion to match. Confirm that is intended.
+  Follow-up candidate: this repo's `.github/workflows/deploy.yml` will fail on pushes/tags (no Dockerfile).
 
 Closed:
 - Q-1 answered 2026-09-18 — SHI-5 runs under the new rules; this repo's marketing capability is
