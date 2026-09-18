@@ -57,7 +57,7 @@ Run `marketing-specialist` only when both hold. If the project has no marketing 
 Tags the sha, waits for the deploy, verifies, rolls back on failure. Ends with the parent at Stage: done / Done and a release summary (version, image tag, tickets) reminding the owner the launch content is ready to publish.
 
 ## Usage-limit safety
-Before each stage, if the session may be near its usage limit: stop cleanly, make sure `D/STATUS.md` and the ticket labels are accurate, commit and push, and tell the owner to run `/ship <TICKET>` to resume.
+Before each stage, if the session may be near its usage limit: stop cleanly, make sure `D/STATUS.md` and the ticket labels are correct, commit and push, and tell the owner to run `/ship <TICKET>` to resume.
 
 ## Output to the owner
 Only this:

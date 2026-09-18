@@ -5,6 +5,8 @@
 #   --no-deploy-envs  the project has no hosts/image/deploy workflow: no scripts/deploy/*, no deploy.yml,
 #                     empty deploy keys, and PIPELINE_HAS_DEPLOY_ENVS="no" in a freshly created pipeline.env
 #   --no-marketing    the project has no marketing function: PIPELINE_HAS_MARKETING="no"
+#   Without --no-deploy-envs, an existing scripts/pipeline/pipeline.env is read (never written): a project
+#   that already declares PIPELINE_HAS_DEPLOY_ENVS="no" is scaffolded as if the flag had been passed.
 #   Neither flag ever deletes anything from an existing install; both default to "yes" (today's behaviour).
 #   Project-owned (created once, then yours): docs/pipeline/CONTEXT.md, RELEASE_CHECKLIST.md, scripts/pipeline/pipeline.env,
 #     .github/workflows/*.yml, scripts/deploy/*, .claude/settings.json
@@ -18,10 +20,46 @@ while [ $# -gt 0 ]; do case "$1" in
   --profile) profile="$2"; shift 2;; --force-tooling) force=1; shift;;
   --no-deploy-envs) deploy_envs=no; shift;; --no-marketing) marketing=no; shift;;
   *) echo "unknown arg $1" >&2; exit 1;; esac; done
+# --- argument validation: everything that can reject a run happens BEFORE the first file is copied ---
+# (CONTEXT.md high-risk area / FR-15: an early exit must never leave a half-applied install behind)
+src_ctx="$here/template/docs/pipeline/CONTEXT.md"; src_chk="$here/template/RELEASE_CHECKLIST.md"
+if [ -n "$profile" ]; then
+  [ -f "$here/profiles/$profile/CONTEXT.md" ] && [ -f "$here/profiles/$profile/RELEASE_CHECKLIST.md" ] \
+    || { echo "init: unknown profile '$profile' (see $here/profiles)" >&2; exit 1; }
+  src_ctx="$here/profiles/$profile/CONTEXT.md"; src_chk="$here/profiles/$profile/RELEASE_CHECKLIST.md"
+fi
 cd "$dir"; git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "init: $dir is not a git repository" >&2; exit 1; }
 [ -n "$name" ] || name="$(basename "$(git rev-parse --show-toplevel)")"
 [ -n "$key" ] || key="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z' | cut -c1-4)"
 [ -n "$key" ] || key="PROJ"
+
+# A project that already declared it has no deployable environments keeps that shape on a flagless
+# re-run. The key is only ever READ: pipeline.env is project-owned and is never written, rewritten or
+# deleted here (BR-13). Parsed with grep/sed rather than sourced, so nothing in the file is executed.
+# Same fail-closed resolution as gate.sh/promote.sh: off only for an exact `no` once unquoted,
+# trimmed and lowercased; absent, empty or anything else resolves on (today's stricter behaviour).
+declared_capability() { # file key -> echoes "no" only when the key resolves to no; nothing otherwise
+  local file="$1" key="$2" line v head dq sq
+  [ -f "$file" ] || return 0
+  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?$key=" "$file" 2>/dev/null | tail -n 1 | tr -d '\r' || true)"
+  [ -n "$line" ] || return 0
+  v="${line#*=}"
+  # unbalanced quoting means the value runs on past this line: unrecognised -> strict default
+  dq="${v//[^\"]/}"; sq="${v//[^\']/}"
+  { [ $(( ${#dq} % 2 )) -eq 0 ] && [ $(( ${#sq} % 2 )) -eq 0 ]; } || return 0
+  case "$v" in *"#"*) # drop a trailing comment, but only when the # is outside quotes
+    head="${v%%#*}"; dq="${head//[^\"]/}"; sq="${head//[^\']/}"
+    if [ $(( ${#dq} % 2 )) -eq 0 ] && [ $(( ${#sq} % 2 )) -eq 0 ]; then v="$head"; fi;; esac
+  v="${v//\"/}"; v="${v//\'/}"
+  case "$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" in
+    no) echo no;; esac
+}
+declared_deploy_envs=""
+if [ "$deploy_envs" = yes ]; then
+  declared_deploy_envs="$(declared_capability scripts/pipeline/pipeline.env PIPELINE_HAS_DEPLOY_ENVS)"
+  [ "$declared_deploy_envs" = no ] && deploy_envs=no || true
+fi
+
 created=(); updated=(); kept=()
 copy_tooling() { # src dst
   mkdir -p "$(dirname "$2")"
@@ -43,12 +81,7 @@ for f in "$here"/template/docs/pipeline/_templates/*.md; do copy_tooling "$f" "d
 for f in "$here"/tests/pipeline/*.sh; do copy_tooling "$f" "tests/pipeline/$(basename "$f")"; done
 copy_tooling "$here/template/.gitignore.pipeline" ".gitignore.pipeline"
 
-# --- project-owned (created once) ---
-src_ctx="$here/template/docs/pipeline/CONTEXT.md"; src_chk="$here/template/RELEASE_CHECKLIST.md"
-if [ -n "$profile" ]; then
-  [ -d "$here/profiles/$profile" ] || { echo "init: unknown profile '$profile' (see $here/profiles)" >&2; exit 1; }
-  src_ctx="$here/profiles/$profile/CONTEXT.md"; src_chk="$here/profiles/$profile/RELEASE_CHECKLIST.md"
-fi
+# --- project-owned (created once) --- (src_ctx / src_chk were resolved during argument validation)
 copy_owned "$src_ctx" docs/pipeline/CONTEXT.md
 copy_owned "$src_chk" RELEASE_CHECKLIST.md
 copy_owned "$here/template/scripts/pipeline/pipeline.env" scripts/pipeline/pipeline.env
@@ -110,7 +143,7 @@ printf '  capabilities: deploy-envs=%s marketing=%s\n' "$deploy_envs" "$marketin
 [ ${#created[@]} -gt 0 ] && printf '  created %s\n' "${created[@]}"
 [ ${#updated[@]} -gt 0 ] && printf '  updated %s\n' "${updated[@]}"
 [ ${#kept[@]} -gt 0 ] && printf '  kept    %s\n' "${kept[@]}"
-if [ "$deploy_envs" = no ] && printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeline/pipeline.env; then
+if [ "$deploy_envs" = no ] && [ "$declared_deploy_envs" != no ] && printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeline/pipeline.env; then
   echo 'This project declared no deployable environments. Existing deploy files were left untouched — set PIPELINE_HAS_DEPLOY_ENVS="no" in scripts/pipeline/pipeline.env yourself, and delete scripts/deploy/* and .github/workflows/deploy.yml if you no longer want them.'
 fi
 if [ "$marketing" = no ] && printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeline/pipeline.env; then
