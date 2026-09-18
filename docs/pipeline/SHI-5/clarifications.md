@@ -42,7 +42,7 @@ is raised as Q-3.
 
 ### Q-3
 To: Owner
-State: open
+State: answered
 Asked by: business-analyst
 Needed by: stage 5 (build) — blocks ONE eng ticket (the `gate.sh` change), not the whole stage
 Blocks: the eng ticket "Production gate: marketing requirement becomes conditional". Every other eng
@@ -73,3 +73,4 @@ existing install (no key in `pipeline.env`) is unaffected, which is proven by a 
 Recommendation: approve as written. The change can only ever relax the gate through a `no` that the
 project's own owner committed to a project-owned file; every other input, including a typo, keeps
 today's stricter behaviour.
+Answer: Approved as written. (2026-09-18)

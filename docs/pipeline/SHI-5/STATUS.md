@@ -32,21 +32,16 @@ SHI-14 + SHI-16 ─────────► SHI-20 (dogfood this repo)  ← L
 ```
 
 ## Waiting on the owner
-- **Q-3 (open, `To: Owner`) — approve the exact `gate.sh` before/after conditions**, now written as
-  `requirements.md` §4. This is the BR-9 stop-and-ask the owner deferred in Q-2. It blocks **one**
-  eng ticket (SHI-14) and, transitively, SHI-15/SHI-19/SHI-20 — not the whole build stage. SHI-13,
-  SHI-16, SHI-17 and SHI-18 may start immediately.
-  Summary of what needs approving: at `scripts/pipeline/gate.sh:135` the production-stage marketing
-  requirement gains one conjunct — `if [ "$uf" = yes ]` becomes
-  `if [ "$uf" = yes ] && [ "$has_marketing" = yes ]`, with the three inner checks and the failure
-  message unchanged. Nothing else in `gate.sh` changes, and `PIPELINE_HAS_DEPLOY_ENVS` changes no
-  gate condition at all. Exactly one truth-table cell moves.
+- nothing currently open.
 
 Closed:
 - Q-1 answered 2026-09-18 — SHI-5 runs under the new rules; this repo's marketing capability is
   flipped off during the build (SHI-20), before stage 6.
 - Q-2 answered 2026-09-18 — process answer only ("bring the specific list back"); the list is now in
-  requirements.md §4 and the approval itself is Q-3.
+  requirements.md §4 and the approval itself was Q-3.
+- Q-3 answered 2026-09-18 — **approved as written**. `gate.sh`'s production-stage marketing
+  requirement gains one conjunct (`&& [ "$has_marketing" = yes ]`); nothing else in `gate.sh` changes.
+  SHI-14 (and downstream SHI-15/19/20) unblocked.
 
 Previously raised, now closed:
 - `scripts/pipeline/hooks/allow-paths.sh` Windows backslash path bug — **fixed and verified** in
