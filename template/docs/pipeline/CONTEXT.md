@@ -25,6 +25,16 @@ The personas are generic; THIS file is what makes them behave correctly for this
 - Hosting: <e.g. Hetzner CX33 running dev+qa+staging, separate production host>. URLs in `scripts/pipeline/pipeline.env`.
 - Test data policy: <sandbox keys only, no production personal data outside production>.
 
+## Project shape (the two capability settings)
+`scripts/pipeline/pipeline.env` is what the tooling reads; this section is what the personas read.
+Both keys default to `yes` — the original behaviour — and only an explicit `no` turns one off.
+- `PIPELINE_HAS_DEPLOY_ENVS`: <yes | no>. <yes = hosts, an image and a deploy workflow exist. no = there
+  is nothing to deploy to: `promote.sh` skips the deploy wait, the staging dispatch and smoke, and an
+  "environment" is the ref people install from. The branch/tag promotion model is unchanged either way.>
+- `PIPELINE_HAS_MARKETING`: <yes | no>. <yes = this project has a marketing function, so a user-facing
+  ticket needs launch content before production. no = the marketing-specialist never runs and the
+  production gate never asks for it. `User-facing: yes|no` still means only "does this affect users".>
+
 ## Engineering rules
 - <layering, patterns to use / avoid, migration policy, logging rules, secrets>.
 - Stop and ask before: destructive migrations, breaking API changes, auth or payment-flow changes.

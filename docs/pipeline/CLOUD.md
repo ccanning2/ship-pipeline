@@ -54,7 +54,7 @@ From the iOS app (**Code** tab) or the Windows Desktop app (**Cloud**):
 ### How the cloud differs (handled automatically)
 - **Branches.** Pushes only go to the session's branch. `/ship` stays on it and records the ticket in `.claude/.pipeline-ticket`.
 - **Merging.** `promote.sh dev` merges via the PR (GitHub REST API) rather than pushing to master directly. Pipeline Gate must pass as a required check.
-- **Deploys** run in GitHub Actions (`deploy.yml`), not in the session, so no SSH keys ever enter the VM.
+- **Deploys** run in GitHub Actions (`deploy.yml`), not in the session, so no SSH keys ever enter the VM. A project with `PIPELINE_HAS_DEPLOY_ENVS="no"` in `pipeline.env` has no `deploy.yml` at all: `promote.sh` skips the deploy wait, the staging dispatch and smoke, and only the branch/tag promotion runs. `PIPELINE_HAS_MARKETING="no"` likewise skips the marketing persona and the production marketing requirement. Both default to `yes`.
 - **Usage.** Cloud sessions share your plan's usage limits. `STATUS.md` makes every run resumable.
 - **Idle sessions** eventually release their VM. Reopening restores the conversation, and `/ship <TICKET>` resumes from STATUS.md.
 

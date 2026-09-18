@@ -4,7 +4,7 @@
 - Every persona picks work up from a ticket and hands it on by updating that ticket.
 - The repo keeps a mirror (`docs/pipeline/<TICKET>/tickets.md`) so gates and CI can check state without calling the tracker.
 
-Config lives in `scripts/pipeline/pipeline.env`: `TRACKER` (`linear` | `jira`) and `TRACKER_TEAM_KEY`. Agents use whichever tracker connector tools the session has: the Linear connector by default, or the Atlassian connector for Jira. The human product owner is referred to as **the owner** (Owner label `owner`).
+Config lives in `scripts/pipeline/pipeline.env`: `TRACKER` (`linear` | `jira`), `TRACKER_TEAM_KEY`, and the two project capabilities `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` (`yes` | `no`, both defaulting to `yes`; only an explicit `no` turns one off, so a `pipeline.env` without them behaves exactly as before). Agents use whichever tracker connector tools the session has: the Linear connector by default, or the Atlassian connector for Jira. The human product owner is referred to as **the owner** (Owner label `owner`).
 
 ## Parent ticket
 `/ship <TICKET>` takes only the ticket id. The parent ticket must already exist and contain the owner's requirement: title, description, and optionally attachments or links.
@@ -71,4 +71,6 @@ Before each gate, the orchestrator re-reads the tracker and corrects any drift i
 - **qa (push to staging branch):** dev self-check passed on the build.
 - **production:**
   - every defect is verified or wontfix, and no wontfix is High severity;
-  - for user-facing work, a `marketing` ticket is done.
+  - for user-facing work **in a project that has a marketing function** (`PIPELINE_HAS_MARKETING` is
+    anything but `no`), a `marketing` ticket is done. With `PIPELINE_HAS_MARKETING="no"` that
+    requirement does not apply; nothing else about the gate changes.

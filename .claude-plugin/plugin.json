@@ -1,6 +1,6 @@
 {
   "name": "ship-pipeline",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Ticket-driven multi-persona delivery pipeline: market researcher → product owner → business analyst → engineer → dev → QA → staging → go-live → production. Branch/tag release model, Linear/Jira handoffs, GitHub Actions + Hetzner.",
   "author": { "name": "Chris" }
 }

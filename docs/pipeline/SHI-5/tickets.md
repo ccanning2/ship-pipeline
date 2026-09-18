@@ -11,9 +11,9 @@
 | SHI-14 | eng | - | - | done | engineer | Production gate: marketing requirement becomes conditional on the project capability |
 | SHI-15 | eng | - | - | done | engineer | Release-blocking proof: a pipeline.env without the new keys behaves identically |
 | SHI-16 | eng | - | - | done | engineer | promote.sh: skip deploy wait, workflow dispatch and smoke when the project has no deployable environments |
-| SHI-17 | eng | - | - | open | engineer | init.sh / pipeline-init: declare capabilities at install time, scaffold only what the shape needs |
+| SHI-17 | eng | - | - | in-progress | engineer | init.sh / pipeline-init: declare capabilities at install time, scaffold only what the shape needs |
 | SHI-18 | eng | - | - | done | engineer | Orchestrator, personas and status.sh: marketing is a project capability, and a skipped stage says so |
-| SHI-19 | eng | - | - | open | engineer | Docs and v1.1.0: tell installing developers the settings exist, what the defaults are, how to opt out |
+| SHI-19 | eng | - | - | done | engineer | Docs and v1.1.0: tell installing developers the settings exist, what the defaults are, how to opt out |
 | SHI-20 | eng | - | - | open | engineer | Dogfood: switch this repo onto the new settings and delete the workaround prose |
 | SHI-10 | follow-up | - | - | open | the-owner | research.md template ships placeholder text from an unrelated product |
 | SHI-11 | follow-up | - | - | open | the-owner | Pluggable deploy targets instead of Hetzner/docker-compose specific scripts |
