@@ -50,7 +50,9 @@ assert_eq "/ship stage order" "yes" "$order"
 fi
 if [ "$A" = agents ]; then
   [ -f "$C/pipeline-init.md" ] && grep -q 'CLAUDE_PLUGIN_ROOT' "$C/pipeline-init.md" && ok "/pipeline-init uses plugin root" || bad "/pipeline-init uses plugin root"
-  $PY -c 'import json; d=json.load(open(".claude-plugin/plugin.json")); assert d["name"]=="ship-pipeline" and d["commands"] and d["agents"]' && ok "plugin.json valid" || bad "plugin.json valid"
+  # commands/ and agents/ are the plugin's default locations; plugin.json only needs to name and version it.
+  $PY -c 'import json,re; d=json.load(open(".claude-plugin/plugin.json")); assert d["name"]=="ship-pipeline" and re.match(r"^\d+\.\d+\.\d+$", d["version"])' \
+    && [ -d commands ] && [ -d agents ] && ok "plugin.json valid" || bad "plugin.json valid"
   $PY -c 'import json; d=json.load(open(".claude-plugin/marketplace.json")); assert d["plugins"][0]["name"]=="ship-pipeline"' && ok "marketplace.json valid" || bad "marketplace.json valid"
   [ -d profiles/reputabill ] && [ -f profiles/reputabill/CONTEXT.md ] && ok "reputabill profile present" || bad "reputabill profile present"
   T=template
@@ -81,6 +83,11 @@ grep -q '^Version:' "$T/docs/pipeline/_templates/releases.md" && ok "releases te
 for f in TICKETS BRANCHING CLOUD; do [ -f "$T/docs/pipeline/$f.md" ] && ok "doc $f.md" || bad "doc $f.md"; done
 if [ "$A" = agents ]; then
   grep -q "__PROJECT_NAME__" template/docs/pipeline/CONTEXT.md && grep -q "__TEAM_KEY__" template/scripts/pipeline/pipeline.env && ok "templates have placeholders" || bad "templates have placeholders"
+  E=template/scripts/pipeline/pipeline.env
+  for k in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING; do
+    grep -q "^$k=\"yes\"" "$E" && ok "pipeline.env template: $k defaults to yes" || bad "pipeline.env template: $k defaults to yes"
+  done
+  grep -q 'yes | no' "$E" && ok "pipeline.env template documents the allowed values" || bad "pipeline.env template documents the allowed values"
   for sec in "Domain risks" "Security" "Data & migrations" "Tickets"; do grep -q "^## .*$sec" template/RELEASE_CHECKLIST.md && ok "generic checklist: $sec" || bad "generic checklist: $sec"; done
 fi
 for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup}.sh scripts/pipeline/hooks/{allow-paths,guard-merge}.sh scripts/deploy/{deploy,rollback,smoke}.sh; do

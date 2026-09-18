@@ -12,6 +12,15 @@ out=$(cd "$R" && bash scripts/pipeline/gate.sh 2>&1); assert_exit "no args fails
 new_repo; ready_build REP-2 feature yes
 out=$(gate REP-2 build); assert_exit "build: approved feature with eng ticket passes" 0 $? "$out"
 assert_contains "prints DEPLOY_SHA" "$out" "DEPLOY_SHA="
+assert_contains "AC-6: PASS line reports marketing capability" "$out" "marketing=on"
+assert_contains "AC-6: PASS line reports deploy-envs capability" "$out" "deploy-envs=on"
+assert_eq "AC-6: DEPLOY_SHA stays the parseable line promote.sh reads" "$(g rev-parse HEAD)" "$(echo "$out" | sed -n 's/^DEPLOY_SHA=//p')"
+assert_eq "AC-6/AC-33: nothing on stderr for a passing gate" "" "$(cd "$R" && bash scripts/pipeline/gate.sh REP-2 build 2>&1 >/dev/null)"
+set_capability PIPELINE_HAS_MARKETING '"no"'; set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
+out=$(gate REP-2 build); assert_exit "AC-11: build gate unaffected by capabilities" 0 $? "$out"
+assert_contains "AC-6: PASS line reports marketing=off" "$out" "marketing=off"
+assert_contains "AC-6: PASS line reports deploy-envs=off" "$out" "deploy-envs=off"
+set_capability PIPELINE_HAS_MARKETING '"yes"'; set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'
 out=$(gate rep-2 build); assert_exit "build: lowercase id normalised" 0 $? "$out"
 rm "$(tdir REP-2)/brief.md"; commit_all x
 out=$(gate REP-2 build); assert_exit "build: missing brief fails" 1 $? "$out"; assert_contains "names brief" "$out" "brief.md"

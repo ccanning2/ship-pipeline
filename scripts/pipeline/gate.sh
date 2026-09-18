@@ -10,6 +10,10 @@
 #   the records) while the code/sha checks use REF. Tags and the staging branch point at build shas that predate
 #   the records, so CI must read docs from master.
 # Success prints "DEPLOY_SHA=<sha>" (and "VERSION=<tag>" for production) and exits 0.
+# Project capabilities come from scripts/pipeline/pipeline.env only (never from the environment):
+#   PIPELINE_HAS_MARKETING="no"    -> a user-facing ticket no longer needs marketing evidence at production
+#   PIPELINE_HAS_DEPLOY_ENVS="no"  -> no gate condition changes (deploy/smoke live in promote.sh)
+# Anything but an explicit "no" keeps the stricter default, so an install without the keys is unchanged.
 set -euo pipefail
 
 ticket="${1:-}"; stage="${2:-}"; ref="${3:-}"
@@ -22,9 +26,18 @@ ticket="$(printf '%s' "$ticket" | tr '[:lower:]' '[:upper:]')"
 root="${PIPELINE_ROOT:-$(git rev-parse --show-toplevel)}"
 rel="docs/pipeline/$ticket"
 fail() { echo "PIPELINE GATE [$ticket/$stage]: $*" >&2; exit 1; }
+# Project capabilities are project-level settings, never per-run overrides: drop anything inherited
+# from the environment so only pipeline.env can set them.
+unset PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING
 # shellcheck disable=SC1091
 [ -f "$root/scripts/pipeline/pipeline.env" ] && source "$root/scripts/pipeline/pipeline.env"
 regex="${PIPELINE_TICKET_REGEX:-[A-Z][A-Z0-9]+-[0-9]+}"
+# Capability resolution — fail closed: off only for an explicit `no` (trimmed, lowercased, CR tolerated);
+# absent, empty or any unrecognised value falls through to `yes` = today's stricter behaviour.
+capability() { case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" in no) echo no;; *) echo yes;; esac; }
+on_off() { case "$1" in no) echo off;; *) echo on;; esac; }
+has_marketing="$(capability "${PIPELINE_HAS_MARKETING:-}")"
+has_deploy_envs="$(capability "${PIPELINE_HAS_DEPLOY_ENVS:-}")"
 
 docs_ref="${PIPELINE_DOCS_REF:-$ref}"
 if [ -n "$ref" ]; then
@@ -141,7 +154,7 @@ if [ "$L" -ge 5 ]; then
   deploy_sha="$st_sha"
 fi
 
-echo "PIPELINE GATE [$ticket/$stage]: PASS (type=$type, user-facing=$uf${ref:+, ref=$ref})"
+echo "PIPELINE GATE [$ticket/$stage]: PASS (type=$type, user-facing=$uf, marketing=$(on_off "$has_marketing"), deploy-envs=$(on_off "$has_deploy_envs")${ref:+, ref=$ref})"
 echo "DEPLOY_SHA=$deploy_sha"
 [ -n "$version" ] && echo "VERSION=$version"
 exit 0
