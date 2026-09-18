@@ -5,6 +5,8 @@
 #   staging     dispatch the same sha to the staging environment
 #   production  create tag vX.Y.Z on the sha (deploys production; image re-tagged with the version)
 # Each step: gate -> promote -> wait for the deploy -> smoke -> record in releases.md -> commit (+push branch).
+# PIPELINE_HAS_DEPLOY_ENVS="no" in pipeline.env (project-level only) drops the deploy wait, the staging
+# workflow dispatch and the smoke call; the sha still travels master -> the staging branch -> the version tag.
 # Overrides for tests / other hosts:
 #   PIPELINE_DEPLOY_CMD  "cmd" run as: cmd <env> <sha> <ticket>   (replaces waiting on GitHub Actions)
 #   PIPELINE_SMOKE_CMD   "cmd" run as: cmd <url>
@@ -15,9 +17,16 @@ ticket="$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')"; env="${2:-}"
 case "$env" in dev) label=Dev; url_var=DEV_URL;; qa) label=QA; url_var=QA_URL;; staging) label=Staging; url_var=STAGING_URL;; production) label=Production; url_var=PRODUCTION_URL;;
   *) echo "usage: promote.sh <TICKET> <dev|qa|staging|production>" >&2; exit 1;; esac
 root="$(git rev-parse --show-toplevel)"; cd "$root"
+# Project capabilities are project-level settings, never per-run overrides (see gate.sh).
+unset PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING
 # shellcheck disable=SC1091
 source scripts/pipeline/pipeline.env
-base="${BASE_BRANCH:-master}"; stg="${STAGING_BRANCH:-staging}"; url="${!url_var}"
+capability() { case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" in no) echo no;; *) echo yes;; esac; }
+has_deploy_envs="$(capability "${PIPELINE_HAS_DEPLOY_ENVS:-}")"
+deploys() { [ "$has_deploy_envs" = yes ]; }
+# progress suffix: "(dev deploy)" normally, or why nothing was deployed
+note() { if deploys; then printf '(%s deploy)' "$1"; else printf '(no deploy: project has no deployable environments)'; fi; }
+base="${BASE_BRANCH:-master}"; stg="${STAGING_BRANCH:-staging}"; url="${!url_var:-}"
 dir="docs/pipeline/$ticket"; rel="$dir/releases.md"
 gh_cmd="${PIPELINE_GH_CMD:-gh}"; nopush="${PIPELINE_NO_PUSH:-0}"
 branch="$(git rev-parse --abbrev-ref HEAD)"
@@ -57,6 +66,7 @@ set_remote_ref() { # <refs/heads/x|refs/tags/x> <sha> — branch/tag updates; AP
 }
 
 wait_for_deploy() { # <env> <sha>
+  deploys || return 0                       # no deployable environments: nothing to wait for
   if [ -n "${PIPELINE_DEPLOY_CMD:-}" ]; then $PIPELINE_DEPLOY_CMD "$1" "$2" "$ticket"; return; fi
   local id=""
   for _ in $(seq 1 45); do
@@ -72,14 +82,16 @@ case "$env" in
   dev)
     merge_branch_to_master || exit 1
     sha="$(git rev-parse HEAD)"
-    echo "PROMOTE [$ticket]: $base -> $sha (dev deploy)"
+    echo "PROMOTE [$ticket]: $base -> $sha $(note dev)"
     wait_for_deploy dev "$sha" || { echo "PROMOTE: dev deploy failed (gh run view --log-failed)" >&2; exit 1; } ;;
   qa)
     set_remote_ref "refs/heads/$stg" "$sha" || exit 1
-    echo "PROMOTE [$ticket]: $stg -> $sha (qa deploy)"
+    echo "PROMOTE [$ticket]: $stg -> $sha $(note qa)"
     wait_for_deploy qa "$sha" || { echo "PROMOTE: qa deploy failed" >&2; exit 1; } ;;
   staging)
-    if [ -n "${PIPELINE_DEPLOY_CMD:-}" ]; then $PIPELINE_DEPLOY_CMD staging "$sha" "$ticket"; else
+    echo "PROMOTE [$ticket]: $stg -> $sha $(note staging)"
+    if ! deploys; then :
+    elif [ -n "${PIPELINE_DEPLOY_CMD:-}" ]; then $PIPELINE_DEPLOY_CMD staging "$sha" "$ticket"; else
       $gh_cmd workflow run "$DEPLOY_WORKFLOW" --ref "$stg" -f env=staging -f sha="$sha" -f ticket="$ticket" || exit 1
       sleep 6; wait_for_deploy staging "$sha" || { echo "PROMOTE: staging deploy failed" >&2; exit 1; }
     fi ;;
@@ -90,15 +102,17 @@ case "$env" in
       git tag -a "$version" "$sha" -m "$PROJECT_NAME $version ($ticket)"
     fi
     set_remote_ref "refs/tags/$version" "$sha" || exit 1
-    echo "PROMOTE [$ticket]: tagged $version on $sha (production deploy)"
+    echo "PROMOTE [$ticket]: tagged $version on $sha $(note production)"
     wait_for_deploy production "$sha" || { echo "PROMOTE: production deploy failed; roll back: bash scripts/deploy/rollback.sh production" >&2; exit 1; } ;;
 esac
 
-smoke="${PIPELINE_SMOKE_CMD:-bash scripts/deploy/smoke.sh}"
-if ! $smoke "$url"; then
-  echo "PROMOTE: smoke test failed on $env ($url)" >&2
-  [ "$env" = production ] && echo "PROMOTE: roll back now: bash scripts/deploy/rollback.sh production" >&2
-  exit 1
+if deploys; then
+  smoke="${PIPELINE_SMOKE_CMD:-bash scripts/deploy/smoke.sh}"
+  if ! $smoke "$url"; then
+    echo "PROMOTE: smoke test failed on $env ($url)" >&2
+    [ "$env" = production ] && echo "PROMOTE: roll back now: bash scripts/deploy/rollback.sh production" >&2
+    exit 1
+  fi
 fi
 
 [ -f "$rel" ] || cp docs/pipeline/_templates/releases.md "$rel"

@@ -10,7 +10,7 @@
 | SHI-13 | eng | - | - | done | engineer | Capability config keys: pipeline.env schema, fail-closed resolution, gate PASS reporting |
 | SHI-14 | eng | - | - | done | engineer | Production gate: marketing requirement becomes conditional on the project capability |
 | SHI-15 | eng | - | - | done | engineer | Release-blocking proof: a pipeline.env without the new keys behaves identically |
-| SHI-16 | eng | - | - | open | engineer | promote.sh: skip deploy wait, workflow dispatch and smoke when the project has no deployable environments |
+| SHI-16 | eng | - | - | done | engineer | promote.sh: skip deploy wait, workflow dispatch and smoke when the project has no deployable environments |
 | SHI-17 | eng | - | - | open | engineer | init.sh / pipeline-init: declare capabilities at install time, scaffold only what the shape needs |
 | SHI-18 | eng | - | - | open | engineer | Orchestrator, personas and status.sh: marketing is a project capability, and a skipped stage says so |
 | SHI-19 | eng | - | - | open | engineer | Docs and v1.1.0: tell installing developers the settings exist, what the defaults are, how to opt out |

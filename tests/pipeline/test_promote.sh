@@ -82,6 +82,65 @@ out=$(promote REP-81 qa); assert_exit "rework: qa still needs fresh dev-check" 1
 dev_check REP-81 pass "$newsha"
 out=$(promote REP-81 qa); assert_exit "rework: qa after fresh dev-check" 0 $? "$out"
 
+# ---- a project with no deployable environments ----
+# AC-38 as well: an opted-out project walks an honestly user-facing feature to a version tag, no overrides
+new_repo; branch feature/REP-83-x
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'; set_capability PIPELINE_HAS_MARKETING '"no"'
+blank_deploy_keys   # AC-18: the shape init.sh writes when opted out
+ready_build REP-83 feature yes; built REP-83; head=$(g rev-parse HEAD)
+: > "$LOG"
+out=$(promote REP-83 dev); assert_exit "no-deploy: dev promote succeeds" 0 $? "$out"
+assert_contains "AC-20: says no deploy was performed and why" "$out" "no deploy: project has no deployable environments"
+if echo "$out" | grep -q "unbound variable"; then bad "AC-18: empty deploy keys are tolerated"; else ok "AC-18: empty deploy keys are tolerated"; fi
+assert_eq "AC-16: the build sha still reaches master" "0" "$(g merge-base --is-ancestor "$head" master; echo $?)"
+dev_check REP-83 pass "$head"
+out=$(promote REP-83 qa); assert_exit "no-deploy: qa promote succeeds" 0 $? "$out"
+assert_eq "AC-16: the staging branch still points at the build" "$head" "$(g rev-parse staging)"
+qa_report REP-83 pass "$head"
+out=$(promote REP-83 staging); assert_exit "no-deploy: staging promote succeeds" 0 $? "$out"
+assert_contains "AC-14: no workflow dispatch at staging" "$out" "no deploy: project has no deployable environments"
+signoff REP-83 approved "$head"; golive REP-83
+out=$(PIPELINE_SMOKE_CMD=false promote REP-83 production); assert_exit "AC-38/AC-15: an opted-out user-facing feature reaches production with no marketing evidence and no smoke" 0 $? "$out"
+assert_eq "AC-14: nothing was deployed at any stage" "" "$(cat "$LOG")"
+assert_eq "AC-16: the version tag is still created on the build" "$head" "$(g rev-parse v1.0.0^{commit})"
+assert_contains "AC-16: releases.md still records Production" "$(cat "$(tdir REP-83)/releases.md")" "Production: $head"
+assert_contains "AC-16: deploy-history.md still gains a line" "$(cat "$(tdir REP-83)/deploy-history.md")" "production <- $head"
+assert_eq "AC-16: the records are still committed" "" "$(g status --porcelain)"
+assert_eq "AC-16: the records are still synced to master" "$(g rev-parse HEAD)" "$(g rev-parse master)"
+
+new_repo; branch feature/REP-84-x; set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
+ready_build REP-84 chore no; before=$(g rev-parse master); : > "$LOG"
+out=$(promote REP-84 dev); assert_exit "AC-17: the gate still blocks with deploy envs off" 1 $? "$out"
+assert_eq "AC-17: a blocked promote performs no git operation" "$before" "$(g rev-parse master)"
+assert_eq "AC-17: a blocked promote deploys nothing" "" "$(cat "$LOG")"
+
+new_repo; branch feature/REP-85-x; unset_capability PIPELINE_HAS_DEPLOY_ENVS
+ready_build REP-85 chore no; built REP-85; head=$(g rev-parse HEAD); : > "$LOG"
+out=$(promote REP-85 dev); assert_exit "AC-19: key absent still promotes" 0 $? "$out"
+assert_contains "AC-19: key absent still deploys (fail closed)" "$(cat "$LOG")" "deploy dev $head REP-85"
+assert_contains "AC-19: key absent reports a real deploy" "$out" "(dev deploy)"
+
+new_repo; branch feature/REP-87-x; set_capability PIPELINE_HAS_DEPLOY_ENVS '"maybe"'
+ready_build REP-87 chore no; built REP-87; head=$(g rev-parse HEAD); : > "$LOG"
+out=$(promote REP-87 dev); assert_exit "AC-19: unrecognised value still promotes" 0 $? "$out"
+assert_contains "AC-19: unrecognised value still deploys (fail closed)" "$(cat "$LOG")" "deploy dev $head REP-87"
+
+# AC-13: a pre-1.1.0 pipeline.env deploys and smokes exactly as today
+new_repo; branch feature/REP-86-x; legacy_env
+ready_build REP-86 chore no; built REP-86; head=$(g rev-parse HEAD); : > "$LOG"
+out=$(promote REP-86 dev); assert_exit "AC-13: legacy env, dev promote" 0 $? "$out"
+assert_contains "AC-13: legacy env deploys dev" "$(cat "$LOG")" "deploy dev $head REP-86"
+dev_check REP-86 pass "$head"
+out=$(promote REP-86 qa); assert_exit "AC-13: legacy env, qa promote" 0 $? "$out"
+assert_contains "AC-13: legacy env deploys qa" "$(tail -1 "$LOG")" "deploy qa $head REP-86"
+qa_report REP-86 pass "$head"
+out=$(promote REP-86 staging); assert_exit "AC-13: legacy env, staging promote" 0 $? "$out"
+assert_contains "AC-13: legacy env deploys staging" "$(tail -1 "$LOG")" "deploy staging $head REP-86"
+signoff REP-86 approved "$head"; golive REP-86
+out=$(PIPELINE_SMOKE_CMD=false promote REP-86 production); assert_exit "AC-13: legacy env still runs smoke (failing smoke blocks)" 1 $? "$out"
+out=$(promote REP-86 production); assert_exit "AC-13: legacy env, production promote" 0 $? "$out"
+assert_contains "AC-13: legacy env deploys production" "$(tail -1 "$LOG")" "deploy production $head REP-86"
+
 # cloud: dev promote merges via PR API
 new_repo; branch claude/session-abc; ready_build REP-82 chore no; built REP-82
 BARE="$(mktemp -d)"; git init -q --bare "$BARE"; g remote add origin "$BARE"; g push -q origin master claude/session-abc
