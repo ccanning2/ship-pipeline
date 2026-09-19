@@ -225,3 +225,25 @@ owner chose to fix it with a scoped re-test (2026-09-19).
 - **Noticed, left alone.** `KEY= no` and `KEY=<tab>no` (whitespace right after `=`) still read as off in init,
   while bash runs `no` as a command and the gate aborts under `set -e`. The gate fails closed there, so init
   omitting deploy files is harmless; not changed.
+
+## Known limitations accepted by the owner (2026-09-19, after QA round 3)
+
+QA's scoped re-test of f9cc6af passed (SHI-25 verified). It listed four observations it did not raise as defects.
+The owner chose to accept all four as documented limits rather than spend the last rework loop (3/3). All concern
+how `init.sh` reads the capability key as TEXT on a flagless re-run; none can delete or rewrite a file, and
+`gate.sh`/`promote.sh` (which source the file) are unaffected.
+
+1. **A later mention of the key makes init stricter than the gate.** `PIPELINE_HAS_DEPLOY_ENVS="no"` followed by a
+   later `export PIPELINE_HAS_DEPLOY_ENVS`, `echo $PIPELINE_HAS_DEPLOY_ENVS`, `: ${...:=...}` or `[[ $... ]]` line
+   makes init resolve ON (the last line that mentions the key decides, and it is not an exact assignment) while the
+   gate resolves `no`. A flagless re-run then recreates `scripts/deploy/*` and `deploy.yml`. The safe direction,
+   the most realistic of the four, and a behaviour change from 6a0cbbc. Files init generates never contain such a
+   line. Workaround: keep the assignment as the last line that mentions the key. A possible later fix: ignore a bare
+   `export KEY` line when choosing the last mention.
+2. **A carriage return inside the word (`KEY=n<CR>o`) reads OFF in init and ON in a bash that keeps a mid-value CR**
+   (Linux/macOS; Git-Bash ignores CR). Contrived (not a line ending). A possible later fix: `sed 's/$//'`.
+3. **`source ./other.env` / `. ./other.env` overrides and computed-name overrides** after a `no` read OFF in init and
+   ON in the gate: the same class as the documented "init reads text and does not evaluate shell control flow"
+   limit (`if false`, uncalled function, heredoc), not literally listed in the code comment.
+4. **A non-UTF-8 byte in the key line's comment** (for example a Windows-1252 apostrophe under a UTF-8 locale)
+   makes init resolve ON. The 6a0cbbc parser behaved the same way, so this is not a regression.
