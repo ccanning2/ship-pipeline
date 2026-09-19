@@ -2,7 +2,7 @@
 
 Tracker: https://linear.app/ship-pipeline/issue/SHI-5/change-the-workflow-in-terms-of-the-persona-usage
 Branch: feature/SHI-5-change-workflow-persona-usage
-Rework loops used: 1/3
+Rework loops used: 2/3
 
 | # | Stage | Owner | State | Outcome |
 |---|---|---|---|---|
@@ -12,16 +12,17 @@ Rework loops used: 1/3
 | 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
 | 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
 | 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 1/3) | Dev = QA = 6a0cbbc · self-check pass on the promoted ref · test_config 162/0, test_init 120/0 |
-| 7 | qa | qa-tester | in progress (re-test) | first build 2e9552d failed QA (3 defects); re-testing 6a0cbbc: SHI-21/22/23 fixed + SHI-24 (v1.0.0) |
+| 7 | qa | qa-tester | done — FAIL (round 2) | 711/711 on 6a0cbbc; SHI-21/22/23 verified, AC-35 met; one Low defect SHI-25 (init.sh parser vs gate.sh) → owner chose to fix, scoped re-test |
 | 8 | staging | app-specialist + marketing-specialist | pending | |
 | 9 | go-live | the owner | pending | |
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-qa-tester re-tests 6a0cbbc on the `staging` ref: marks SHI-21/SHI-22/SHI-23 `verified` or `reopened`, checks
-SHI-24 (AC-35), and runs the suites once. On pass: `promote.sh SHI-5 staging` (no deploy step here) -> app-specialist
-sign-off (marketing skipped by configuration) -> go-live: owner answers "go as v1.0.0" -> production tag.
-On any reopened defect: back to build, rework loop 2/3.
+Rework loop 2/3 (owner decision 2026-09-19: fix SHI-25, scoped re-test). senior-engineer fixes init.sh's
+declared_capability() so it agrees with gate.sh (exact line shape, comment starts only after whitespace, comments
+may contain quotes/apostrophes, never executes the file), turning QA's two QA-DEF assertions green. Then re-enter
+at dev: promote dev -> dev-check -> promote qa -> qa-tester re-tests SHI-25 with test_init.sh, test_config.sh and the
+82-form differential (not the full suite: only init.sh changes) -> promote-staging -> app-specialist -> go-live.
 
 ## Waiting on the owner
 - Nothing blocking. By go-live:
