@@ -13,15 +13,14 @@ Rework loops used: 2/3
 | 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
 | 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 2/3) | Dev = QA = f9cc6af · self-check pass on the promoted ref · 49-form differential vs gate.sh |
 | 7 | qa | qa-tester | done — PASS (round 3, scoped) | f9cc6af: test_init 137/0, test_config 162/0, 213-form differential, SHI-25 verified; last full suite 711/711 on 6a0cbbc; 0 defects open |
-| 8 | staging | app-specialist (+ marketing skipped by configuration) | in progress | Dev = QA = Staging = f9cc6af; app-specialist final gate against RELEASE_CHECKLIST.md |
-| 9 | go-live | the owner | pending | |
+| 8 | staging | app-specialist (+ marketing skipped by configuration) | done — APPROVED | f9cc6af: full suite 728/728 (one run), all ACs walked as the three roles, RELEASE_CHECKLIST.md all blocking sections PASS, 0 defects |
+| 9 | go-live | the owner | waiting on the owner | version to be set by the owner's explicit answer ("go as v1.0.0", Q-4); next-version.sh proposes v0.1.0 |
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-app-specialist runs the final gate on f9cc6af (full suite once, ACs as each role, RELEASE_CHECKLIST.md, rollback plan) and
-writes signoff.md. On APPROVED: go-live (orchestrator): `next-version.sh` will propose v0.1.0, the owner answers
-"go as v1.0.0" (Q-4); then promote-production tags v1.0.0. On BLOCKED: defects back to the engineer (rework loop 3/3,
-the last allowed).
+Owner answers the go-live question (go / no-go / "go as v1.0.0"). On go: write `Version:` and `Go-live: approved by <owner> <ISO time>` to
+releases.md, comment the same on SHI-5, then `promote.sh SHI-5 production` tags the version on f9cc6af. Nothing is written to
+releases.md before an explicit go.
 
 ## Waiting on the owner
 - Nothing blocking. By go-live:
