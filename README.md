@@ -85,13 +85,15 @@ tests/pipeline/              425 tests (bash); also installed into each project
 
 ## Release notes
 
-### v1.1.0
+### v1.0.0
+
+**First release**
+- `/ship`, `/pipeline-init`, `/pipeline-status`, the seven personas, the branch/tag release model and the gate.
+
+**Added in this release — project capabilities**
 - New, optional `pipeline.env` keys **`PIPELINE_HAS_DEPLOY_ENVS`** and **`PIPELINE_HAS_MARKETING`** (`yes` | `no`). See **Project capabilities** above.
 - Both default to `yes`. A capability is off only when the value is exactly `no`; absent, empty or misspelt values keep the stricter, original behaviour. **No existing install changes behaviour until its owner adds a key** — `pipeline.env` is project-owned and is never rewritten by `/pipeline-init`.
 - `/pipeline-init` gains `--no-deploy-envs` and `--no-marketing`. On a *fresh* install they write the declared values and, for `--no-deploy-envs`, skip creating `scripts/deploy/*` and `.github/workflows/deploy.yml` and leave the deploy keys empty. On an *existing* install nothing is ever deleted: the files are reported as kept and you are told to set the key by hand. A re-run over a project whose `pipeline.env` already declares `PIPELINE_HAS_DEPLOY_ENVS="no"` reads that declaration and does not recreate the deploy machinery, with or without `--force-tooling`.
 - `promote.sh` skips the deploy wait, the staging workflow dispatch and the smoke call when there are no deployable environments, and says so. The branch/tag promotion model, the gates, sign-off and go-live are unchanged.
 - The production gate asks for launch content only when the project has a marketing function **and** the ticket is `User-facing: yes`. This is the only pass/fail condition that changed.
 - `gate.sh`'s PASS line and `status.sh` now report the resolved capabilities.
-
-### v1.0.0
-- First release: `/ship`, `/pipeline-init`, `/pipeline-status`, the seven personas, the branch/tag release model and the gate.

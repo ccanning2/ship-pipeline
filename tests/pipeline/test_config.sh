@@ -123,9 +123,15 @@ if [ "$A" = agents ]; then
       && ok "AC-34: $d.md repo copy and template copy agree" || bad "AC-34: $d.md repo copy and template copy agree"
   done
   grep -q 'behaves exactly as it did before' README.md && ok "AC-34: README states existing installs are unaffected" || bad "AC-34: README states existing installs are unaffected"
-  grep -q '^### v1.1.0' README.md && ok "AC-35: release notes for v1.1.0" || bad "AC-35: release notes for v1.1.0"
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="1.1.0" else 1)' \
-    && ok "AC-35: plugin.json version is 1.1.0" || bad "AC-35: plugin.json version is 1.1.0"
+  # AC-35 (amended 2026-09-19 by Q-4): this build releases as v1.0.0, in one release-notes section
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="1.0.0" else 1)' \
+    && ok "AC-35: plugin.json version is 1.0.0" || bad "AC-35: plugin.json version is 1.0.0"
+  assert_eq "AC-35: exactly one '### v1.0.0' release-notes heading" "1" "$(grep -c '^### v1.0.0' README.md || true)"
+  assert_eq "AC-35: no '### v1.1.0' release-notes heading" "0" "$(grep -c '^### v1.1.0' README.md || true)"
+  RELNOTES="$(sed -n '/^### v1.0.0/,$p' README.md | sed -n '/^## /q;p')"
+  for tok in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING --no-deploy-envs; do
+    assert_contains "AC-35: v1.0.0 release notes mention $tok" "$RELNOTES" "$tok"
+  done
   # AC-36: this repo dogfoods the settings, and the four workaround texts are gone
   assert_contains "AC-36: this repo declares no deployable environments" "$(cat scripts/pipeline/pipeline.env)" 'PIPELINE_HAS_DEPLOY_ENVS="no"'
   assert_contains "AC-36: this repo declares no marketing function" "$(cat scripts/pipeline/pipeline.env)" 'PIPELINE_HAS_MARKETING="no"'
