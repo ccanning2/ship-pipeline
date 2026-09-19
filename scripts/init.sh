@@ -38,19 +38,26 @@ cd "$dir"; git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "init: $dir i
 # deleted here (BR-13). Parsed with grep/sed rather than sourced, so nothing in the file is executed.
 # Same fail-closed resolution as gate.sh/promote.sh: off only for an exact `no` once unquoted,
 # trimmed and lowercased; absent, empty or anything else resolves on (today's stricter behaviour).
+# Known limit: init reads pipeline.env as TEXT and does not evaluate shell control flow, so a value that
+# only bash could resolve (inside `if false; then ... fi`, an uncalled function or a heredoc) is not seen.
 declared_capability() { # file key -> echoes "no" only when the key resolves to no; nothing otherwise
-  local file="$1" key="$2" line v head dq sq
+  local file="$1" key="$2" line v
   [ -f "$file" ] || return 0
-  line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?$key=" "$file" 2>/dev/null | tail -n 1 | tr -d '\r' || true)"
+  # The LAST line that mentions the key as a whole word decides, comments removed first: a `#` only starts
+  # a comment when it follows whitespace (a `#` glued to a word is part of the value, as in bash), and the
+  # comment itself may hold anything, quotes and apostrophes included.
+  line="$(tr -d '\r' < "$file" \
+    | sed -E 's/(^|[[:space:]])#.*$/\1/' \
+    | grep -E "(^|[^A-Za-z0-9_])$key([^A-Za-z0-9_]|\$)" \
+    | tail -n 1 || true)"
   [ -n "$line" ] || return 0
-  v="${line#*=}"
-  # unbalanced quoting means the value runs on past this line: unrecognised -> strict default
-  dq="${v//[^\"]/}"; sq="${v//[^\']/}"
-  { [ $(( ${#dq} % 2 )) -eq 0 ] && [ $(( ${#sq} % 2 )) -eq 0 ]; } || return 0
-  case "$v" in *"#"*) # drop a trailing comment, but only when the # is outside quotes
-    head="${v%%#*}"; dq="${head//[^\"]/}"; sq="${head//[^\']/}"
-    if [ $(( ${#dq} % 2 )) -eq 0 ] && [ $(( ${#sq} % 2 )) -eq 0 ]; then v="$head"; fi;; esac
-  v="${v//\"/}"; v="${v//\'/}"
+  # Only an exact assignment shape counts. Anything else on that last line -- `unset`, `+=`, `declare`,
+  # `readonly`, another value, a mention in passing -- is unrecognised and falls through to strict.
+  v="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/^export[[:space:]]+//; s/[[:space:]]+$//')"
+  case "$v" in "$key="*) v="${v#"$key="}";; *) return 0;; esac
+  case "$v" in '"'*'"') v="${v#\"}"; v="${v%\"}";; "'"*"'") v="${v#\'}"; v="${v%\'}";; esac
+  # a quote that survives one matching outer pair is literal to bash ('"no"', "'no'", or an unbalanced quote)
+  case "$v" in *\"*|*\'*) return 0;; esac
   case "$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" in
     no) echo no;; esac
 }
