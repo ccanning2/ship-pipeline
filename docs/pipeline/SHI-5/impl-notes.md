@@ -193,3 +193,35 @@ It was started and killed twice for low memory on this Windows machine, so it wa
 and `test_deploy_scripts.sh` were therefore last run on the QA sha (613 passed / 0 failed, recorded
 above) and are re-run by QA on this build. No claim is made here that they were re-run after the
 rework commits.
+
+## Rework 2 (QA loop 2/3) — SHI-25
+
+QA's second round (6a0cbbc) passed everything except one Low defect, SHI-25: `init.sh`'s new
+`declared_capability()` text scanner could disagree with `gate.sh`/`promote.sh`, which `source` the file. The
+owner chose to fix it with a scoped re-test (2026-09-19).
+
+- **Fix (`cf1efec`, `scripts/init.sh` only).** The parser accepts only an exact assignment shape. A `#` starts a
+  comment only after whitespace, and the comment may hold quotes and apostrophes, so `"no"  # we don't deploy` is
+  honoured. The last line that mentions the key decides; `unset`, `+=`, `declare`, `readonly`, nested quotes,
+  `no#x`, `"no"#x` and any other shape resolve to the strict default. The file is only read, never sourced,
+  written or deleted.
+- **Known limit (documented in a comment in init.sh).** init reads the file as text and does not evaluate shell
+  control flow, so a `no` inside `if false; then ... fi`, an uncalled function or a heredoc reads as off where
+  bash resolves on. Contrived, non-destructive, and accepted by QA's ticket.
+- **Provenance.** The rework-2 engineer agent wrote this fix and was then cut off by an account rate limit
+  before verifying or committing it. The orchestrator reviewed the diff, ran the verification below and
+  committed it. The engineer persona did not write this section.
+- **Verification done:** `bash -n scripts/init.sh` clean. A 49-form differential of the extracted function
+  against gate.sh's real behaviour (`set -euo pipefail`, `source`, gate's `capability()` verbatim): 36 agree,
+  5 init-stricter (harmless: init on, gate off), 5 where the gate itself errors (fails closed), 3 permissive
+  (init off, gate on): exactly the documented control-flow limit (`if false`, uncalled function, heredoc).
+  Every form named in SHI-25 now agrees. The ticket's reproduction end to end in throwaway repos for
+  `"no"  # we don't deploy`, `no # it's off` and `no # a " mark`: deploy files not recreated, `pipeline.env` and
+  `CONTEXT.md` byte-identical afterwards; controls `"no"` (honoured) and `"yes"` (files created) behave correctly.
+- **Not run, and why.** QA's two `QA-DEF` assertions and the 15 `QA2:` assertions in `tests/pipeline/test_init.sh`
+  were not run in this loop, and neither was the full `test_init.sh` (about 70 minutes) or `run-all.sh` (about
+  1 h 40 min): the owner chose a scoped re-test, so QA runs `test_init.sh` in full, plus `test_config.sh` and the
+  differential. The reproduction above is the same scenario as the two `QA-DEF` assertions.
+- **Noticed, left alone.** `KEY= no` and `KEY=<tab>no` (whitespace right after `=`) still read as off in init,
+  while bash runs `no` as a command and the gate aborts under `set -e`. The gate fails closed there, so init
+  omitting deploy files is harmless; not changed.
