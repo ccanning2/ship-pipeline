@@ -1,14 +1,145 @@
 # SHI-5 — QA report
 
-Result: fail
+Result: pass
 Environment: qa
-Commit: 6a0cbbcb0dc18ad251e3df9189534888c78a4a3e
-Suite: 711/711 passed on the QA sha as shipped (`bash tests/pipeline/run-all.sh`, one run, in the background: test_config 162, test_init 120, test_gate 206, test_promote 105, test_intake_status 44, test_allow_paths 21, test_guard_merge 35, test_deploy_scripts 18; `ALL PIPELINE TESTS PASSED`). 2 of the 711 are the `.docx` no-op passes. QA's round-2 additions to test_init.sh (17 assertions) were run separately on the QA-sha export: 15 pass, 2 fail by design (the two `QA-DEF` SHI-25 regression assertions). test_config.sh with QA's AC-31 edit: 162/0
+Commit: f9cc6aff65942cf711b2117392adcd71e66a459f
+Suite: SCOPED re-test (owner's choice, rework loop 2/3). Run on the QA-sha export: `test_init.sh` 137 passed, 0 failed (in full, one run, in the background, about 70 min; includes the 17 QA round-2 assertions: 15 `QA2:` and the two SHI-25 `QA-DEF`, all passing) and `test_config.sh` 162 passed, 0 failed. NOT run: `run-all.sh` and the other six suites (test_gate, test_promote, test_intake_status, test_allow_paths, test_guard_merge, test_deploy_scripts), because `git diff 6a0cbbc f9cc6af` changes only `scripts/init.sh` in shipped code; those six last ran green on 6a0cbbc (711/711 with test_config 162 and test_init 120)
 
-This file holds both rounds. **Round 2 (6a0cbbc)** is the current verdict and comes first; **Round 1 (2e9552d)**
-follows, its headings prefixed `R1`.
+This file holds three rounds. **Round 3 (f9cc6af, scoped)** is the current verdict and comes first, then **Round 2
+(6a0cbbc)**, then **Round 1 (2e9552d)**, its headings prefixed `R1`. The Round 2 header (Result: fail, 711/711) is
+kept below as history.
 
-## Round 2 (6a0cbbc)
+## Round 3 (f9cc6af, scoped)
+
+### Verdict
+**PASS.** SHI-25 (Low) is **verified** and closed (Done). No new defect raised. SHI-21, SHI-22, SHI-23 and SHI-24 did
+not regress. No High, no gate that wrongly passes, no data loss, no change for an install without the new keys.
+This was a scoped re-test chosen by the owner: `test_init.sh` in full and `test_config.sh` were run, the other six
+suites and `run-all.sh` were not. Four observations for the owner are listed at the end; none is raised as a defect
+(reasons given), and QA will raise any of them as a Low defect if the owner says so.
+
+### QA environment
+`origin/staging` = `f9cc6aff65942cf711b2117392adcd71e66a459f` (checked after `git fetch`; equals the `QA:` sha in
+`releases.md`). Exported with `git archive origin/staging` into a `mktemp -d` under `$TEMP`; every check ran on that
+export, never the working tree. `git diff 6a0cbbc f9cc6af`, outside `docs/pipeline/SHI-5/`, touches exactly three
+files: `scripts/init.sh` (the fix, `cf1efec`) and QA's own two test files from round 2 (`tests/pipeline/test_init.sh`
++17 assertions, `tests/pipeline/test_config.sh` AC-31 word-bounded). Nothing else in `scripts/`, `agents/`,
+`commands/`, `template/`, `profiles/`, `README.md` or `.claude-plugin/` changed, so the scoped run is justified.
+`bash -n scripts/init.sh` is clean. Provenance noted: the engineer agent wrote the fix and was cut off by a rate limit
+before verifying or committing; the orchestrator's 49-form differential was treated as their evidence, not QA's. All
+results below are QA's own.
+
+### Suites (QA sha export)
+| Suite | Result | Notes |
+|---|---|---|
+| `tests/pipeline/test_init.sh` | **137 passed, 0 failed** | expected 137 (120 + QA's 17). Both SHI-25 `QA-DEF` assertions pass (comment with an apostrophe, comment with a lone `"`); all 15 `QA2:` pass; the earlier SHI-21 and SHI-22 `QA-DEF` assertions still pass. One run in the background, exit 0, no memory trouble (free memory stayed above 11 GB) |
+| `tests/pipeline/test_config.sh` | **162 passed, 0 failed** | expected 162; AC-31 (word-bounded scan) passes |
+| the other six suites, `run-all.sh` | not run | scoped re-test; only `scripts/init.sh` changed in shipped code and no other script calls `declared_capability()` |
+
+### SHI-25 (init.sh parser vs gate.sh) — verified
+The reported case (A) and every contrived form the ticket named (B) now resolve as `gate.sh` does:
+* **A, apostrophe or lone `"` in a trailing comment** (`"no"  # we don't deploy`, `no # it's off`, `no # a " mark`,
+  `'no' # don't "ask"`, `export KEY=no # it's off`): honoured end to end with the real `init.sh` in a throwaway repo, and by
+  the two committed `QA-DEF` assertions.
+* **B, permissive forms the ticket named**: `no#x`, `"no"#x`, `'"no"'`, `"'no'"`, a later `unset`, `+=`, `declare …=yes`,
+  `readonly …=yes`, `export …=yes`: init now resolves ON, as gate does. Only the documented control-flow class remains.
+
+**Differential, QA's own** (not the orchestrator's script): 213 value forms (a superset of the round-2 82) through the
+verbatim `declared_capability()` extracted from the QA-sha `init.sh`, against gate.sh's real resolution run as gate runs
+it (`set -euo pipefail`, `unset`, `source`, `capability()`), and every form cross-checked against the first 40 lines of
+the real `gate.sh` executed verbatim. Harness note: the first version wrongly ran the gate side inside a `&&`/`||`
+list, which disables `set -e` and hid the gate's aborts; fixed and re-run. Results, Git-Bash (the QA platform):
+* **145 agree.** All forms in the ticket; the new probes below; the 15 `QA2:` forms.
+* **46 init stricter than gate (init ON, gate OFF): the harmless direction.** `no;`, `no ; x`, `yes; K=no`, `n\o`,
+  `n"o"`, `'n'o`, `no''`, `${X:-no}`, `$(…)`, backticks, `$'no'`, `KEY+=no`, `readonly/declare/typeset/export -n KEY=no`,
+  `eval "KEY=no"`, `source x; KEY=no`, `(KEY=no)`, `KEY=no &`, `KEY=yes cmd`, `KEY[0]=no`, `KEY=(no)`, self-referencing
+  default, and the "key mentioned again on a later line" family (below).
+* **14 forms where gate.sh itself aborts** (unparseable under `set -e`/`-u`; the gate fails closed): `no# c` glued, `9KEY=no`,
+  `KEY=# no`, unbalanced quotes, `KEY = no`, BOM, `$NO`, `false && KEY=no`, `export KEY = no`, and two where init reads OFF:
+  `KEY= no` and `KEY=<tab>no` (bash runs `no` as a command; the gate aborts). Harmless: no gate stage can run on that file.
+* **8 permissive (init OFF, gate ON), all the documented "init does not evaluate shell" class:** `if false; then KEY=no; fi`,
+  an uncalled function, a heredoc (plain and quoted), `while false`, a multi-line quoted string containing the line, and
+  `if true; then KEY=yes; else KEY=no; fi`. **No other permissive form on Git-Bash.**
+* **Randomised differential**: 700 files of 1 to 4 lines from a 77-fragment pool (assignments in many shapes, comments,
+  `unset`, `export`, `${KEY:=…}`, arrays, mentions, CR, non-ASCII), fixed seed, against the real gate head: 412 agree, 192
+  init stricter, 96 gate aborts, **0 permissive**.
+* New probes asked for, all agree: `KEY=no` with tabs around; `KEY="no"   # c`; a comment-only file; `XPIPELINE_HAS_DEPLOY_ENVS=no`,
+  `PIPELINE_HAS_DEPLOY_ENVS_OLD=no`, `…_ENVS2`, `_KEY`, `9KEY`, and the key inside a longer name before or after a real `no`;
+  multiple `#` in a comment; `#` at the start of a value (bare and quoted); whitespace-only lines and file; 200 KB comment,
+  200 KB earlier line, 100 KB padding, 2000 lines, 300 duplicate keys; no trailing newline (five variants); CRLF on some
+  lines only; non-ASCII in the comment, before the key and in the value.
+* **Read-only proof.** After flagless, `--force-tooling`, `--force-tooling --no-marketing` and `--no-deploy-envs` re-runs over an
+  opted-out install with hand-edited `scripts/deploy/deploy.sh` and `deploy.yml`, plus hand-edited `CONTEXT.md`,
+  `RELEASE_CHECKLIST.md`, `settings.json` and a key line with an apostrophe comment: `pipeline.env`, `CONTEXT.md`,
+  `RELEASE_CHECKLIST.md`, `pipeline-gate.yml`, `settings.json`, `docs/pipeline/README.md`, `deploy.sh` and `deploy.yml` are byte-identical
+  and the whole tree hash list is unchanged. The function body only reads (`tr < file | sed | grep | tail`).
+
+**Also run on a real Linux bash** (WSL Ubuntu 24.04, bash 5.2, grep 3.11, `C.UTF-8`) because CI and consumers run there
+and Git-Bash's bash silently ignores CR: the same 213 forms and the same 700-file fuzz (LF copies of the QA-sha scripts).
+Identical to Git-Bash except one form (Observation 2 below). Fuzz: 0 permissive.
+
+**End to end with the real `init.sh`** (35 runs in one throwaway install, key line replaced each time, deploy files
+removed between runs, outcome compared with gate's real resolution): every form that gate reads OFF leaves the deploy
+files uncreated and every form it reads ON recreates them, with three stricter exceptions (`no` followed by a line that
+mentions the key, Observation 1: init recreates the files, gate reads OFF) and the documented `if false` permissive one; `pipeline.env` and the other project-owned files byte-identical in every
+run; flagged re-runs (`--force-tooling`, `--no-marketing`, `--no-deploy-envs`, `--force-tooling --no-deploy-envs`, `--name/--team-key`,
+`--profile reputabill`) over the apostrophe-comment opt-out create no deploy files; over `"yes"` (flagless and `--force-tooling`) they
+come back.
+
+### Regression check on earlier fixes
+| Ticket | Result | Evidence |
+|---|---|---|
+| SHI-21 (Medium) | still verified | the QA2 and SHI-21 `QA-DEF` assertions pass in the 137/0 run; end-to-end flagless and `--force-tooling` re-runs over an opted-out install create no `scripts/deploy/*` or `deploy.yml`; hand-edited copies byte-identical (above) |
+| SHI-22 (Low) | still verified | `--profile nope`, an unknown flag (alone and after valid flags), `--name`/`--profile`/`--team-key`/`--project-dir` with no value, `--profile ..`, `../template`, `reputabill/x`, a non-git dir (alone and with a bad profile): exit 1, 0 files. A nonexistent `--project-dir`: exit 1. `--profile ""` still installs (exit 0, 53 files) |
+| SHI-23 (Low) | still verified | `grep -niE "hetzner\|reputabill\|paystack\|ship-pipeline"` and `grep -niwE "curate\|chris"` over `agents/*.md commands/*.md`: nothing; test_config AC-31 passes |
+| SHI-24 / AC-35 | still met | `plugin.json` version exactly `1.0.0`; one `### v1.0.0`, zero `### v1.1.0` in README; no `1.1.0` string in README, `docs/pipeline/*.md`, `template/`, `commands/`, `agents/`, `.claude-plugin/`, `scripts/`, `profiles/` |
+
+### Tickets
+| Ticket | Severity | State | Note |
+|---|---|---|---|
+| SHI-21 | Medium | verified (Done) | unchanged |
+| SHI-22 | Low | verified (Done) | unchanged |
+| SHI-23 | Low | verified (Done) | unchanged |
+| SHI-24 | - | done | AC-35 met |
+| SHI-25 | Low | **verified (Done)** | the reported and named forms agree with gate.sh; QA-DEF x2 pass; remaining permissive forms are the documented text-versus-bash limit |
+No new defect tickets.
+
+### Observations for the owner (not raised as defects, and why)
+1. **Stricter direction, likely the most realistic: the key mentioned again on a later line.** `PIPELINE_HAS_DEPLOY_ENVS="no"`
+   followed by `export PIPELINE_HAS_DEPLOY_ENVS`, `echo $PIPELINE_HAS_DEPLOY_ENVS`, `: ${PIPELINE_HAS_DEPLOY_ENVS:=…}` or
+   `[[ $PIPELINE_HAS_DEPLOY_ENVS … ]]` makes init resolve ON (the last line that mentions the key is not an assignment), while gate
+   resolves OFF. Result: a flagless re-run recreates the deploy files (the SHI-21 symptom) for such a file. Confirmed with the real
+   `init.sh`. Behaviour change against 6a0cbbc, which honoured the `no` here (it only looked at `KEY=` lines). Not raised: the brief
+   says init may be stricter than gate for these shapes, the shipped template and init-produced files never contain such a line,
+   and the fail-closed rule is respected. A one-line mitigation would be to ignore a bare `export KEY` line when picking the last mention.
+2. **Permissive on real Linux/macOS bash only: a CR inside the word.** `KEY=n<CR>o` or `KEY="n<CR>o"`: init deletes every CR
+   (`tr -d '\r'`) and reads `no` (OFF); a bash that keeps a mid-value CR resolves ON. Git-Bash's bash ignores CR, so it does not
+   reproduce on the QA platform; reproduced on WSL Ubuntu bash 5.2. Every ordinary CR (line ending, CR before a comment, whole-file CRLF, CRLF on some lines)
+   agrees. Not raised: a CR inside the token `no` cannot come from an editor's line endings; effect if it happened is omitted
+   deploy files, nothing deleted. This is the only permissive form outside the documented class, so under the brief's strict rule
+   it is a finding; QA judged it not worth the last rework loop. Owner decides. Fix would be `sed 's/\r$//'` instead of `tr -d '\r'`.
+3. **Same "init reads text, bash evaluates" class as the documented limit but not literally listed:** a `no` followed by
+   `source ./other.env` or `. ./other.env` that sets the key to `yes`, or an override through a computed variable name
+   (`n=PIPELINE_HAS; export ${n}_DEPLOY_ENVS=yes`). Init OFF, gate ON. Contrived. Suggest adding `source`/`eval`/indirection to the code comment; not raised.
+4. **Stricter, pre-existing, UTF-8 locales only:** a byte that is not valid UTF-8 (a Windows-1252 `’` or `é`) inside the key line's comment
+   makes `sed` and `grep` skip that line (grep prints "binary file matches"), so init resolves ON and the deploy files come back. The parser
+   in 6a0cbbc behaved the same. Invalid bytes on any other line do not matter; under `LC_ALL=C` it agrees. Not raised: needs a file that is not
+   valid UTF-8, direction is the allowed one, and it is not a regression.
+
+### Notes (not defects)
+* `KEY= no` and `KEY=<tab>no` (whitespace right after `=`): init reads OFF, gate aborts (fails closed). The engineer noted this too.
+* `git archive` on this machine yields CRLF working files (`core.autocrlf=true`); Git-Bash's bash tolerates that, which is why the suites run here. The blobs are LF.
+  The Linux probe used LF copies.
+* The Round 2 notes on the `deploy.yml` in this repo, the `allow-paths.sh` `..` normalisation, `next-version.sh` proposing `v0.1.0`, and the
+  README "425 tests" line still stand and are outside SHI-5.
+* QA edited no test source in Round 3 (the differential, fuzz and end-to-end scripts are throwaway files under `$TEMP`; committing
+  them under `tests/pipeline/` would ship them to every consumer, because `init.sh` copies `tests/pipeline/*.sh`).
+
+---
+
+# Round 2 (6a0cbbc)
+
+Header at the time: Result: fail · Commit: 6a0cbbcb0dc18ad251e3df9189534888c78a4a3e · Suite: 711/711 passed on the QA sha as shipped (`bash tests/pipeline/run-all.sh`, one run, in the background: test_config 162, test_init 120, test_gate 206, test_promote 105, test_intake_status 44, test_allow_paths 21, test_guard_merge 35, test_deploy_scripts 18; `ALL PIPELINE TESTS PASSED`). 2 of the 711 are the `.docx` no-op passes. QA's round-2 additions to test_init.sh (17 assertions) were run separately on the QA-sha export: 15 pass, 2 fail by design (the two `QA-DEF` SHI-25 regression assertions). test_config.sh with QA's AC-31 edit: 162/0.
 
 ### Verdict
 **FAIL — one new Low defect (SHI-25); everything else passes.** SHI-21 (Medium), SHI-22 (Low) and SHI-23 (Low) are
