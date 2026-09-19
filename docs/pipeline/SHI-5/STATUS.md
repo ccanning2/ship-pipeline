@@ -12,16 +12,16 @@ Rework loops used: 2/3
 | 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
 | 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
 | 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 2/3) | Dev = QA = f9cc6af · self-check pass on the promoted ref · 49-form differential vs gate.sh |
-| 7 | qa | qa-tester | in progress (scoped re-test) | round 2 (6a0cbbc) failed on Low SHI-25 only; re-testing f9cc6af: test_init.sh in full, test_config.sh, differential |
-| 8 | staging | app-specialist + marketing-specialist | pending | |
+| 7 | qa | qa-tester | done — PASS (round 3, scoped) | f9cc6af: test_init 137/0, test_config 162/0, 213-form differential, SHI-25 verified; last full suite 711/711 on 6a0cbbc; 0 defects open |
+| 8 | staging | app-specialist (+ marketing skipped by configuration) | in progress | Dev = QA = Staging = f9cc6af; app-specialist final gate against RELEASE_CHECKLIST.md |
 | 9 | go-live | the owner | pending | |
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-qa-tester runs the scoped re-test of f9cc6af (test_init.sh in full, test_config.sh, the 82-form differential) and
-marks SHI-25 verified or reopened. On pass: `promote.sh SHI-5 staging` (no deploy step here) -> app-specialist
-sign-off (marketing skipped by configuration) -> go-live: owner answers "go as v1.0.0" -> production tag.
-A reopened SHI-25 would be rework loop 3/3, the last allowed.
+app-specialist runs the final gate on f9cc6af (full suite once, ACs as each role, RELEASE_CHECKLIST.md, rollback plan) and
+writes signoff.md. On APPROVED: go-live (orchestrator): `next-version.sh` will propose v0.1.0, the owner answers
+"go as v1.0.0" (Q-4); then promote-production tags v1.0.0. On BLOCKED: defects back to the engineer (rework loop 3/3,
+the last allowed).
 
 ## Waiting on the owner
 - Nothing blocking. By go-live:
