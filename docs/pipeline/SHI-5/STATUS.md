@@ -11,19 +11,17 @@ Rework loops used: 1/3
 | 3 | product | product-owner | done | approved · feature · User-facing: yes · P2 · 9 stories → SHI-7/8/9, follow-ups SHI-10/11/12 |
 | 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
 | 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
-| 6 | dev | senior-engineer (merge → master, self-check) | done | Dev = QA = 2e9552d · self-check pass (throwaway-repo install from the ref) · suite 613 / 0 |
-| 7 | qa | qa-tester | done — FAIL | 613/613 on 2e9552d, 38/38 ACs covered, 88-comparison differential vs v1.0.0 gate.sh = 0 diffs · 3 defects: SHI-21 (Medium), SHI-22, SHI-23 (Low) |
+| 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 1/3) | Dev = QA = 6a0cbbc · self-check pass on the promoted ref · test_config 162/0, test_init 120/0 |
+| 7 | qa | qa-tester | in progress (re-test) | first build 2e9552d failed QA (3 defects); re-testing 6a0cbbc: SHI-21/22/23 fixed + SHI-24 (v1.0.0) |
 | 8 | staging | app-specialist + marketing-specialist | pending | |
 | 9 | go-live | the owner | pending | |
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-Rework loop 1/3. senior-engineer fixes SHI-21, SHI-22, SHI-23 **and SHI-24** (the v1.0.0 version
-decision — plugin.json, README release notes, the AC-35 test) together on the ticket branch, all
-before re-promoting to dev so QA tests the final content once (QA's four
-regression tests in tests/pipeline/* turn green), comments the fixing commit on each, then re-enters at
-dev: `promote.sh SHI-5 dev` -> dev-check -> `promote.sh SHI-5 qa` -> qa-tester re-tests and marks each
-defect verified/reopened -> promote-staging -> app-specialist. Marketing is skipped by configuration.
+qa-tester re-tests 6a0cbbc on the `staging` ref: marks SHI-21/SHI-22/SHI-23 `verified` or `reopened`, checks
+SHI-24 (AC-35), and runs the suites once. On pass: `promote.sh SHI-5 staging` (no deploy step here) -> app-specialist
+sign-off (marketing skipped by configuration) -> go-live: owner answers "go as v1.0.0" -> production tag.
+On any reopened defect: back to build, rework loop 2/3.
 
 ## Waiting on the owner
 - Nothing blocking. By go-live:
