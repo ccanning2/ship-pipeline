@@ -144,3 +144,52 @@ Coverage added, by AC:
    CI on Linux runners. No test was skipped or weakened for speed.
 5. Existing installs receive nothing until their owner adds a key by hand (SHI-12 tracks a migration
    step). `/pipeline-init` prints the manual instruction, which is the whole mechanism today.
+
+## Rework 1 (QA loop 1/3, 2026-09-19)
+
+Four tickets were fixed in this loop.
+
+| Ticket | Commit | What changed |
+|---|---|---|
+| SHI-21 (defect) | `350f362` | `init.sh`: a flagless re-run no longer recreates `scripts/deploy/*` / `deploy.yml` in a project whose `pipeline.env` declares no deployable environments |
+| SHI-22 (defect) | `350f362` | `init.sh`: an unknown `--profile` is rejected before any tooling file is copied (no half-applied install) |
+| SHI-23 (defect) | `350f362` | Vendor name removed from `commands/pipeline-init.md`; `README.md` and `commands/ship.md` touched in the same commit |
+| SHI-24 (eng) | `91c7737` | Release version is v1.0.0 (owner decision Q-4): `plugin.json` `1.1.0` → `1.0.0`, README release notes folded into one `### v1.0.0` section, AC-35 assertions in `test_config.sh` rewritten |
+
+Process note: the rework agent that started this loop stalled part-way. Its work was reviewed and
+committed by the orchestrator as `350f362`; SHI-24 was then worked separately and is `91c7737`.
+
+`commands/ship.md`: the word "accurate" was changed to "correct" for one reason only — the AC-31
+vendor-name scan at `tests/pipeline/test_config.sh:64` uses `grep -niE "…|curate|…"` **without** word
+boundaries, so the substring "curate" inside "accurate" is flagged as a project name. The cleaner fix
+is a `-w` on that grep (as the two other scans on lines 19 and 49 already have); that is test code,
+which QA owns, and it is left to QA.
+
+### Version amendment (SHI-24)
+`.claude-plugin/plugin.json` is `1.0.0`. `README.md` now has exactly one `### v1.0.0` release-notes
+section and no `### v1.1.0` heading; it carries a "First release" group and an "Added in this release
+— project capabilities" group with the original v1.1.0 bullets, unchanged in substance. The AC-34
+`behaves exactly as it did before` sentence, the scaffolding table and the "Project capabilities"
+section were not touched. The old two AC-35 assertions became six (plugin.json version is exactly
+`1.0.0`; `grep -c '^### v1.0.0'` is 1; `grep -c '^### v1.1.0'` is 0; the section body mentions
+`PIPELINE_HAS_DEPLOY_ENVS`, `PIPELINE_HAS_MARKETING` and `--no-deploy-envs`), keeping the `AC-35:`
+labels and the existing `ok`/`bad`/`assert_eq`/`assert_contains` style.
+
+`scripts/pipeline/next-version.sh` was **not** changed: it still proposes `v0.1.0` because this repo
+has no tags. That is resolved at go-live by the owner's explicit override ("go as v1.0.0"), not here.
+Known limitation 1 above is superseded for this release by the Q-4 decision; the tagging point still
+stands.
+
+### Verification actually performed in this loop
+- `bash tests/pipeline/test_init.sh` — **120 passed, 0 failed**, on the post-`350f362` code. Includes
+  QA's five `QA-DEF` assertions for SHI-21 and SHI-22.
+- `bash tests/pipeline/test_config.sh` — **158 passed, 0 failed** before SHI-24; **162 passed, 0
+  failed** after (the four extra are the new AC-35 assertions). The count did not drop.
+- A targeted check of SHI-21 / SHI-22 / SHI-23 in a throwaway repo under `mktemp -d`.
+
+**Not re-run in one piece:** `bash tests/pipeline/run-all.sh` was **not** completed after the rework.
+It was started and killed twice for low memory on this Windows machine, so it was run only per file.
+`test_gate.sh`, `test_promote.sh`, `test_intake_status.sh`, `test_allow_paths.sh`, `test_guard_merge.sh`
+and `test_deploy_scripts.sh` were therefore last run on the QA sha (613 passed / 0 failed, recorded
+above) and are re-run by QA on this build. No claim is made here that they were re-run after the
+rework commits.
