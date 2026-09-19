@@ -137,6 +137,43 @@ out=$(bash "$INIT" --project-dir "$Pq" 2>&1); assert_exit "QA-DEF: flagless re-r
 assert_eq "QA-DEF: pipeline.env says no deployable environments, so scripts/deploy is not recreated" "no" "$([ -e "$Pq/scripts/deploy" ] && echo yes || echo no)"
 assert_eq "QA-DEF: and neither is .github/workflows/deploy.yml" "no" "$([ -e "$Pq/.github/workflows/deploy.yml" ] && echo yes || echo no)"
 
+# QA round 2 (SHI-21 fix): the flagless re-run reads PIPELINE_HAS_DEPLOY_ENVS with its OWN parser (init.sh never sources
+# pipeline.env), so it must agree with gate.sh/promote.sh, which do. "recreated=no" = the opt-out was honoured.
+# Expected "yes" (recreated) = the value is not an explicit no, so today's stricter behaviour applies. Byte-identity of
+# pipeline.env and CONTEXT.md is checked in every case: init only ever reads them.
+Pbase="$(mkp)"; bash "$INIT" --project-dir "$Pbase" --name lean --no-deploy-envs >/dev/null 2>&1
+rerun_with() { # label expected-recreated printf-format [args...]  (the lines replace the PIPELINE_HAS_DEPLOY_ENVS line)
+  local label="$1" expect="$2"; shift 2
+  [ -f "$Pbase/scripts/pipeline/pipeline.env" ] || { bad "$label (the base install is missing)"; return; }
+  local d; d="$(mktemp -d)"; cp -R "$Pbase/." "$d/"
+  { grep -v '^PIPELINE_HAS_DEPLOY_ENVS=' "$d/scripts/pipeline/pipeline.env"; printf "$@"; } > "$d/pe.new" && mv "$d/pe.new" "$d/scripts/pipeline/pipeline.env"
+  local pe ctx got o; pe="$(cksum < "$d/scripts/pipeline/pipeline.env")"; ctx="$(cksum < "$d/docs/pipeline/CONTEXT.md")"
+  o=$(bash "$INIT" --project-dir "$d" 2>&1); local rc=$?
+  got=no; { [ -e "$d/scripts/deploy/deploy.sh" ] || [ -e "$d/.github/workflows/deploy.yml" ]; } && got=yes
+  local same=same; [ "$pe" = "$(cksum < "$d/scripts/pipeline/pipeline.env")" ] && [ "$ctx" = "$(cksum < "$d/docs/pipeline/CONTEXT.md")" ] || same=CHANGED
+  assert_eq "$label" "$expect|same|0" "$got|$same|$rc"
+}
+rerun_with 'QA2: flagless re-run honours PIPELINE_HAS_DEPLOY_ENVS=No' no '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=No'
+rerun_with "QA2: flagless re-run honours PIPELINE_HAS_DEPLOY_ENVS='no'" no '%s\n' "PIPELINE_HAS_DEPLOY_ENVS='no'"
+rerun_with 'QA2: flagless re-run honours a padded " NO "' no '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=" NO "'
+rerun_with 'QA2: flagless re-run honours no # comment' no '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=no # comment'
+rerun_with 'QA2: flagless re-run honours "no"  # comment' no '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS="no"  # comment'
+rerun_with 'QA2: flagless re-run honours a CRLF line ("no" + CR)' no '%s\r\n' 'PIPELINE_HAS_DEPLOY_ENVS="no"'
+rerun_with 'QA2: flagless re-run honours export PIPELINE_HAS_DEPLOY_ENVS=no' no '%s\n' 'export PIPELINE_HAS_DEPLOY_ENVS=no'
+rerun_with 'QA2: duplicate key, the last one (no) wins, as in gate.sh' no '%s\n%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=yes' 'PIPELINE_HAS_DEPLOY_ENVS=no'
+rerun_with 'QA2: duplicate key, the last one (yes) wins, as in gate.sh' yes '%s\n%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=no' 'PIPELINE_HAS_DEPLOY_ENVS=yes'
+rerun_with 'QA2: a commented-out no is not a declaration' yes '%s\n' '# PIPELINE_HAS_DEPLOY_ENVS="no"'
+rerun_with 'QA2: a key that merely starts the same is not the key' yes '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS_OLD="no"'
+rerun_with 'QA2: a quoted "no # c" is not a no (gate.sh agrees)' yes '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS="no # c"'
+rerun_with 'QA2: false / nope / empty are not an explicit no' yes '%s\n%s\n%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=nope' 'PIPELINE_HAS_DEPLOY_ENVS=false' 'PIPELINE_HAS_DEPLOY_ENVS='
+rerun_with 'QA2: unbalanced quote is unrecognised (strict)' yes '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS="no'
+# environment only: a shell variable must never relax init (project-level settings live in pipeline.env)
+Pq="$(mktemp -d)"; git -C "$Pq" init -q -b master; PIPELINE_HAS_DEPLOY_ENVS=no bash "$INIT" --project-dir "$Pq" >/dev/null 2>&1
+assert_eq "QA2: PIPELINE_HAS_DEPLOY_ENVS in the process environment does not relax a fresh install" "yes" "$([ -e "$Pq/scripts/deploy/deploy.sh" ] && echo yes || echo no)"
+# QA-DEF (SHI-25): an apostrophe or a lone double quote in the TRAILING COMMENT defeats the "no" although gate.sh reads it as no
+rerun_with "QA-DEF: a no whose trailing comment contains an apostrophe (we don't deploy) is still honoured" no '%s\n' "PIPELINE_HAS_DEPLOY_ENVS=\"no\"  # we don't deploy"
+rerun_with 'QA-DEF: a no whose trailing comment contains a lone double quote is still honoured' no '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=no # a " mark'
+
 # profile install
 P2="$(mktemp -d)"; git -C "$P2" init -q -b master; git -C "$P2" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
 out=$(bash "$INIT" --project-dir "$P2" --profile reputabill 2>&1); assert_exit "profile install" 0 $? "$out"

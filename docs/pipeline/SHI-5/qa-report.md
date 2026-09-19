@@ -2,8 +2,81 @@
 
 Result: fail
 Environment: qa
-Commit: 2e9552d30b45ee5db894b3702bd83bdd35c76ce1
-Suite: 613/613 passed on the QA sha as shipped (`bash tests/pipeline/run-all.sh`: 156, 89, 172, 83, 39, 21, 35, 18; `ALL PIPELINE TESTS PASSED`). 2 of the 613 are the `.docx` no-op passes. QA's own additions (below) were run separately: 91 pass, 4 fail by design (defect regression tests)
+Commit: 6a0cbbcb0dc18ad251e3df9189534888c78a4a3e
+Suite: 711/711 passed on the QA sha as shipped (`bash tests/pipeline/run-all.sh`, one run, in the background: test_config 162, test_init 120, test_gate 206, test_promote 105, test_intake_status 44, test_allow_paths 21, test_guard_merge 35, test_deploy_scripts 18; `ALL PIPELINE TESTS PASSED`). 2 of the 711 are the `.docx` no-op passes. QA's round-2 additions to test_init.sh (17 assertions) were run separately on the QA-sha export: 15 pass, 2 fail by design (the two `QA-DEF` SHI-25 regression assertions). test_config.sh with QA's AC-31 edit: 162/0
+
+This file holds both rounds. **Round 2 (6a0cbbc)** is the current verdict and comes first; **Round 1 (2e9552d)**
+follows, its headings prefixed `R1`.
+
+## Round 2 (6a0cbbc)
+
+### Verdict
+**FAIL — one new Low defect (SHI-25); everything else passes.** SHI-21 (Medium), SHI-22 (Low) and SHI-23 (Low) are
+**verified** and closed (Done); SHI-24 / AC-35 is met. No High, no gate that wrongly passes, no data loss, no change
+for an install without the new keys. SHI-25 is a narrow gap in the new `init.sh` parser found while attacking the
+SHI-21 fix. It is Low and non-destructive, so the product owner may agree `wontfix` instead of a second rework loop
+(only High-severity defects cannot be wontfix). Until then it keeps the staging gate closed (every qa-found defect
+must be verified or wontfix). Returned to the engineer (Stage: build).
+
+### QA environment
+`origin/staging` = `6a0cbbcb0dc18ad251e3df9189534888c78a4a3e` (checked after `git fetch`). The QA sha was exported with
+`git archive origin/staging` into a `mktemp -d` and every check ran on that export. `git diff 2e9552d 6a0cbbc --stat`
+touches `.claude-plugin/plugin.json`, `README.md`, `commands/pipeline-init.md`, `commands/ship.md`,
+`scripts/init.sh`, five test files and the `docs/pipeline/SHI-5/*` records: nothing outside the list the engineer
+gave, and no other file under `scripts/` changed. `bash -n` is clean on every `.sh`; `agents/*` and `.claude/agents/*`
+are identical.
+
+### Defect re-test
+| Ticket | Verdict | Evidence |
+|---|---|---|
+| SHI-21 (Medium) flagless re-run recreated the deploy machinery | **verified** | Reported scenario fixed. 17 `pipeline.env` variants run through the real `init.sh` in throwaway repos. Honoured (no deploy files): `"no"`, bare `no`, `'no'`, `No`, `" NO "`, `no # comment`, `"no" # comment`, whole-file CRLF `NO`, `export …=no`, last-of-duplicate `no`. Strict (deploy files created, as gate.sh): commented-out key, key-prefix/suffix, empty value, missing key, missing file, empty file, unbalanced quote, `no` followed by `yes`. A process-environment `PIPELINE_HAS_DEPLOY_ENVS=no` relaxes nothing (existing or fresh install; the produced `pipeline.env` still says `yes`). In every case `pipeline.env` and `CONTEXT.md` are byte-identical afterwards, no file is deleted, and hand-edited `scripts/deploy/deploy.sh` and `deploy.yml` are byte-identical after both a flagless and a `--force-tooling` re-run. init reads only `pipeline.env` (grep/sed, never sourced). A parser gap remains for a comment containing an apostrophe: SHI-25. |
+| SHI-22 (Low) unknown `--profile` rejected after files were copied | **verified** | `--profile nope`: exit 1, 0 files. Every other early exit also creates nothing: unknown flag (alone and after valid flags), `--name` / `--profile` / `--team-key` / `--project-dir` with no value (exit 1, `$2: unbound variable`), non-git dir, non-git dir plus bad profile, nonexistent `--project-dir`, `--profile ..`, `../template`, `reputabill/x`, and a profile dir with only CONTEXT.md, only RELEASE_CHECKLIST.md or neither (exit 1, 0 files). `--profile ""` still means no profile (unchanged); `--profile reputabill` still installs. |
+| SHI-23 (Low) vendor name in `commands/pipeline-init.md` | **verified** | `grep -niE "hetzner\|reputabill\|paystack\|ship-pipeline"` and `grep -niwE "curate\|chris"` over `agents/*.md commands/*.md` return nothing. The persona agnosticism loop and the `/ship` scan pass. The "accurate" to "correct" edit in `commands/ship.md` is harmless. Outside AC-31's scope and pre-existing: `.claude-plugin/plugin.json` `description` still says "GitHub Actions + Hetzner". |
+| SHI-24 (eng) / AC-35 | **met** | `plugin.json` version is exactly `1.0.0`; README has one `### v1.0.0` and zero `### v1.1.0`; the v1.0.0 section has a "First release" group and the "Added in this release" group with the `PIPELINE_HAS_DEPLOY_ENVS`, `PIPELINE_HAS_MARKETING` and `--no-deploy-envs` bullets; no `1.1` / `v1.1.0` string in README, `docs/pipeline/*.md`, `template/`, `commands/`, `agents/`, `plugin.json`, `scripts/`, `profiles/` (the `docs/pipeline/SHI-*` records are excluded). `next-version.sh` still proposes `v0.1.0` (no tags): expected, resolved by the owner's "go as v1.0.0" at go-live, not a defect. |
+
+### init.sh vs gate.sh divergence hunt (the new parser)
+`init.sh` gained `declared_capability()`, a text scanner; `gate.sh` and `promote.sh` `source` the file. A differential of
+the verbatim function (extracted from the QA-sha `init.sh`) against gate's exact `source` + `capability()` over **82 value forms**:
+* **Agree (about 50):** every form in the task list (`No`, ` no `, `"no"`, `'no'`, `no # comment`, `"no" # comment`, CRLF, `export`, duplicates in both orders, commented-out, key-prefix/suffix, empty, empty quoted, `n"o"`, `"n"o`, `""no`, `no""`, `'n'o`, `"\"no\""`, `"no # comment"`, `off`/`false`/`0`, `yes # no`, no-then-yes, no-then-empty, no-then-`:=`, no-then-`export yes`, missing or empty file).
+* **Init stricter than gate (harmless direction):** where gate itself errors out (BOM, `KEY = no`, unbalanced quote), `n\o`, `no;`, `no ; x`, `yes; K=no`, `$NO`, `${X:-no}`, `$(…)`, backticks; **and the realistic one, an apostrophe or a lone `"` in the trailing comment (`"no"  # we don't deploy`): init resolves ON, gate resolves OFF, so the deploy files come back (the SHI-21 symptom).** Confirmed end to end with the real `init.sh`.
+* **Init reads OFF where gate resolves ON (the permissive direction), all contrived:** `no#x`, `"no"#x`, `'"no"'`, `"'no'"`, a `no` inside `if false`, an uncalled function or a heredoc, and a later `unset` / `+=` / `declare …=yes` / `readonly …=yes`. Effect: init omits deploy files for a project promote.sh will treat as deployable. Nothing is deleted or overwritten.
+All raised together as **SHI-25 (Low)** with a suggested exact-line-shape fix. Regression tests committed: two `QA-DEF` assertions (comment with an apostrophe, comment with a lone `"`) that fail by design until it is fixed, plus 15 `QA2:` assertions that pin the agreeing forms and the env-only rule.
+
+### Regression check on the rework
+| Check | Result | Evidence |
+|---|---|---|
+| Full suite on the QA-sha export | pass | 711 passed, 0 failed (162, 120, 206, 105, 44, 21, 35, 18). One run, in the background, about 1 h 40 min; not killed; free memory stayed above 13 GB |
+| Per-file counts vs the last green (613 on 2e9552d: 156, 89, 172, 83, 39, 21, 35, 18) | pass | +6 config, +31 init, +34 gate, +22 promote, +5 intake_status; allow_paths, guard_merge, deploy_scripts unchanged. Nothing dropped |
+| `.docx` intake tests | as before | 2 no-op passes (no python-docx) |
+| gate.sh / promote.sh / status.sh changed | none | `git diff 2e9552d 6a0cbbc -- scripts/` shows only `init.sh` |
+| Default (no flags) fresh install unchanged | pass | deploy files present, both keys `yes` (test_init AC-22) |
+| Other early-exit paths still precede every copy | pass | see the SHI-22 row |
+
+### Test changes by QA (test sources only)
+* `tests/pipeline/test_config.sh`, the AC-31 scan (formerly line 64): the engineer left this to QA and QA agrees it was a test bug. The `curate` match is now word-bounded (`grep -niwE "curate"`) while `hetzner|reputabill|paystack|ship-pipeline` are still matched anywhere (so `HetznerCloud` is caught; ordinary words such as "accurate" are not). Same `AC-31:` label, still one assertion; the file is 162/0 with the edit (run on the QA-sha export). The engineer's `commands/ship.md` edit stays.
+* `tests/pipeline/test_init.sh` (+17): 14 `rerun_with` cases over the value forms above, one env-only case and two `QA-DEF` (SHI-25) cases. Byte-identity of `pipeline.env` and `CONTEXT.md` is asserted in each; a guard fails the block if the base install is missing.
+
+### Tickets
+| Ticket | Severity | State | Note |
+|---|---|---|---|
+| SHI-21 | Medium | verified (Done) | fixed for the reported case; residue is SHI-25 |
+| SHI-22 | Low | verified (Done) | |
+| SHI-23 | Low | verified (Done) | |
+| SHI-24 | - | done | AC-35 met |
+| SHI-25 | Low | open | new: init parser vs gate resolution (apostrophe in a trailing comment; contrived permissive forms) |
+
+### Notes for the owner and engineer (not defects)
+* **Owner decision, SHI-25:** fix it (one more rework loop, then re-promote through dev and QA, since any code change restarts at dev) or agree `wontfix` (Low) with the product owner and document "keep the trailing comment on that line free of quotes". Only the reporter marks a defect verified; a wontfix needs the product owner's agreement in a comment.
+* **Behaviour change, not a defect:** a project whose `pipeline.env` says `no` and which still has `scripts/deploy/*` no longer has them refreshed by `--force-tooling` (before the fix it did). The files are project-owned and stay untouched.
+* The round-1 notes on this repo's `deploy.yml` and the `allow-paths.sh` `..` normalisation still stand and are outside SHI-5. `deploy.yml` will fail on the first push to master/staging and on the `v1.0.0` tag; disable or delete it before tagging.
+* An unparseable line in `pipeline.env` (a BOM, `KEY = no`, an unterminated quote) makes `gate.sh` exit non-zero, i.e. it fails closed. Pre-existing, outside SHI-5.
+* A full `run-all.sh` takes about 1 h 40 min on this machine under Git-Bash and completed without memory trouble.
+
+---
+
+# Round 1 (2e9552d)
+
+Result: fail · Commit: 2e9552d30b45ee5db894b3702bd83bdd35c76ce1 · Suite: 613/613 passed on the QA sha as shipped (156, 89, 172, 83, 39, 21, 35, 18); QA's own additions were run separately: 91 pass, 4 fail by design (defect regression tests).
 
 > **Template note.** The shipped `docs/pipeline/_templates/qa-report.md` has "Backend tests" and
 > "Frontend tests" lines for a web product. This project has one suite (`bash tests/pipeline/run-all.sh`),
@@ -13,14 +86,14 @@ Suite: 613/613 passed on the QA sha as shipped (`bash tests/pipeline/run-all.sh`
 > = `2e9552d`. `git diff 2e9552d HEAD` touches only `docs/pipeline/SHI-5/{STATUS,deploy-history,dev-check,releases}.md`
 > (verified), so the working tree's later commits are records, not code.
 
-## Verdict
+## R1 Verdict
 **FAIL — three defects raised** (SHI-21 Medium, SHI-22 Low, SHI-23 Low), none of them a gate that wrongly
 passes, data loss, or a behaviour change for an install without the new keys. The core of the change held
 up under attack: the fail-closed resolution, the single changed gate condition, backwards compatibility
 (88-comparison differential against the v1.0.0 `gate.sh`: zero differences), promote.sh skipping,
 and init.sh never deleting or rewriting anything on re-runs. Returned to the engineer (Stage: build).
 
-## AC coverage
+## R1 AC coverage
 Before QA every AC except AC-37 had a test; QA added or strengthened tests for the rows marked **+**.
 
 | AC | Test(s) | Status |
@@ -64,7 +137,7 @@ Before QA every AC except AC-37 had a test; QA added or strengthened tests for t
 | AC-37 | **+** test_gate.sh: this repo's committed `pipeline.env` copied into a fixture passes a user-facing ticket at the production gate with no marketing evidence | pass |
 | AC-38 | test_promote.sh AC-38 **+** a real `init.sh --no-deploy-envs --no-marketing` install (no fixture patching, no deploy/smoke overrides, `gh` pointed at a nonexistent path) walked dev to a version tag | pass |
 
-## QA environment checks
+## R1 QA environment checks
 | Check | Result | Evidence |
 |---|---|---|
 | Clean export of the QA sha; later commits are docs-only | pass | `git archive origin/staging`; `git diff 2e9552d HEAD --name-only` = 4 files under `docs/pipeline/SHI-5/` |
@@ -95,7 +168,7 @@ Before QA every AC except AC-37 had a test; QA added or strengthened tests for t
 | test_config `plugin.json valid` rewrite | verified intentional | the `commands`/`agents` keys were removed by the owner's own commit `c0102d3` ("Fix JSON formatting in plugin.json") one day earlier; the weaker check matches the manifest |
 | Full suite on the QA-sha export | pass | 613 passed, 0 failed, run once in the background (2026-09-18T17:26Z to 19:59Z, about 2.5 h on Git-Bash); matches the engineer's 613/0 |
 
-## Tests added
+## R1 Tests added
 All in `tests/pipeline/` (test sources only), committed on `feature/SHI-5-change-workflow-persona-usage`:
 - `test_gate.sh` (+34 assertions): capability value edge cases; deploy-envs=no relaxes nothing; env cannot override in either direction; AC-37 with this repo's own `pipeline.env`.
 - `test_promote.sh` (+22): env var cannot switch deploys off; absent/unrecognised value still smokes; `"  No "`+CR and missing deploy keys; real `init.sh --no-deploy-envs --no-marketing` install walked to a version tag with no overrides (AC-38).
@@ -108,7 +181,7 @@ Four assertions in two files are **expected to fail until the defects are fixed*
 `... deploy.yml` (SHI-21), and `AC-31: no vendor/product name in agents/*.md or commands/*.md` (SHI-23). If any of these defects is
 marked wontfix with product-owner agreement, QA removes the matching assertion.
 
-## Defect tickets raised / verified
+## R1 Defect tickets raised / verified
 | Ticket | Severity | State | Test |
 |---|---|---|---|
 | SHI-21 | Medium | open | test_init.sh `QA-DEF: pipeline.env says no deployable environments, so scripts/deploy is not recreated` (+ deploy.yml) |
@@ -117,7 +190,7 @@ marked wontfix with product-owner agreement, QA removes the matching assertion.
 
 No defect from an earlier stage existed to re-verify.
 
-## Notes for the owner and engineer (not defects)
+## R1 Notes for the owner and engineer (not defects)
 - **AC-35, `next-version.sh` = `v0.1.0`.** Confirmed (0 tags). Agree with not creating the tag (pushing `v*` fires this repo's `deploy.yml`). The owner must either tag `v1.0.0` on the released commit or answer "go as v1.1.0" at go-live.
 - **`deploy.yml` in this repo** will fail on every push to master/staging and on the version tag. Agree it stays out of this ticket; recommend a follow-up (or disabling it) *before* the v1.1.0 tag is pushed.
 - **Pre-existing, outside SHI-5, worth a follow-up:** `scripts/pipeline/hooks/allow-paths.sh` does not normalise `..`, so `tests/../src/App.java` matches `tests/*` and a persona could write outside its boundary (verified with a real hook run; the SHI-5 backslash normalisation is not the cause and does not weaken anything). An unparseable tool payload also exits 0 (allow).

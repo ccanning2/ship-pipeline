@@ -61,7 +61,9 @@ for k in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING; do
 done
 grep -qF 'marketing function **and** User-facing: yes' "$s" && ok "AC-29: /ship step 7 names both conditions (project capability AND User-facing: yes)" || bad "AC-29: /ship step 7 names both conditions (project capability AND User-facing: yes)"
 # AC-31 / NFR-10: no vendor, product or person name in ANY persona or command file (the persona loop above only sees agents/)
-leak=$(grep -niE "hetzner|reputabill|paystack|curate|ship-pipeline" "$A"/*.md "$C"/*.md || true)
+# "curate" is matched as a whole word only, so ordinary words such as "accurate" are not flagged; the
+# distinctive names are still matched anywhere, so a compound like "HetznerCloud" is caught too.
+leak=$( { grep -niE "hetzner|reputabill|paystack|ship-pipeline" "$A"/*.md "$C"/*.md; grep -niwE "curate" "$A"/*.md "$C"/*.md; } || true)
 [ -z "$leak" ] && ok "AC-31: no vendor/product name in agents/*.md or commands/*.md" || bad "AC-31: no vendor/product name in agents/*.md or commands/*.md" "$leak"
 [ -f "$C/pipeline-status.md" ] && ok "/pipeline-status exists" || bad "/pipeline-status exists"
 fi
