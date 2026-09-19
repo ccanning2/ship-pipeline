@@ -11,18 +11,17 @@ Rework loops used: 2/3
 | 3 | product | product-owner | done | approved · feature · User-facing: yes · P2 · 9 stories → SHI-7/8/9, follow-ups SHI-10/11/12 |
 | 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
 | 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
-| 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 1/3) | Dev = QA = 6a0cbbc · self-check pass on the promoted ref · test_config 162/0, test_init 120/0 |
-| 7 | qa | qa-tester | done — FAIL (round 2) | 711/711 on 6a0cbbc; SHI-21/22/23 verified, AC-35 met; one Low defect SHI-25 (init.sh parser vs gate.sh) → owner chose to fix, scoped re-test |
+| 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 2/3) | Dev = QA = f9cc6af · self-check pass on the promoted ref · 49-form differential vs gate.sh |
+| 7 | qa | qa-tester | in progress (scoped re-test) | round 2 (6a0cbbc) failed on Low SHI-25 only; re-testing f9cc6af: test_init.sh in full, test_config.sh, differential |
 | 8 | staging | app-specialist + marketing-specialist | pending | |
 | 9 | go-live | the owner | pending | |
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-Rework loop 2/3 (owner decision 2026-09-19: fix SHI-25, scoped re-test). senior-engineer fixes init.sh's
-declared_capability() so it agrees with gate.sh (exact line shape, comment starts only after whitespace, comments
-may contain quotes/apostrophes, never executes the file), turning QA's two QA-DEF assertions green. Then re-enter
-at dev: promote dev -> dev-check -> promote qa -> qa-tester re-tests SHI-25 with test_init.sh, test_config.sh and the
-82-form differential (not the full suite: only init.sh changes) -> promote-staging -> app-specialist -> go-live.
+qa-tester runs the scoped re-test of f9cc6af (test_init.sh in full, test_config.sh, the 82-form differential) and
+marks SHI-25 verified or reopened. On pass: `promote.sh SHI-5 staging` (no deploy step here) -> app-specialist
+sign-off (marketing skipped by configuration) -> go-live: owner answers "go as v1.0.0" -> production tag.
+A reopened SHI-25 would be rework loop 3/3, the last allowed.
 
 ## Waiting on the owner
 - Nothing blocking. By go-live:
