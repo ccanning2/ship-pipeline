@@ -30,8 +30,9 @@ defect verified/reopened -> promote-staging -> app-specialist. Marketing is skip
   1. Version — **decided, Q-4 (2026-09-19): this build is released as v1.0.0.** At go-live the owner must
      still answer "go as v1.0.0", because `next-version.sh` will keep proposing `v0.1.0` (0 tags, local and
      remote). SHI-24 returns `plugin.json` to 1.0.0 and folds the README notes into one v1.0.0 section.
-     Unverified consequence for the owner: a consumer on the already-installed 1.0.0 sees no version change,
-     so a version-keyed plugin update would not offer them this build.
+     Owner clarification 2026-09-19: nobody is using the released 1.0.0 yet, so the version has no consumer
+     impact for now (the earlier worry that installed 1.0.0 users would not be offered this build is moot);
+     the version only needs to read 1.0.0 once all changes are done.
   2. Follow-up candidates the QA report found outside SHI-5's scope (owner decides whether to ticket them):
      - allow-paths.sh does not normalise `..`, so `tests/../src/x` matches `tests/*` (persona write boundary).
      - This repo's deploy.yml fires on pushes/tags and builds an image this project lacks.

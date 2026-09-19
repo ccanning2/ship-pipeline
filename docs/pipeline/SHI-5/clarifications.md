@@ -104,3 +104,7 @@ SHI-24 (eng, open), a sub-issue of SHI-5, amending SHI-19 (left Done). No new qu
 the decision and its consequences are fully specified by this Q-4 answer. Consequence (4) — a consumer
 on the installed 1.0.0 sees no version change, so a version-keyed plugin update would not offer them
 this build — remains unverified and is the owner's call at go-live; SHI-24 does not address it.
+Owner clarification (2026-09-19, after the answer above): no one is actively using this yet, so the version
+does not matter for now; it only has to be 1.0.0 once all changes are done. Consequences (2) two builds
+sharing 1.0.0 and (4) installed-1.0.0 users not being offered this build are therefore moot in practice.
+The decision itself is unchanged (this build is v1.0.0; at go-live the owner answers "go as v1.0.0").
