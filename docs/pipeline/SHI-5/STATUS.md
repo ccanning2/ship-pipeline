@@ -18,15 +18,20 @@ Rework loops used: 1/3
 | 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
 
 ## Next action
-Rework loop 1/3. senior-engineer fixes SHI-21, SHI-22, SHI-23 together on the ticket branch (QA's four
+Rework loop 1/3. senior-engineer fixes SHI-21, SHI-22, SHI-23 **and SHI-24** (the v1.0.0 version
+decision — plugin.json, README release notes, the AC-35 test) together on the ticket branch, all
+before re-promoting to dev so QA tests the final content once (QA's four
 regression tests in tests/pipeline/* turn green), comments the fixing commit on each, then re-enters at
 dev: `promote.sh SHI-5 dev` -> dev-check -> `promote.sh SHI-5 qa` -> qa-tester re-tests and marks each
 defect verified/reopened -> promote-staging -> app-specialist. Marketing is skipped by configuration.
 
 ## Waiting on the owner
 - Nothing blocking. By go-live:
-  1. Version: `next-version.sh` proposes `v0.1.0` (this repo has 0 tags, local and remote). Tag the released
-     v1.0.0 first, or answer "go as v1.1.0". `plugin.json` is already 1.1.0.
+  1. Version — **decided, Q-4 (2026-09-19): this build is released as v1.0.0.** At go-live the owner must
+     still answer "go as v1.0.0", because `next-version.sh` will keep proposing `v0.1.0` (0 tags, local and
+     remote). SHI-24 returns `plugin.json` to 1.0.0 and folds the README notes into one v1.0.0 section.
+     Unverified consequence for the owner: a consumer on the already-installed 1.0.0 sees no version change,
+     so a version-keyed plugin update would not offer them this build.
   2. Follow-up candidates the QA report found outside SHI-5's scope (owner decides whether to ticket them):
      - allow-paths.sh does not normalise `..`, so `tests/../src/x` matches `tests/*` (persona write boundary).
      - This repo's deploy.yml fires on pushes/tags and builds an image this project lacks.
@@ -44,6 +49,9 @@ Closed:
 - Q-3 answered 2026-09-18 — **approved as written**. `gate.sh`'s production-stage marketing
   requirement gains one conjunct (`&& [ "$has_marketing" = yes ]`); nothing else in `gate.sh` changes.
   SHI-14 (and downstream SHI-15/19/20) unblocked.
+- Q-4 answered 2026-09-19 — **release this build as v1.0.0**, not v1.1.0. requirements.md amended in
+  place (Amendment note, FR-30, AC-35, §8 Version, §8 Rollback); supersedes BR-10's minor bump for this
+  release only; product.md untouched. Raised as SHI-24 (eng, open), which amends SHI-19 (left Done).
 
 Previously raised, now closed:
 - `scripts/pipeline/hooks/allow-paths.sh` Windows backslash path bug — **fixed and verified** in

@@ -1,7 +1,26 @@
 # SHI-5 — Requirements (engineer-ready)
 
 Status: approved
-Traces to: product.md (9 stories US-1..US-9, 16 rules BR-1..BR-16), research.md, clarifications.md (Q-1, Q-2)
+Traces to: product.md (9 stories US-1..US-9, 16 rules BR-1..BR-16), research.md, clarifications.md (Q-1, Q-2, Q-3, Q-4)
+
+> **Amendment 2026-09-19 (Q-4) — the release version is v1.0.0, not v1.1.0.**
+> The owner decided (clarifications.md Q-4, answered 2026-09-19) that **this build is released as
+> v1.0.0**. This document originally specified v1.1.0; **FR-30**, **AC-35**, the §8 "Version"
+> paragraph and the §8 "Rollback" paragraph are edited in place to that decision, and the AC-12
+> wording that referred to a "pre-1.1.0 install" is reworded. Nothing else changes: no FR or AC is
+> renumbered, removed or weakened.
+> This **supersedes product.md BR-10's "bump the minor version" instruction — and the matching
+> `docs/pipeline/CONTEXT.md` engineering rule — for this release only**, by the owner's explicit
+> decision. It is recorded here rather than in product.md because product.md is the product owner's
+> file and is not edited by this amendment; BR-10 remains the standing rule for every later release.
+> Consequences the owner was given before deciding: `.claude-plugin/plugin.json` returns to `1.0.0`;
+> the README carries **one** release-notes section for v1.0.0 (no `### v1.1.0` heading, and not a
+> second `### v1.0.0` heading); the already-released 1.0.0 (commit `167445e`) and this build
+> therefore carry the same version number; and at go-live `next-version.sh` will still propose
+> `v0.1.0` (the repo has no tags), which the owner overrides with "go as v1.0.0".
+> The engineering work is one eng ticket, **SHI-24**, which amends **SHI-19** — SHI-19 stays
+> `done` and is not reopened. It belongs to rework loop 1/3 and must land **before** the fixed build
+> is re-promoted to dev, so QA tests the final content once.
 
 > **Template note.** The shipped `docs/pipeline/_templates/requirements.md` carries section headings
 > from an unrelated web product ("API contract", "UI changes", "Permissions matrix", "Data model").
@@ -175,9 +194,17 @@ Traces to: product.md (9 stories US-1..US-9, 16 rules BR-1..BR-16), research.md,
   `template/RELEASE_CHECKLIST.md:32`. The `template/docs/pipeline/*` copies of TICKETS/BRANCHING/CLOUD
   must be updated in step with the repo's own copies (they are the files `init.sh:35` ships).
 
-- **FR-30 (US-8, BR-10)** `.claude-plugin/plugin.json` version goes `1.0.0` → **`1.1.0`** (minor
-  bump: what `/pipeline-init` scaffolds changes), and the release notes on the version tag call out
-  the two new keys, their defaults, and that existing installs are unaffected until they add them.
+- **FR-30 (US-8, BR-10; amended 2026-09-19 by Q-4)** `.claude-plugin/plugin.json` `version` is
+  exactly **`1.0.0`** for this release. The owner decided that this build ships as **v1.0.0**
+  (Q-4), which supersedes BR-10's "bump the minor version" instruction for this release only; if the
+  branch currently carries `1.1.0`, it is returned to `1.0.0`. `README.md` carries a **single**
+  release-notes section headed `### v1.0.0` — there must be no `### v1.1.0` heading and no second
+  `### v1.0.0` heading — and that one section describes both the first release's contents and this
+  build's changes: the two new keys, their allowed values and defaults, that existing installs are
+  unaffected until their owner adds them, the conditional production-gate marketing requirement, the
+  skipped deploy/dispatch/smoke steps, and the two new `init.sh` / `/pipeline-init` flags. Any
+  `v1.1.0` wording inside those bullets is corrected. At go-live the recorded `Version:` is
+  `v1.0.0`, set by the owner's explicit override of `next-version.sh`'s proposal (see AC-35).
 
 ### 1.7 Dogfood this repo (BR-15, BR-16, Q-1 answered: new rules)
 
@@ -521,9 +548,10 @@ Every AC is a test in `tests/pipeline/*`, runnable by `bash tests/pipeline/run-a
 ### Backwards compatibility — release blocker (FR-8, BR-5)
 
 - **AC-12 (FR-8)** *Given* a fixture repo whose `scripts/pipeline/pipeline.env` contains **only the
-  ten v1.0.0 keys** and neither new key — created by a new `tests/pipeline/lib.sh` helper (e.g.
-  `legacy_env`) that rewrites the fixture's `pipeline.env` after `new_repo`, so the test still
-  represents a pre-1.1.0 install once `init.sh` starts writing the keys on fresh installs — *when*
+  ten keys of the already-released 1.0.0 (commit `167445e`)** and neither new key — created by a new
+  `tests/pipeline/lib.sh` helper (e.g. `legacy_env`) that rewrites the fixture's `pipeline.env` after
+  `new_repo`, so the test still represents an install created *before this release* once `init.sh`
+  starts writing the keys on fresh installs — *when*
   `gate.sh` is run for all five stages (`build`, `dev`, `qa`, `staging`, `production`) against
   `full_through` fixtures for **both** `User-facing: yes` and `User-facing: no`, *then* every exit
   code and every failure message is identical to the pre-change behaviour. The test must include the
@@ -619,8 +647,22 @@ Every AC is a test in `tests/pipeline/*`, runnable by `bash tests/pipeline/run-a
   their `template/docs/pipeline/` counterparts, *then* each describes the two settings, their
   defaults, and that an install without them behaves exactly as before; and the repo copy and the
   `template/` copy of TICKETS/BRANCHING/CLOUD say the same thing.
-- **AC-35 (FR-30)** *Given* `.claude-plugin/plugin.json`, *then* `version` is `1.1.0`, and
-  `docs/pipeline/SHI-5/releases.md` proposes `v1.1.0` (`next-version.sh` output must agree).
+- **AC-35 (FR-30; amended 2026-09-19 by Q-4)** Three parts, all required:
+  - *Given* the repo at the go-live commit, *when* `.claude-plugin/plugin.json` is read, *then*
+    `version` is exactly `1.0.0`.
+  - *Given* `README.md`, *when* its release-notes headings are counted, *then*
+    `grep -c '^### v1.0.0' README.md` is `1` and `grep -c '^### v1.1.0' README.md` is `0` — one
+    v1.0.0 section, no duplicate heading, no v1.1.0 heading — *and* that single section describes
+    this build's changes (it mentions `PIPELINE_HAS_DEPLOY_ENVS`, `PIPELINE_HAS_MARKETING`, their
+    `yes` default, that existing installs are unaffected until their owner adds a key, and the
+    `--no-deploy-envs` / `--no-marketing` flags) as well as the first release's contents, with no
+    `v1.1.0` wording left inside it.
+  - *Given* that the repo has no tags, *when* the go-live step runs, *then* `next-version.sh` still
+    proposes `v0.1.0` and that proposal is **overridden by the owner's explicit "go as v1.0.0"**, so
+    `docs/pipeline/SHI-5/releases.md` records `Version: v1.0.0` — which satisfies the production
+    gate's `^v[0-9]+\.[0-9]+\.[0-9]+$` check and matches `plugin.json`. *Negative:* a
+    `releases.md` `Version:` that disagrees with `plugin.json`, or a README carrying a `### v1.1.0`
+    heading, fails this AC.
 - **AC-36 (FR-31, FR-32, FR-33)** *Given* this repo after the change, *then*:
   `grep -c 'n/a' scripts/pipeline/pipeline.env` is `0`;
   `RELEASE_CHECKLIST.md` contains no `N/A — no image, no host` and no
@@ -646,9 +688,13 @@ Every AC is a test in `tests/pipeline/*`, runnable by `bash tests/pipeline/run-a
 `scripts/pipeline/pipeline.env`, both optional, both defaulting to `yes` = today's behaviour. No
 feature flags, no environment variables, no seed data, no secrets.
 
-**Version.** `.claude-plugin/plugin.json` `1.0.0` → `1.1.0` (minor: what `/pipeline-init` scaffolds
-changes — CONTEXT.md engineering rule). Release notes on the `v1.1.0` tag must call out the two keys,
-their defaults, and that no existing install changes behaviour until its owner adds them.
+**Version (amended 2026-09-19, Q-4).** `.claude-plugin/plugin.json` `version` stays/returns to
+**`1.0.0`**: the owner decided this build is released as **v1.0.0**, which supersedes BR-10's minor
+bump and CONTEXT.md's minor-bump rule **for this release only**. Release notes live in `README.md`
+as a **single** `### v1.0.0` section (no `### v1.1.0`, no duplicate `### v1.0.0`) and must still call
+out the two keys, their defaults, and that no existing install changes behaviour until its owner adds
+them. At go-live, `next-version.sh` proposes `v0.1.0` because the repo has no tags; the owner
+overrides it with "go as v1.0.0" and `releases.md` records `Version: v1.0.0`.
 
 **Rollout order (build stage).** The dependency chain is deliberate; `gate.sh`'s `dev` gate requires
 every `eng` ticket `done`, so all of this lands before SHI-5's own dev merge:
@@ -703,5 +749,8 @@ non-deletion, `--force-tooling`), `test_intake_status.sh` (`status.sh` output). 
 `tests/pipeline/lib.sh` (`legacy_env`, and a fixture writer for capability values). Test count must
 not drop below the current baseline (README: 425).
 
-**Rollback.** Nothing to migrate. If v1.1.0 misbehaves, the previous version tag is the rollback, and
-any project that has not added the keys is on identical behaviour either way.
+**Rollback (amended 2026-09-19, Q-4).** Nothing to migrate. If this release misbehaves, the rollback
+target is the previously released build — commit `167445e`, which is also numbered 1.0.0 — so
+**roll back by sha, not by version number**: the two builds carry the same version, which is a
+consequence of the owner's Q-4 decision. Any project that has not added the keys is on identical
+behaviour either way.

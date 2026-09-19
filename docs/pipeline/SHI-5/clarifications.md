@@ -74,3 +74,33 @@ Recommendation: approve as written. The change can only ever relax the gate thro
 project's own owner committed to a project-owned file; every other input, including a typo, keeps
 today's stricter behaviour.
 Answer: Approved as written. (2026-09-18)
+
+### Q-4
+To: Owner
+State: answered
+Asked by: orchestrator
+Needed by: go-live (and the plugin.json / README / AC-35 content, which QA tests)
+Question:
+`next-version.sh` proposes v0.1.0 because the repo has no tags, while SHI-19 set plugin.json to 1.1.0
+and the README notes to v1.1.0 (AC-35 asserts both). Which version is this release tagged as?
+Options put to the owner: v1.1.0 (matches everything already written) or v0.1.0 (would read as a
+downgrade from the released 1.0.0). The owner first said 0.1.0, then, when told what it collides with,
+answered "1.0.0" and, asked whether that meant tagging the old baseline or this build, chose this build.
+Answer: Release THIS build as v1.0.0. (2026-09-19)
+Consequences. Put to the owner before they chose: (1) plugin.json, the README release notes and the
+AC-35 test change with it; (2) 1.0.0 is already released (167445e) and a 1.0.0 copy is installed, so two
+different builds carry the same version number. The owner was told this would cost a second rework loop;
+the orchestrator later found it can ride the still-open loop 1/3 instead, because the fixes have not been
+promoted to dev yet, so QA tests the final content once. Added by the orchestrator, NOT put to the owner
+beforehand: (3) this supersedes BR-10's "bump the minor version" and CONTEXT.md's minor-bump rule for this
+release only; (4) a consumer on the installed 1.0.0 sees no version change, so a version-keyed plugin update
+would not offer them this build (unverified; worth checking before go-live); (5) at go-live the owner answers
+"go as v1.0.0" — next-version.sh will still propose v0.1.0 and must be overridden. Go-live itself is not given.
+Follow-up (business-analyst, 2026-09-19): recorded in `requirements.md` as the "Amendment 2026-09-19
+(Q-4)" note at the top, with FR-30, AC-35, §8 "Version" and §8 "Rollback" amended in place (no FR/AC
+renumbered, removed or weakened) and the AC-12 "pre-1.1.0" wording reworded. The supersession of
+BR-10's minor bump is stated inside requirements.md; product.md is NOT edited. The engineering work is
+SHI-24 (eng, open), a sub-issue of SHI-5, amending SHI-19 (left Done). No new question was needed —
+the decision and its consequences are fully specified by this Q-4 answer. Consequence (4) — a consumer
+on the installed 1.0.0 sees no version change, so a version-keyed plugin update would not offer them
+this build — remains unverified and is the owner's call at go-live; SHI-24 does not address it.

@@ -18,6 +18,7 @@
 | SHI-21 | defect | qa | Medium | fixed | engineer | init.sh: a flagless re-run recreates scripts/deploy/* and deploy.yml in a project whose pipeline.env declares no deployable environments |
 | SHI-22 | defect | qa | Low | fixed | engineer | init.sh: an unknown --profile is rejected only after tooling files have been copied (half-applied install) |
 | SHI-23 | defect | qa | Low | fixed | engineer | commands/pipeline-init.md names a vendor (Hetzner); AC-31 / NFR-10 require none in agents/ or commands/ |
+| SHI-24 | eng | - | - | open | engineer | Release version is v1.0.0 (owner decision Q-4): plugin.json, README release notes, AC-35 test |
 | SHI-10 | follow-up | - | - | open | the-owner | research.md template ships placeholder text from an unrelated product |
 | SHI-11 | follow-up | - | - | open | the-owner | Pluggable deploy targets instead of Hetzner/docker-compose specific scripts |
 | SHI-12 | follow-up | - | - | open | the-owner | How existing installs receive new pipeline.env keys (migration step) |
