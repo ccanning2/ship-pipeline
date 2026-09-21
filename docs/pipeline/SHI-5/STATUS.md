@@ -14,30 +14,23 @@ Rework loops used: 2/3
 | 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 2/3) | Dev = QA = f9cc6af · self-check pass on the promoted ref · 49-form differential vs gate.sh |
 | 7 | qa | qa-tester | done — PASS (round 3, scoped) | f9cc6af: test_init 137/0, test_config 162/0, 213-form differential, SHI-25 verified; last full suite 711/711 on 6a0cbbc; 0 defects open |
 | 8 | staging | app-specialist (+ marketing skipped by configuration) | done — APPROVED | f9cc6af: full suite 728/728 (one run), all ACs walked as the three roles, RELEASE_CHECKLIST.md all blocking sections PASS, 0 defects |
-| 9 | go-live | the owner | waiting on the owner | version to be set by the owner's explicit answer ("go as v1.0.0", Q-4); next-version.sh proposes v0.1.0 |
-| 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
+| 9 | go-live | the owner | done | owner: "go as v1.0.0" 2026-09-19T20:20:49Z (Q-4 override of next-version.sh's v0.1.0) |
+| 10 | production | senior-engineer (tag vX.Y.Z) | done | v1.0.0 on f9cc6af, remote tag verified, install from the tag verified; no deploy step (no host) |
 
 ## Next action
-Owner answers the go-live question (go / no-go / "go as v1.0.0"). On go: write `Version:` and `Go-live: approved by <owner> <ISO time>` to
-releases.md, comment the same on SHI-5, then `promote.sh SHI-5 production` tags the version on f9cc6af. Nothing is written to
-releases.md before an explicit go.
+None: SHI-5 is released (v1.0.0 on f9cc6af). Follow-ups for the owner to ticket or drop are listed below.
 
 ## Waiting on the owner
-- Nothing blocking. By go-live:
-  1. Version — **decided, Q-4 (2026-09-19): this build is released as v1.0.0.** At go-live the owner must
-     still answer "go as v1.0.0", because `next-version.sh` will keep proposing `v0.1.0` (0 tags, local and
-     remote). SHI-24 returns `plugin.json` to 1.0.0 and folds the README notes into one v1.0.0 section.
-     Owner clarification 2026-09-19: nobody is using the released 1.0.0 yet, so the version has no consumer
-     impact for now (the earlier worry that installed 1.0.0 users would not be offered this build is moot);
-     the version only needs to read 1.0.0 once all changes are done.
-  2. Follow-up candidates the QA report found outside SHI-5's scope (owner decides whether to ticket them):
-     - allow-paths.sh does not normalise `..`, so `tests/../src/x` matches `tests/*` (persona write boundary).
-     - This repo's deploy.yml fires on pushes/tags and builds an image this project lacks.
-     - tests/pipeline/lib.sh uses `sed -i -E` (fails on macOS BSD sed); empty `${kept[@]}` under set -u on bash < 4.4.
-     - Stale text: README says "425 tests"; init.sh's closing Next-step 3 still tells an opted-out project to
-       create GitHub environments; docs/pipeline/README.md mentions scripts/deploy/rollback.sh.
-  Resolved: the `plugin.json` missing `commands`/`agents` keys were removed by the owner's own commit c0102d3,
-  so test_config.sh's weakened assertion matches the manifest as committed.
+- Nothing blocking. Follow-up candidates (not ticketed except SHI-10/11/12):
+  - This repo's deploy.yml fails on every push to master/staging and on the tag (nothing to build): disable or delete it.
+  - plugin.json `description` still says "GitHub Actions + Hetzner"; README says "425 tests" (now 728); init.sh / README
+    next-steps still tell an opted-out project to create GitHub environments; ship.md step 9 and the senior-engineer
+    promote-production mode still mention waiting for a deploy.
+  - QA round-1 findings outside this ticket: allow-paths.sh does not normalise `..`; tests/pipeline/lib.sh uses `sed -i -E`
+    (fails on macOS); empty `${kept[@]}` under set -u on bash < 4.4.
+  - promote.sh creates an annotated tag locally but pushes the commit sha to the tag ref, so the remote tag is lightweight;
+    a later local `git fetch --tags` then reports "would clobber existing tag". Harmless; align by deleting the local tag.
+  - guard-merge.sh reads the word `master` anywhere in a Bash command (even inside a commit message) as a push to master.
 
 Closed:
 - Q-1 answered 2026-09-18 — SHI-5 runs under the new rules; this repo's marketing capability is
