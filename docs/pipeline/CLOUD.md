@@ -24,6 +24,7 @@ The pipeline in this repo is already GitHub-based, so **A is the shortest path**
    gh repo create <you>/reputabill --private --source . --push
    git push --all origin && git push --tags origin
    ```
+   Run these yourself, in your own terminal: they move every branch and tag at once, so the guard hook refuses them from an agent. If GitHub created the repository with its own first commit (a README), the histories are unrelated; decide how to reconcile them before pushing. `/pipeline-doctor` checks this.
    Recreate any CI variables as GitHub environment secrets/vars (see README → One-time setup).
 2. **Connect GitHub to Claude:** open claude.ai/code (or the iOS **Code** tab), follow onboarding, and install the Claude GitHub App on the repo.
 3. **Create a cloud environment** called `<project>`. At claude.ai/code, open the environment selector, then choose **Add cloud environment**:
@@ -53,7 +54,7 @@ From the iOS app (**Code** tab) or the Windows Desktop app (**Cloud**):
 
 ### How the cloud differs (handled automatically)
 - **Branches.** Pushes only go to the session's branch. `/ship` stays on it and records the ticket in `.claude/.pipeline-ticket`.
-- **Merging.** `promote.sh dev` merges via the PR (GitHub REST API) rather than pushing to master directly. Pipeline Gate must pass as a required check.
+- **Merging.** `promote.sh dev` merges via the PR (GitHub REST API) rather than pushing to `master` directly. Pipeline Gate must pass as a required check.
 - **Deploys** run in GitHub Actions (`deploy.yml`), not in the session, so no SSH keys ever enter the VM. A project with `PIPELINE_HAS_DEPLOY_ENVS="no"` in `pipeline.env` has no `deploy.yml` at all: `promote.sh` skips the deploy wait, the staging dispatch and smoke, and only the branch/tag promotion runs. `PIPELINE_HAS_MARKETING="no"` likewise skips the marketing persona and the production marketing requirement. Both default to `yes`.
 - **Usage.** Cloud sessions share your plan's usage limits. `STATUS.md` makes every run resumable.
 - **Idle sessions** eventually release their VM. Reopening restores the conversation, and `/ship <TICKET>` resumes from STATUS.md.

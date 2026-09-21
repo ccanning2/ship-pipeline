@@ -18,6 +18,17 @@ assert_contains "placeholders filled: name" "$(cat "$P/scripts/pipeline/pipeline
 assert_contains "placeholders filled: key" "$(cat "$P/scripts/pipeline/pipeline.env")" 'TRACKER_TEAM_KEY="RAD"'
 assert_contains "context named" "$(cat "$P/docs/pipeline/CONTEXT.md")" "# radio — Pipeline context"
 assert_contains "gitignore appended" "$(cat "$P/.gitignore")" ".claude/.pipeline-ticket"
+assert_contains "item 7: gitignore entries sit under '# ship-pipeline'" "$(cat "$P/.gitignore")" "# ship-pipeline"
+grep -q 'Append to' "$P/.gitignore" && bad "item 7: no instruction text copied into .gitignore" || ok "item 7: no instruction text copied into .gitignore"
+[ -e "$P/.gitignore.pipeline" ] && bad "item 7: no stray .gitignore.pipeline" || ok "item 7: no stray .gitignore.pipeline"
+for f in ticket-id base-ref enforcement doctor; do [ -x "$P/scripts/pipeline/$f.sh" ] && ok "installs $f.sh" || bad "installs $f.sh"; done
+[ -f "$P/scripts/pipeline/tracker-schema.txt" ] && ok "installs tracker-schema.txt" || bad "installs tracker-schema.txt"
+assert_contains "item 3: the ticket regex is the team key" "$(cat "$P/scripts/pipeline/pipeline.env")" 'PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+"'
+assert_eq "item 3: RAD-7 is a ticket" "RAD-7" "$(cd "$P" && bash scripts/pipeline/ticket-id.sh "feature/rad-7-x")"
+for s in macos-14 UTF-8 v1.45.0-jammy; do
+  (cd "$P" && bash scripts/pipeline/ticket-id.sh "$s" >/dev/null) && bad "item 3: $s is not a ticket" || ok "item 3: $s is not a ticket"
+done
+assert_contains "item 9: PIPELINE_REMOTE defaults to origin" "$(cat "$P/scripts/pipeline/pipeline.env")" 'PIPELINE_REMOTE="origin"'
 [ -f "$P/.claude/commands/ship.md" ] && bad "commands stay in the plugin (not copied)" || ok "commands stay in the plugin (not copied)"
 
 # the installed project's own test suite runs green (copy mode)
@@ -25,16 +36,27 @@ out=$(cd "$P" && git add -A && git -c user.email=a@a -c user.name=a commit -qm i
 
 # project-owned files are never overwritten; tooling is refreshed
 echo "MY CONTEXT" > "$P/docs/pipeline/CONTEXT.md"; echo "MY ENV" > "$P/scripts/pipeline/pipeline.env"; echo "MY DEPLOY" > "$P/scripts/deploy/deploy.sh"
+[ -f "$P/scripts/pipeline/.install-manifest" ] && ok "install records a manifest" || bad "install records a manifest"
 echo "# stale" > "$P/scripts/pipeline/gate.sh"; echo "# stale" > "$P/.claude/agents/qa-tester.md"
+echo "# mine" > "$P/tests/pipeline/lib.sh"; rm "$P/scripts/pipeline/promote.sh"
 out=$(bash "$INIT" --project-dir "$P" 2>&1); assert_exit "re-run (update)" 0 $? "$out"
 assert_eq "keeps CONTEXT.md" "MY CONTEXT" "$(cat "$P/docs/pipeline/CONTEXT.md")"
 assert_eq "keeps pipeline.env" "MY ENV" "$(cat "$P/scripts/pipeline/pipeline.env")"
 assert_eq "keeps deploy.sh" "MY DEPLOY" "$(cat "$P/scripts/deploy/deploy.sh")"
-cmp -s "$P/scripts/pipeline/gate.sh" "$REPO_SRC/scripts/pipeline/gate.sh" && ok "refreshes gate.sh" || bad "refreshes gate.sh"
-cmp -s "$P/.claude/agents/qa-tester.md" "$REPO_SRC/agents/qa-tester.md" && ok "refreshes agents" || bad "refreshes agents"
+assert_eq "item 11: a hand-edited agent is kept" "# stale" "$(cat "$P/.claude/agents/qa-tester.md")"
+assert_eq "item 11: a hand-edited script is kept" "# stale" "$(cat "$P/scripts/pipeline/gate.sh")"
+cmp -s "$P/.claude/agents/qa-tester.md.new" "$REPO_SRC/agents/qa-tester.md" && ok "item 11: the new agent is written beside it (.new)" || bad "item 11: the new agent is written beside it (.new)"
+assert_contains "item 11: reports customised files" "$out" "customised, kept .claude/agents/qa-tester.md"
+cmp -s "$P/scripts/pipeline/promote.sh" "$REPO_SRC/scripts/pipeline/promote.sh" && ok "a deleted tooling file is restored" || bad "a deleted tooling file is restored"
+cmp -s "$P/scripts/pipeline/status.sh" "$REPO_SRC/scripts/pipeline/status.sh" && ok "untouched tooling stays current" || bad "untouched tooling stays current"
 assert_contains "reports kept files" "$out" "kept"
 assert_eq "gitignore not duplicated" "1" "$(grep -c '.claude/.pipeline-ticket' "$P/.gitignore")"
+out=$(bash "$INIT" --project-dir "$P" 2>&1); assert_eq "item 11: a second re-run still keeps the edit" "# stale" "$(cat "$P/.claude/agents/qa-tester.md")"
 out=$(bash "$INIT" --project-dir "$P" --force-tooling 2>&1); cmp -s "$P/scripts/deploy/deploy.sh" "$REPO_SRC/scripts/deploy/deploy.sh" && ok "--force-tooling refreshes deploy scripts" || bad "--force-tooling refreshes deploy scripts"
+cmp -s "$P/scripts/pipeline/gate.sh" "$REPO_SRC/scripts/pipeline/gate.sh" && ok "--force-tooling refreshes a hand-edited script" || bad "--force-tooling refreshes a hand-edited script"
+cmp -s "$P/.claude/agents/qa-tester.md" "$REPO_SRC/agents/qa-tester.md" && ok "--force-tooling refreshes a hand-edited agent" || bad "--force-tooling refreshes a hand-edited agent"
+[ -e "$P/.claude/agents/qa-tester.md.new" ] && bad "--force-tooling removes the .new copy" || ok "--force-tooling removes the .new copy"
+out=$(bash "$INIT" --project-dir "$P" 2>&1); case "$out" in *customised*) bad "after --force-tooling nothing is customised" "$out";; *) ok "after --force-tooling nothing is customised";; esac
 
 # ---- declaring the project's shape at install time ----
 P3="$(mktemp -d)"; git -C "$P3" init -q -b master; git -C "$P3" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
@@ -173,6 +195,57 @@ assert_eq "QA2: PIPELINE_HAS_DEPLOY_ENVS in the process environment does not rel
 # QA-DEF (SHI-25): an apostrophe or a lone double quote in the TRAILING COMMENT defeats the "no" although gate.sh reads it as no
 rerun_with "QA-DEF: a no whose trailing comment contains an apostrophe (we don't deploy) is still honoured" no '%s\n' "PIPELINE_HAS_DEPLOY_ENVS=\"no\"  # we don't deploy"
 rerun_with 'QA-DEF: a no whose trailing comment contains a lone double quote is still honoured' no '%s\n' 'PIPELINE_HAS_DEPLOY_ENVS=no # a " mark'
+
+# ---- item 2: the trunk is not always master (acceptance test 1) ----
+Pm="$(mkp)"; git -C "$Pm" branch -m master main
+out=$(bash "$INIT" --project-dir "$Pm" --name pc --team-key PRI 2>&1); assert_exit "item 2: install on a main trunk" 0 $? "$out"
+assert_contains "item 2: detects main" "$out" "base=main"
+assert_contains "item 2: pipeline.env says main" "$(cat "$Pm/scripts/pipeline/pipeline.env")" 'BASE_BRANCH="main"'
+stale="$(cd "$Pm" && grep -rlw master .claude docs .github scripts/pipeline RELEASE_CHECKLIST.md | grep -vE '/(base-ref|doctor)\.sh$' || true)"
+assert_eq "item 2: no 'master' left in installed agents, docs, workflows or scripts" "" "$stale"
+grep -rl '__BASE_BRANCH__\|__STAGING_BRANCH__' "$Pm" --exclude-dir=.git --exclude-dir=tests >/dev/null && bad "item 2: no branch placeholder survives" || ok "item 2: no branch placeholder survives"
+$PY - "$Pm/.github/workflows/pipeline-gate.yml" "$Pm/.github/workflows/deploy.yml" <<'PY' && ok "item 2: both workflows target main and staging" || bad "item 2: both workflows target main and staging"
+import yaml,sys
+g=yaml.safe_load(open(sys.argv[1])); d=yaml.safe_load(open(sys.argv[2]))
+sys.exit(0 if (g.get("on") or g[True])["pull_request"]["branches"]==["main","staging"] and (d.get("on") or d[True])["push"]["branches"]==["main","staging"] else 1)
+PY
+cmp -s "$Pm/tests/pipeline/test_config.sh" "$REPO_SRC/tests/pipeline/test_config.sh" && cmp -s "$Pm/scripts/pipeline/gate.sh" "$REPO_SRC/scripts/pipeline/gate.sh" \
+  && ok "item 2: scripts and tests are copied verbatim (only docs, workflows and pipeline.env are rendered)" || bad "item 2: scripts and tests are copied verbatim (only docs, workflows and pipeline.env are rendered)"
+assert_eq "item 2: base-ref.sh" "origin/main" "$(cd "$Pm" && bash scripts/pipeline/base-ref.sh)"
+out=$(cd "$Pm" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install && bash tests/pipeline/run-all.sh 2>&1 | tail -1)
+assert_eq "item 2: a main-trunk project's own self-test passes" "ALL PIPELINE TESTS PASSED" "$out"
+out=$(bash "$INIT" --project-dir "$Pm" 2>&1); assert_contains "item 2: a re-run reads the base branch from pipeline.env" "$out" "base=main (from pipeline.env)"
+Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" --base-branch trunk --staging-branch pre 2>&1); assert_exit "item 2: --base-branch/--staging-branch" 0 $? "$out"
+assert_contains "item 2: --base-branch written" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'BASE_BRANCH="trunk"'
+assert_contains "item 2: --staging-branch in the docs" "$(cat "$Pq/docs/pipeline/BRANCHING.md")" '`pre`'
+for badb in "--base-branch bad..name" "--base-branch x --staging-branch x"; do
+  Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" $badb 2>&1); assert_exit "item 2: '$badb' rejected" 1 $? "$out"
+  assert_eq "item 2: '$badb' creates nothing" "" "$(ls -A "$Pq" | grep -v '^\.git$' || true)"
+done
+
+# ---- item 7: an older install's leftovers are cleaned, and appending is idempotent (acceptance test 5) ----
+Pg="$(mkp)"; printf 'node_modules\n\n# Append to .gitignore\n.claude/.pipeline-ticket\n.claude/settings.local.json\n' > "$Pg/.gitignore"
+printf '# Append to .gitignore\n.claude/.pipeline-ticket\n.claude/settings.local.json\n' > "$Pg/.gitignore.pipeline"
+bash "$INIT" --project-dir "$Pg" >/dev/null 2>&1; out=$(bash "$INIT" --project-dir "$Pg" 2>&1)
+assert_eq "item 7: legacy instruction line replaced" "0|1" "$(grep -c 'Append to' "$Pg/.gitignore")|$(grep -c '^# ship-pipeline$' "$Pg/.gitignore")"
+assert_eq "item 7: each entry exactly once after two runs" "1|1" "$(grep -cx '.claude/.pipeline-ticket' "$Pg/.gitignore")|$(grep -cx '.claude/settings.local.json' "$Pg/.gitignore")"
+[ -e "$Pg/.gitignore.pipeline" ] && bad "item 7: the old .gitignore.pipeline is removed" || ok "item 7: the old .gitignore.pipeline is removed"
+assert_contains "item 7: user entries untouched" "$(cat "$Pg/.gitignore")" "node_modules"
+Pg="$(mkp)"; echo "my own notes" > "$Pg/.gitignore.pipeline"; bash "$INIT" --project-dir "$Pg" >/dev/null 2>&1
+assert_eq "item 7: a .gitignore.pipeline the owner wrote is never deleted" "my own notes" "$(cat "$Pg/.gitignore.pipeline")"
+
+# ---- upgrading a v1.0.0 install ----
+Pu="$(mkp)"; bash "$INIT" --project-dir "$Pu" --name up --team-key UP >/dev/null 2>&1
+sed -i.bak '/^PIPELINE_REMOTE=/d' "$Pu/scripts/pipeline/pipeline.env" && rm -f "$Pu/scripts/pipeline/pipeline.env.bak"; rm -f "$Pu/scripts/pipeline/.install-manifest"
+before_env="$(cksum < "$Pu/scripts/pipeline/pipeline.env")"
+out=$(bash "$INIT" --project-dir "$Pu" 2>&1); assert_exit "upgrade: re-run over a v1.0.0-shaped install" 0 $? "$out"
+assert_contains "upgrade: says the install predates v1.1.0" "$out" "predates v1.1.0"
+assert_contains "upgrade: points at the doctor" "$out" "/pipeline-doctor"
+assert_eq "upgrade: pipeline.env is still not touched" "$before_env" "$(cksum < "$Pu/scripts/pipeline/pipeline.env")"
+out=$(bash "$INIT" --project-dir "$Pm" 2>&1); case "$out" in *"predates v1.1.0"*) bad "upgrade: a current install gets no upgrade note" "$out";; *) ok "upgrade: a current install gets no upgrade note";; esac
+
+# ---- item 8: deploy.yml ships switched off ----
+assert_contains "item 8: installed deploy.yml is gated on PIPELINE_DEPLOY_ENABLED" "$(cat "$Pm/.github/workflows/deploy.yml")" "vars.PIPELINE_DEPLOY_ENABLED == 'true'"
 
 # profile install
 P2="$(mktemp -d)"; git -C "$P2" init -q -b master; git -C "$P2" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init

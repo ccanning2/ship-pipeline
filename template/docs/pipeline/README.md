@@ -14,7 +14,8 @@ Run `/ship <TICKET>` on a tracker ticket that holds the requirement. Personas ha
 
 Write boundaries are enforced by hooks (`scripts/pipeline/hooks/allow-paths.sh`); merges/pushes/tags are gated by `scripts/pipeline/hooks/guard-merge.sh` and by CI.
 
-Commands: `/ship <TICKET>`, `/pipeline-status <TICKET>`, `/pipeline-init` (update tooling).
-Scripts: `scripts/pipeline/{status,gate,promote,next-version}.sh`, `scripts/deploy/rollback.sh`.
+Commands: `/ship <TICKET>`, `/pipeline-status <TICKET>`, `/pipeline-doctor` (is this repo ready?), `/pipeline-init` (update tooling).
+Project-specific instructions for a persona: **Persona notes** in `CONTEXT.md` (the agent files are tooling and are refreshed).
+Scripts: `scripts/pipeline/{status,gate,promote,next-version,doctor}.sh`, `scripts/deploy/rollback.sh`.
 Tests: `bash tests/pipeline/run-all.sh`.
 Cloud sessions (run from the phone): `CLOUD.md`.

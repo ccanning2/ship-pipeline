@@ -1,8 +1,11 @@
 name: Pipeline Gate
-# PRs into master must pass the "dev" gate; PRs into staging the "qa" gate. Make this a required check.
+# PRs into __BASE_BRANCH__ must pass the "dev" gate; PRs into __STAGING_BRANCH__ the "qa" gate. Make this a required check
+# (docs/pipeline/BRANCHING.md). A PR labelled `infra` is repository maintenance with no ticket (CI, dependencies,
+# tooling): it skips the ticket gate but still needs a human to review and merge it. Only a human adds that label.
 on:
   pull_request:
-    branches: [master, staging]
+    branches: [__BASE_BRANCH__, __STAGING_BRANCH__]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 permissions: { contents: read }
 jobs:
   gate:
@@ -10,16 +13,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha }}" }
-      - name: Pipeline tooling self-test
-        run: bash tests/pipeline/run-all.sh
+      - name: Pipeline tooling self-test (when the tooling changed)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --name-only "$BASE_SHA...HEAD" -- scripts/pipeline tests/pipeline .claude .github/workflows docs/pipeline/_templates | grep -q .; then
+            bash tests/pipeline/run-all.sh
+          else
+            echo "No pipeline tooling changed; self-test skipped."
+          fi
       - name: Verify gate for target branch
         env:
           HEAD_REF: ${{ github.head_ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           BASE: ${{ github.base_ref }}
+          INFRA: ${{ contains(github.event.pull_request.labels.*.name, 'infra') }}
         run: |
-          t=$(printf '%s %s' "$HEAD_REF" "$PR_TITLE" | grep -oiE '[A-Z][A-Z0-9]+-[0-9]+' | head -1 | tr a-z A-Z || true)
-          [ -n "$t" ] || { echo "::error::No ticket id in branch name or PR title"; exit 1; }
-          [ "$BASE" = staging ] && stage=qa || stage=dev
+          if [ "$INFRA" = true ]; then echo "Labelled infra: no ticket gate. A human reviews and merges this PR."; exit 0; fi
+          t="$(bash scripts/pipeline/ticket-id.sh "$HEAD_REF" "$PR_TITLE")" || {
+            echo "::error::No ticket id in the branch name or PR title (ids match $(bash scripts/pipeline/ticket-id.sh --regex)). Repository maintenance with no ticket: a human adds the 'infra' label."
+            exit 1; }
+          [ "$BASE" = "$(bash scripts/pipeline/base-ref.sh --staging)" ] && stage=qa || stage=dev
           bash scripts/pipeline/status.sh "$t" || true
-          PIPELINE_BASE_REF="origin/master" bash scripts/pipeline/gate.sh "$t" "$stage"
+          PIPELINE_BASE_REF="$(bash scripts/pipeline/base-ref.sh)" bash scripts/pipeline/gate.sh "$t" "$stage"

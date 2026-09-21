@@ -11,7 +11,7 @@ Rework loops used: 0/3
 | 3 | product | product-owner | pending | |
 | 4 | analysis | business-analyst ⇄ product-owner | pending | |
 | 5 | build | senior-engineer | pending | |
-| 6 | dev | senior-engineer (merge → master, self-check) | pending | |
+| 6 | dev | senior-engineer (merge → __BASE_BRANCH__, self-check) | pending | |
 | 7 | qa | qa-tester | pending | |
 | 8 | staging | app-specialist (+ marketing-specialist when the project has a marketing function and the ticket is user-facing; otherwise skipped by configuration) | pending | |
 | 9 | go-live | the owner | pending | |

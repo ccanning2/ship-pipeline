@@ -27,7 +27,7 @@ A FAIL in a section marked (blocking) blocks the release.
 - [ ] New env vars/config exist in production before deploy. Health endpoint green after deploy.
 - [ ] Previous production version tag recorded for rollback.
 - [ ] With `PIPELINE_HAS_DEPLOY_ENVS="no"` there is nothing to deploy: confirm instead that the same
-      sha reached `master`, the `staging` branch and the version tag, and that the artefact installs
+      sha reached `__BASE_BRANCH__`, the `__STAGING_BRANCH__` branch and the version tag, and that the artefact installs
       from the staging ref.
 
 ## 6. Product & brand

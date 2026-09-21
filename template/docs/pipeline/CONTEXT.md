@@ -21,7 +21,7 @@ The personas are generic; THIS file is what makes them behave correctly for this
 - Architecture docs to keep updated: `OVERVIEW.md`, `BACKEND.md`, `FRONTEND.md` (create if missing).
 
 ## Environments (see BRANCHING.md)
-- dev ← merge to `master` · qa ← push to `staging` branch · staging ← dispatch of the same sha · production ← tag `vX.Y.Z`.
+- dev ← merge to `__BASE_BRANCH__` · qa ← push to `__STAGING_BRANCH__` branch · staging ← dispatch of the same sha · production ← tag `vX.Y.Z`.
 - Hosting: <e.g. Hetzner CX33 running dev+qa+staging, separate production host>. URLs in `scripts/pipeline/pipeline.env`.
 - Test data policy: <sandbox keys only, no production personal data outside production>.
 
@@ -41,6 +41,11 @@ Both keys default to `yes` — the original behaviour — and only an explicit `
 
 ## High-risk areas (QA and app specialist focus here)
 - <e.g. payments/webhooks, state machines, uploads/permissions, authz, pagination caps>.
+
+## Persona notes
+Project-specific instructions for one persona go here, under its name, instead of into `.claude/agents/*.md`
+(those are tooling: `/pipeline-init` refreshes them, and keeps a hand-edited copy only by skipping its update).
+- <persona>: <instruction>
 
 ## Open strategic questions (do not assume resolved)
 - <list>

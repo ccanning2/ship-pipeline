@@ -54,4 +54,56 @@ out=$(hook "gh pr merge 12 --merge"); assert_exit ".pipeline-ticket file used; a
 echo "REP-99" > "$R/.claude/.pipeline-ticket"
 out=$(hook "gh pr merge 12 --merge"); assert_exit ".pipeline-ticket unready blocked" 2 $? "$out"
 out=$(hook "bash scripts/pipeline/promote.sh REP-99 dev"); assert_exit "promote.sh itself not blocked (it gates)" 0 $? "$out"
+
+# ---- the command is parsed, not scanned: only a real git/gh command counts ----
+new_repo   # on master, no ticket anywhere
+out=$(hook 'echo "git push origin master" | tail -1'); assert_exit "push text inside echo is not a push" 0 $? "$out"
+out=$(hook 'git log --oneline | grep "git merge"'); assert_exit "merge text inside grep is not a merge" 0 $? "$out"
+out=$(hook 'git commit -m "wip; git push origin HEAD:master"'); assert_exit "a quoted ; does not split the command" 0 $? "$out"
+out=$(hook "$(printf 'cat > notes.txt <<EOF\ngit push origin master\nEOF')"); assert_exit "heredoc body is not a command" 0 $? "$out"
+out=$(hook 'git status && git push origin HEAD:master'); assert_exit "the push in a compound command is still gated" 2 $? "$out"
+out=$(hook 'FOO=1 git -C . push origin "HEAD:master" 2>&1 | tail -3'); assert_exit "env prefix, git -C, quoted refspec, pipe: still a push to master" 2 $? "$out"
+out=$(hook 'git push origin runner-macos-14:refs/heads/macos-14'); assert_exit "a branch that looks like a broad ticket id is not a promotion" 0 $? "$out"
+out=$(hook 'git push origin master 2>/dev/null'); assert_exit "redirection is not a refspec" 2 $? "$out"
+out=$(hook 'bash -c "git push origin HEAD:master"'); assert_exit "bash -c does not hide a push" 2 $? "$out"
+out=$(hook 'sudo -E git push origin HEAD:master'); assert_exit "sudo does not hide a push" 2 $? "$out"
+out=$(hook 'echo master | xargs git push origin'); assert_exit "xargs does not hide a push" 2 $? "$out"
+out=$(hook 'eval git push origin HEAD:master'); assert_exit "eval does not hide a push" 2 $? "$out"
+out=$(hook 'timeout 30 git push origin HEAD:master'); assert_exit "timeout does not hide a push" 2 $? "$out"
+out=$(hook 'bash scripts/build.sh --push'); assert_exit "running a script is not a push" 0 $? "$out"
+out=$(hook 'gh'); assert_exit "bare gh is fine (no empty-array error)" 0 $? "$out"
+
+# ---- ways forward, and no agent-settable way around ----
+out=$(hook "git push"); assert_exit "bare push on master without ticket blocked" 2 $? "$out"
+assert_contains "block names the infra route" "$out" "'infra' label"
+assert_contains "block names the owner's own terminal" "$out" "own terminal"
+assert_contains "block tells the agent not to work around it" "$out" "Do not try to get around"
+out=$(hook "git push --force-with-lease origin master"); assert_exit "acceptance 3: force push to master without ticket blocked" 2 $? "$out"
+assert_contains "acceptance 3: force push names a human route" "$out" "own terminal"
+case "$out" in *PIPELINE_BYPASS*) bad "acceptance 3: block does not suggest an override the agent could set" "$out";; *) ok "acceptance 3: block does not suggest an override the agent could set";; esac
+branch feature/REP-95-x; ready_build REP-95 chore no; built REP-95
+out=$(hook "git push origin HEAD:master"); assert_exit "ready ticket may push to master" 0 $? "$out"
+out=$(hook "git push -f origin HEAD:master"); assert_exit "but never force-push it, even when ready" 2 $? "$out"
+out=$(hook "git push origin +HEAD:staging"); assert_exit "+refspec is a force push" 2 $? "$out"
+out=$(hook "git push origin :staging"); assert_exit "deleting staging blocked" 2 $? "$out"
+out=$(hook "git push origin --delete v1.0.0"); assert_exit "deleting a version tag blocked" 2 $? "$out"
+out=$(hook "git push --all origin"); assert_exit "bulk push blocked" 2 $? "$out"
+out=$(hook "git push --mirror origin"); assert_exit "mirror push blocked" 2 $? "$out"
+out=$(hook "git push -f origin feature/REP-95-x"); assert_exit "force push of a ticket branch is not gated here" 0 $? "$out"
+out=$(hook "gh pr edit 7 --add-label infra"); assert_exit "agent cannot add the infra label" 2 $? "$out"
+out=$(hook "gh pr edit 7 --add-label bug,infra"); assert_exit "nor in a label list" 2 $? "$out"
+out=$(hook "gh api -X POST repos/o/r/issues/7/labels -f labels[]=infra"); assert_exit "nor through the API" 2 $? "$out"
+out=$(hook "gh pr edit 7 --add-label bug"); assert_exit "other labels are fine" 0 $? "$out"
+out=$(hook "gh api -X PATCH repos/o/r/git/refs/heads/staging -f sha=abc"); assert_exit "moving staging through the API is the qa gate" 2 $? "$out"
+out=$(hook "gh api -X POST repos/o/r/git/refs -f ref=refs/tags/v1.0.0 -f sha=abc"); assert_exit "creating a tag through the API is the production gate" 2 $? "$out"
+out=$(PIPELINE_BYPASS=1 hook "git push --force origin master"); assert_exit "PIPELINE_BYPASS from the human's environment lets even this through" 0 $? "$out"
+assert_contains "and announces it" "$out" "bypassed"
+out=$(hook "PIPELINE_BYPASS=1 git push --force origin master"); assert_exit "PIPELINE_BYPASS written into the command does not reach the hook" 2 $? "$out"
+
+# ---- a trunk that is not master, and a narrow ticket id ----
+new_repo; set_capability BASE_BRANCH '"main"'; g branch -m master main; commit_all "trunk is main"
+out=$(hook "git push origin HEAD:main"); assert_exit "main trunk: push to main is the dev gate" 2 $? "$out"; assert_contains "main trunk: named" "$out" "dev gate"
+out=$(hook "git push origin HEAD:master"); assert_exit "main trunk: 'master' is just a branch name" 0 $? "$out"
+g checkout -qb build/macos-14
+out=$(hook "git push origin HEAD:main"); assert_exit "acceptance 2: 'macos-14' on the branch is not a ticket" 2 $? "$out"; assert_contains "acceptance 2: so no ticket id is found" "$out" "no ticket id"
 summary

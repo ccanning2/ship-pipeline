@@ -11,6 +11,9 @@ fi
 # A bare `python3` on PATH can be a non-functional stub (Windows), so probe for a real one.
 PY=""; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { PY="$c"; break; }; done
 
+# Fixtures never inherit the hosting project's settings or the caller's environment.
+unset PIPELINE_TICKET_REGEX PIPELINE_TICKET PIPELINE_BYPASS PIPELINE_BASE_REF PIPELINE_DOCS_REF BASE_BRANCH STAGING_BRANCH PIPELINE_REMOTE TRACKER_TEAM_KEY
+
 PASS=0; FAIL=0
 
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -23,7 +26,9 @@ summary() { echo "  -- $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; }
 g() { git -C "$R" "$@"; }
 commit_all() { g add -A; g commit -qm "${1:-wip}"; }
 
-# new_repo: temp git repo (branch master) scaffolded with scripts/init.sh; sets R
+# new_repo: temp git repo (branch master) scaffolded with scripts/init.sh; sets R.
+# Every fixture is a master-trunk repo with team key REP, whatever the hosting project uses (its pipeline.env is
+# copied in copy mode, so the fixture's own values are written over it).
 new_repo() {
   R="$(mktemp -d)"
   git -C "$R" init -q -b master
@@ -31,7 +36,7 @@ new_repo() {
   mkdir -p "$R/src"; echo "class App {}" > "$R/src/App.java"
   git -C "$R" add -A; git -C "$R" commit -qm init
   if [ "$INIT_MODE" = init ]; then
-    bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name demo --team-key REP >/dev/null
+    bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name demo --team-key REP --base-branch master --staging-branch staging >/dev/null
   else
     mkdir -p "$R/scripts" "$R/docs/pipeline" "$R/.claude" "$R/tests"
     cp -r "$REPO_SRC/scripts/pipeline" "$R/scripts/"
@@ -41,6 +46,8 @@ new_repo() {
   fi
   # Fixtures always start from the default (strict) shape, whatever the hosting project declares.
   set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'; set_capability PIPELINE_HAS_MARKETING '"yes"'
+  set_capability BASE_BRANCH '"master"'; set_capability STAGING_BRANCH '"staging"'; set_capability PIPELINE_REMOTE '"origin"'
+  set_capability TRACKER_TEAM_KEY '"REP"'; set_capability PIPELINE_TICKET_REGEX '"REP-[0-9]+"'
   git -C "$R" add -A; git -C "$R" commit -qm "install pipeline"
 }
 

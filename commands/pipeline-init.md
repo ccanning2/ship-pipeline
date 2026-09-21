@@ -1,18 +1,27 @@
 ---
 description: Install or update the ship pipeline in the current project (scaffolds scripts, agents, workflows, templates; never overwrites your project-specific files).
-argument-hint: [--name NAME] [--team-key KEY] [--profile NAME] [--no-deploy-envs] [--no-marketing]
+argument-hint: [--name NAME] [--team-key KEY] [--base-branch NAME] [--profile NAME] [--no-deploy-envs] [--no-marketing]
 ---
-1. Before running anything, ask the owner these two questions and add the matching flag to the arguments:
+1. Before running anything, ask the owner these questions and add the matching flags to the arguments (skip any the arguments already answer):
+   - **Base branch.** Detect the trunk with `git symbolic-ref --short refs/remotes/origin/HEAD`, else the current branch, and ask: "Is `<branch>` the trunk that merges deploy from?" Add `--base-branch <branch>`. Every workflow, doc and agent is written for that name.
+   - **Tracker team key.** "What is the tracker team key (ABC for tickets like ABC-12)?" Add `--team-key <KEY>`. Ticket ids are matched as `<KEY>-<number>` only, so runner labels and image tags such as `macos-14` are never mistaken for tickets.
    - "Does this project have deployable environments — hosts, an image, a deploy workflow, a health endpoint?" If no, add `--no-deploy-envs`: no `scripts/deploy/*` and no `deploy.yml` are created, and the deploy/dispatch/smoke steps are skipped. The branch/tag promotion model is unchanged.
    - "Does this project have a marketing function?" If no, add `--no-marketing`: the marketing persona is not invoked and the production gate does not ask for launch content.
-   Both default to yes, which is the original behaviour. Only an explicit `no` turns a capability off. On an **existing** install `scripts/pipeline/pipeline.env` is never rewritten, so tell the owner to set `PIPELINE_HAS_DEPLOY_ENVS` / `PIPELINE_HAS_MARKETING` there by hand; nothing is ever deleted. An existing `pipeline.env` that already says `PIPELINE_HAS_DEPLOY_ENVS="no"` is read, so a re-run does not recreate the deploy files even without the flag.
+   Both capabilities default to yes, which is the original behaviour. Only an explicit `no` turns a capability off. On an **existing** install `scripts/pipeline/pipeline.env` is never rewritten, so tell the owner to set `PIPELINE_HAS_DEPLOY_ENVS` / `PIPELINE_HAS_MARKETING` there by hand; nothing is ever deleted. An existing `pipeline.env` that already says `PIPELINE_HAS_DEPLOY_ENVS="no"` is read, so a re-run does not recreate the deploy files even without the flag.
 2. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" $ARGUMENTS` from the repository root, with those flags appended.
-3. If `docs/pipeline/CONTEXT.md` was just created, fill it in **now** by inspecting the repository (build files, README, existing architecture docs): product summary, stack, exact test/build commands, environments, architecture rules, high-risk areas, brand/audience (for marketing), competitors (for research), regulatory notes. Ask the owner only for things the repo cannot tell you. Record the two capability answers there in prose, so the personas know the project's shape as well as the tooling does.
-4. If `RELEASE_CHECKLIST.md` was just created, tailor its sections to this project (keep the Tickets, Security, Data and Infrastructure sections).
-5. Set the URLs and `TRACKER_TEAM_KEY` in `scripts/pipeline/pipeline.env` from what the owner tells you, and check `PIPELINE_HAS_DEPLOY_ENVS` / `PIPELINE_HAS_MARKETING` match the answers from step 1.
-6. Run `bash tests/pipeline/run-all.sh` and fix anything that fails.
-7. Commit with message `chore: install ship pipeline`.
+3. If the output lists files as **customised, kept**, those tooling files were edited by hand since the last install. Show the owner the difference between each file and its `.new` version. Move project-specific content into `docs/pipeline/CONTEXT.md` (the **Persona notes** section for agents) and take the new version, or keep theirs. Decide file by file with the owner; never pass `--force-tooling` without their say-so.
+4. **Upgrading an existing install.** Project-owned files are never rewritten, so an older install keeps its old `pipeline.env` and workflows. Run `bash scripts/pipeline/doctor.sh --offline` and take each finding marked `[upgrade: …]` in turn:
+   - For a workflow, show the owner the diff between their file and `${CLAUDE_PLUGIN_ROOT}/template/.github/workflows/<file>` with `__BASE_BRANCH__` / `__STAGING_BRANCH__` replaced by their branch names. Their file may carry deliberate changes (build steps, extra jobs), so propose only the hunks that fix the finding. Replace the whole file only when they have no changes of their own.
+   - For `pipeline.env`, propose the exact lines: `PIPELINE_REMOTE="origin"` next to the branch keys, and `PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+"` in place of the broad pattern. Before narrowing the regex, check `docs/pipeline/*/` and open branches for ticket ids with another prefix. If there are any, say so and let the owner choose.
+   - Apply each change only after the owner says yes to it, then re-run the doctor. Anything they decline stays as a warning; nothing breaks, the older behaviour simply continues.
+   `.gitignore` leftovers, stale agents and docs need no action: the install in step 2 already cleaned and refreshed them.
+5. If `docs/pipeline/CONTEXT.md` was just created, fill it in **now** by inspecting the repository (build files, README, existing architecture docs): product summary, stack, exact test/build commands, environments, architecture rules, high-risk areas, brand/audience (for marketing), competitors (for research), regulatory notes. Ask the owner only for things the repo cannot tell you. Record the capability answers there in prose, so the personas know the project's shape as well as the tooling does.
+6. If `RELEASE_CHECKLIST.md` was just created, tailor its sections to this project (keep the Tickets, Security, Data and Infrastructure sections).
+7. Set the URLs in `scripts/pipeline/pipeline.env` from what the owner tells you, and check `BASE_BRANCH`, `TRACKER_TEAM_KEY`, `PIPELINE_REMOTE`, `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` match the answers from step 1.
+8. Run `bash tests/pipeline/run-all.sh` and fix anything that fails.
+9. Run the readiness check: follow `/pipeline-doctor` (run `bash scripts/pipeline/doctor.sh`, then check the tracker workspace with the connector). Its findings are the owner's to-do list; install is not "done" while it reports a FAIL.
+10. Commit with message `chore: install ship pipeline`. The guard hook blocks an agent's push of that commit to the base branch, because it has no ticket. Push a branch and open a pull request for the owner to review, label `infra` and merge, or let the owner push it from their own terminal.
 
 Reply with only:
-- What was done: <created/updated/kept files, what you filled in>
-- Impact: <what the owner must still set up (branches, GitHub environments, Linear labels, hosts)>
+- What was done: <created/updated/kept/customised files, the base branch and team key used, what you filled in>
+- Impact: <the doctor's result: ready yes/no, and what the owner must still do (branches, protection, environments, tracker labels and statuses, hosts)>

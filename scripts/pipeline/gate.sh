@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Stage gate. Usage: gate.sh <TICKET> <build|dev|qa|staging|production> [REF]
 #   build       requirements + eng tickets ready; engineer may start
-#   dev         may merge to master (deploys dev, builds the image <registry>:<sha>)
-#   qa          dev self-check passed on the master build; may push it to the staging branch (deploys qa)
+#   dev         may merge to the base branch (deploys dev, builds the image <registry>:<sha>)
+#   qa          dev self-check passed on the base-branch build; may push it to the staging branch (deploys qa)
 #   staging     qa passed on that build; may dispatch it to the staging environment
 #   production  staging approved, defects closed, go-live + version set; may tag vX.Y.Z (deploys production)
 # REF omitted -> working tree + HEAD; REF given -> committed files at REF (branch, tag or sha).
-# PIPELINE_DOCS_REF=<ref> reads the pipeline docs from that ref (CI uses origin/master, where promote.sh syncs
-#   the records) while the code/sha checks use REF. Tags and the staging branch point at build shas that predate
-#   the records, so CI must read docs from master.
+# PIPELINE_DOCS_REF=<ref> reads the pipeline docs from that ref (CI uses <remote>/<BASE_BRANCH>, where promote.sh
+#   syncs the records) while the code/sha checks use REF. Tags and the staging branch point at build shas that
+#   predate the records, so CI must read docs from the base branch.
 # Success prints "DEPLOY_SHA=<sha>" (and "VERSION=<tag>" for production) and exits 0.
 # Project capabilities come from scripts/pipeline/pipeline.env only (never from the environment):
 #   PIPELINE_HAS_MARKETING="no"    -> a user-facing ticket no longer needs marketing evidence at production
@@ -31,7 +31,8 @@ fail() { echo "PIPELINE GATE [$ticket/$stage]: $*" >&2; exit 1; }
 unset PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING
 # shellcheck disable=SC1091
 [ -f "$root/scripts/pipeline/pipeline.env" ] && source "$root/scripts/pipeline/pipeline.env"
-regex="${PIPELINE_TICKET_REGEX:-[A-Z][A-Z0-9]+-[0-9]+}"
+regex="$(bash "$root/scripts/pipeline/ticket-id.sh" --regex)"   # the one ticket-id definition
+base_branch="$(bash "$root/scripts/pipeline/base-ref.sh" --branch)"; remote="$(bash "$root/scripts/pipeline/base-ref.sh" --remote)"
 # Capability resolution — fail closed: off only for an explicit `no` (trimmed, lowercased, CR tolerated);
 # absent, empty or any unrecognised value falls through to `yes` = today's stricter behaviour.
 capability() { case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" in no) echo no;; *) echo yes;; esac; }
@@ -71,16 +72,16 @@ resolve_sha() {
 }
 no_code_change_since() {
   local changed; changed="$(git -C "$root" diff --name-only "$1" "$target_sha" -- . ':(exclude)docs/pipeline')"
-  [ -z "$changed" ] || fail "code changed since $2 ($1). Merge to master again (dev) and restart from there. Changed: $(echo "$changed" | head -5 | tr '\n' ' ')"
+  [ -z "$changed" ] || fail "code changed since $2 ($1). Merge to $base_branch again (dev) and restart from there. Changed: $(echo "$changed" | head -5 | tr '\n' ' ')"
 }
 base_ref() {
   if [ -n "${PIPELINE_BASE_REF:-}" ]; then echo "$PIPELINE_BASE_REF"; return; fi
-  local b="${BASE_BRANCH:-master}" c
-  for c in "origin/$b" "$b" origin/main main; do git -C "$root" rev-parse -q --verify "$c^{commit}" >/dev/null 2>&1 && { echo "$c"; return; }; done
+  local b="$base_branch" c
+  for c in "$remote/$b" "$b"; do git -C "$root" rev-parse -q --verify "$c^{commit}" >/dev/null 2>&1 && { echo "$c"; return; }; done
 }
-require_on_base() { # the build must already have been merged to master
+require_on_base() { # the build must already have been merged to the base branch
   local b; b="$(base_ref)"; [ -n "$b" ] || fail "cannot find base branch"
-  git -C "$root" merge-base --is-ancestor "$1" "$b" || fail "build $1 is not on $b (merge to master / promote to dev first)"
+  git -C "$root" merge-base --is-ancestor "$1" "$b" || fail "build $1 is not on $b (merge to $base_branch / promote to dev first)"
 }
 require_up_to_date() {
   local b; b="$(base_ref)"; [ -n "$b" ] || fail "cannot find base branch"
@@ -107,12 +108,12 @@ bad="$(rows_where "\$2 !~ /^($known_kinds)\$/ || \$5 !~ /^($known_states)\$/" | 
 [ -n "$(rows_where '$2=="eng"')" ] || fail "no eng tickets in tickets.md (business analyst must create them)"
 deploy_sha="$target_sha"
 
-# ---- dev (merge to master) ----
+# ---- dev (merge to the base branch) ----
 if [ "$L" -ge 2 ]; then
   require_file impl-notes.md; expect impl-notes.md Status ready-for-dev
   x="$(rows_where '$2=="eng" && $5!="done" && $5!="wontfix"' | list_ids)"; [ -z "$x" ] || fail "eng tickets not done: $x"
   x="$(rows_where '$2=="defect" && ($5=="open" || $5=="in-progress" || $5=="reopened")' | list_ids)"; [ -z "$x" ] || fail "defect tickets still open: $x"
-  [ "$L" -eq 2 ] && require_up_to_date   # merging: the branch must contain master; later stages check the build is ON master instead
+  [ "$L" -eq 2 ] && require_up_to_date   # merging: the branch must contain the base branch; later stages check the build is ON it instead
 fi
 
 # ---- qa (push to staging branch) ----

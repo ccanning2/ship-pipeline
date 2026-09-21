@@ -78,6 +78,9 @@ if [ "$A" = agents ]; then
 else
   T=.
 fi
+# the plugin ships placeholders; an installed project has its own branch names (pipeline.env)
+if [ "$A" = agents ]; then WB="__BASE_BRANCH__"; WS="__STAGING_BRANCH__"; else WB="$(bash scripts/pipeline/base-ref.sh --branch)"; WS="$(bash scripts/pipeline/base-ref.sh --staging)"; fi
+export WB WS
 $PY -c "import yaml; yaml.safe_load(open('$T/.github/workflows/pipeline-gate.yml'))" && ok "pipeline-gate.yml valid yaml" || bad "pipeline-gate.yml valid yaml"
 # deploy.yml is absent in a project installed with --no-deploy-envs; the gate workflow is always there.
 if [ ! -f "$T/.github/workflows/deploy.yml" ]; then
@@ -85,9 +88,9 @@ if [ ! -f "$T/.github/workflows/deploy.yml" ]; then
 else
 $PY -c "import yaml; yaml.safe_load(open('$T/.github/workflows/deploy.yml'))" && ok "deploy.yml valid yaml" || bad "deploy.yml valid yaml"
 $PY - "$T/.github/workflows/deploy.yml" <<'PY' && ok "deploy.yml: branch/tag triggers, build on dev, tag-image on production" || bad "deploy.yml: branch/tag triggers, build on dev, tag-image on production"
-import yaml,sys
+import yaml,sys,os
 w=yaml.safe_load(open(sys.argv[1])); on=w.get("on") or w.get(True); j=w["jobs"]
-ok = on["push"]["branches"]==["master","staging"] and any("v[0-9]" in t for t in on["push"]["tags"]) \
+ok = on["push"]["branches"]==[os.environ["WB"],os.environ["WS"]] and any("v[0-9]" in t for t in on["push"]["tags"]) \
   and "docs/pipeline/**" in on["push"]["paths-ignore"] \
   and j["build"]["if"]=="needs.resolve.outputs.env == 'dev'" and j["tag-image"]["if"]=="needs.resolve.outputs.env == 'production'" \
   and any("imagetools create" in s.get("run","") for s in j["tag-image"]["steps"]) \
@@ -96,11 +99,24 @@ ok = on["push"]["branches"]==["master","staging"] and any("v[0-9]" in t for t in
 sys.exit(0 if ok else 1)
 PY
 fi
-$PY - "$T/.github/workflows/pipeline-gate.yml" <<'PY' && ok "pipeline-gate.yml: PRs to master/staging gated" || bad "pipeline-gate.yml: PRs to master/staging gated"
-import yaml,sys
+$PY - "$T/.github/workflows/pipeline-gate.yml" <<'PY' && ok "pipeline-gate.yml: PRs to the base/staging branches gated" || bad "pipeline-gate.yml: PRs to the base/staging branches gated"
+import yaml,sys,os
 w=yaml.safe_load(open(sys.argv[1])); on=w.get("on") or w.get(True)
-sys.exit(0 if on["pull_request"]["branches"]==["master","staging"] and any("gate.sh" in s.get("run","") and "stage" in s.get("run","") for s in w["jobs"]["gate"]["steps"]) else 1)
+sys.exit(0 if on["pull_request"]["branches"]==[os.environ["WB"],os.environ["WS"]] and any("gate.sh" in s.get("run","") and "stage" in s.get("run","") for s in w["jobs"]["gate"]["steps"]) else 1)
 PY
+if [ "$A" = agents ]; then
+  G="$T/.github/workflows/pipeline-gate.yml"; D="$T/.github/workflows/deploy.yml"
+  grep -q "ticket-id.sh" "$G" && ! grep -q "grep -oiE" "$G" && ok "item 3: PR gate reads the one ticket-id definition" || bad "item 3: PR gate reads the one ticket-id definition"
+  grep -q "ticket-id.sh" "$D" && ! grep -q "grep -oiE" "$D" && ok "item 3: deploy.yml reads the one ticket-id definition" || bad "item 3: deploy.yml reads the one ticket-id definition"
+  grep -q "labels.\*.name, 'infra'" "$G" && grep -q "labeled" "$G" && ok "item 10: PR gate honours the infra label" || bad "item 10: PR gate honours the infra label"
+  grep -q 'git diff --name-only' "$G" && ok "item 10: self-test runs only when the tooling changed" || bad "item 10: self-test runs only when the tooling changed"
+  $PY - "$D" <<'PY' && ok "item 8: every deploy.yml job waits for PIPELINE_DEPLOY_ENABLED" || bad "item 8: every deploy.yml job waits for PIPELINE_DEPLOY_ENABLED"
+import yaml,sys
+j=yaml.safe_load(open(sys.argv[1]))["jobs"]
+sys.exit(0 if j["resolve"]["if"]=="vars.PIPELINE_DEPLOY_ENABLED == 'true'" and all("resolve" in (v.get("needs") or []) for k,v in j.items() if k!="resolve") else 1)
+PY
+  grep -q "PIPELINE_BASE_REF=\"origin/master\"\|origin/master" "$G" "$D" && bad "item 2: workflows name no origin/master" || ok "item 2: workflows name no origin/master"
+fi
 for tpl in STATUS product requirements clarifications research impl-notes dev-check qa-report signoff marketing releases tickets; do
   [ -f "$T/docs/pipeline/_templates/$tpl.md" ] && ok "template $tpl.md" || bad "template $tpl.md"
 done
@@ -120,16 +136,19 @@ if [ "$A" = agents ]; then
            template/docs/pipeline/CONTEXT.md template/RELEASE_CHECKLIST.md; do
     grep -q "PIPELINE_HAS_" "$d" && ok "AC-34: $d documents the capability settings" || bad "AC-34: $d documents the capability settings"
   done
+  rb="$(bash scripts/pipeline/base-ref.sh --branch)"; rs="$(bash scripts/pipeline/base-ref.sh --staging)"
   for d in TICKETS BRANCHING CLOUD; do
-    diff -q <(tr -d '\r' < "docs/pipeline/$d.md") <(tr -d '\r' < "template/docs/pipeline/$d.md") >/dev/null \
+    diff -q <(tr -d '\r' < "docs/pipeline/$d.md") <(tr -d '\r' < "template/docs/pipeline/$d.md" | sed -e "s:__BASE_BRANCH__:$rb:g" -e "s:__STAGING_BRANCH__:$rs:g") >/dev/null \
       && ok "AC-34: $d.md repo copy and template copy agree" || bad "AC-34: $d.md repo copy and template copy agree"
   done
   grep -q 'behaves exactly as it did before' README.md && ok "AC-34: README states existing installs are unaffected" || bad "AC-34: README states existing installs are unaffected"
-  # AC-35 (amended 2026-09-19 by Q-4): this build releases as v1.0.0, in one release-notes section
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="1.0.0" else 1)' \
-    && ok "AC-35: plugin.json version is 1.0.0" || bad "AC-35: plugin.json version is 1.0.0"
+  # AC-35: each release has exactly one release-notes section; plugin.json carries the newest (v1.1.0)
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="1.1.0" else 1)' \
+    && ok "plugin.json version is 1.1.0" || bad "plugin.json version is 1.1.0"
   assert_eq "AC-35: exactly one '### v1.0.0' release-notes heading" "1" "$(grep -c '^### v1.0.0' README.md || true)"
-  assert_eq "AC-35: no '### v1.1.0' release-notes heading" "0" "$(grep -c '^### v1.1.0' README.md || true)"
+  assert_eq "exactly one '### v1.1.0' release-notes heading" "1" "$(grep -c '^### v1.1.0' README.md || true)"
+  assert_eq "no 'Unreleased' release-notes heading" "0" "$(grep -c '^### Unreleased' README.md || true)"
+  grep -q '^#### Upgrading from v1.0.0' README.md && ok "v1.1.0 notes explain the upgrade" || bad "v1.1.0 notes explain the upgrade"
   RELNOTES="$(sed -n '/^### v1.0.0/,$p' README.md | sed -n '/^## /q;p')"
   for tok in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING --no-deploy-envs; do
     assert_contains "AC-35: v1.0.0 release notes mention $tok" "$RELNOTES" "$tok"
@@ -144,7 +163,7 @@ if [ "$A" = agents ]; then
   assert_eq "AC-36: the SHI-5 open question is gone from CONTEXT.md" "0" "$(grep -c 'marketing-specialist persona should be opt-out' docs/pipeline/CONTEXT.md || true)"
   assert_eq "AC-36: no reference to the non-existent template/agents path" "0" "$(grep -rc 'template/agents' docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md | awk -F: '{s+=$2} END {print s+0}')"
 fi
-for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup}.sh scripts/pipeline/hooks/{allow-paths,guard-merge}.sh; do
+for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor}.sh scripts/pipeline/hooks/{allow-paths,guard-merge}.sh; do
   [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax"
 done
 # scripts/deploy/* is absent in a project installed with --no-deploy-envs
@@ -154,6 +173,33 @@ if [ -d scripts/deploy ]; then
   done
 else
   ok "scripts/deploy absent (project has no deployable environments)"
+fi
+# item 5: the tracker list is data, and TICKETS.md agrees with it
+SCH=scripts/pipeline/tracker-schema.txt; TK="$T/docs/pipeline/TICKETS.md"
+if [ -f "$SCH" ]; then
+  for g in Stage Owner; do
+    want="$(awk -F'|' -v g="$g" '$1=="label-group" && $2==g {print $3}' "$SCH" | tr -d ' ')"
+    have="$(grep -E "^\| \`$g\` \|" "$TK" | awk -F'|' '{print $3}' | tr -d ' ')"
+    assert_eq "item 5: TICKETS.md $g labels match tracker-schema.txt" "$want" "$have"
+  done
+  for st in $(awk -F'|' '$1=="status" {print $2"="$3}' "$SCH" | tr ' ' '_'); do
+    k="${st%%=*}"; v="${st#*=}"; v="${v//_/ }"
+    grep -qE "(^|[ /])$k[a-z/]* → $v" "$TK" && ok "item 5: TICKETS.md maps $k to $v" || bad "item 5: TICKETS.md maps $k to $v"
+  done
+  grep -q "single-select" "$TK" && ok "item 5: TICKETS.md says the label groups are single-select" || bad "item 5: TICKETS.md says the label groups are single-select"
+else bad "item 5: tracker-schema.txt exists"; fi
+if [ "$A" = agents ]; then
+  [ -f "$C/pipeline-doctor.md" ] && grep -q 'doctor.sh' "$C/pipeline-doctor.md" && ok "item 1: /pipeline-doctor exists" || bad "item 1: /pipeline-doctor exists"
+  grep -q 'doctor' "$C/pipeline-init.md" && grep -q -- '--base-branch' "$C/pipeline-init.md" && ok "item 1/2: /pipeline-init asks for the base branch and ends with the doctor" || bad "item 1/2: /pipeline-init asks for the base branch and ends with the doctor"
+  grep -q 'enforcement.sh' "$C/pipeline-status.md" && ok "item 6: /pipeline-status reports the enforcement mode" || bad "item 6: /pipeline-status reports the enforcement mode"
+  lit="$(grep -rnw 'master' "$A" "$C" template | grep -v '^template/profiles' || true)"
+  assert_eq "item 2: no 'master' literal in agents, commands or template" "" "$lit"
+  grep -qF 'PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+"' template/scripts/pipeline/pipeline.env && ok "item 3: the template regex is the team key" || bad "item 3: the template regex is the team key"
+  grep -q '^PIPELINE_REMOTE="origin"' template/scripts/pipeline/pipeline.env && ok "item 9: the template declares PIPELINE_REMOTE" || bad "item 9: the template declares PIPELINE_REMOTE"
+  grep -q 'local hook only' template/docs/pipeline/BRANCHING.md && ok "item 6: BRANCHING.md states both enforcement modes" || bad "item 6: BRANCHING.md states both enforcement modes"
+  grep -q 'Supported hosts' template/docs/pipeline/BRANCHING.md && grep -q 'Supported hosts' README.md && ok "item 9: supported hosts are stated" || bad "item 9: supported hosts are stated"
+  grep -q '^## Persona notes' template/docs/pipeline/CONTEXT.md && ok "item 11: CONTEXT.md has a Persona notes section" || bad "item 11: CONTEXT.md has a Persona notes section"
+  for a in "${agents[@]}"; do grep -q "Persona notes" "$A/$a.md" && ok "item 11: $a reads its Persona notes" || bad "item 11: $a reads its Persona notes"; done
 fi
 [ -f scripts/pipeline/merge.sh ] && bad "merge.sh removed (promote.sh dev merges)" || ok "merge.sh removed (promote.sh dev merges)"
 summary

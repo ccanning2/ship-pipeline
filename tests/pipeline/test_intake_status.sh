@@ -97,4 +97,11 @@ out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
 assert_contains "QA: 'no' with a trailing CR shows marketing=off" "$out" "marketing=off"
 assert_contains "QA: 'false' is surfaced as unrecognised, not accepted as no" "$out" "deploy-envs=on (unrecognised value 'false'"
 
+# acceptance test 2: intake takes this team's ids only
+printf 'brief\n' > "$R/b.md"
+out=$(cd "$R" && bash scripts/pipeline/intake.sh REP-4242 b.md 2>&1); assert_exit "intake accepts REP-4242" 0 $? "$out"
+for s in macos-14 UTF-8 v1.45.0-jammy ABC-12; do
+  out=$(cd "$R" && bash scripts/pipeline/intake.sh "$s" b.md 2>&1); assert_exit "intake rejects $s" 1 $? "$out"
+done
+[ -d "$R/docs/pipeline/MACOS-14" ] && bad "a rejected id creates no folder" || ok "a rejected id creates no folder"
 summary

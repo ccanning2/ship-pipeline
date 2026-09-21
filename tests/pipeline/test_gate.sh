@@ -306,6 +306,7 @@ out=$(cd "$R" && PIPELINE_HAS_MARKETING=yes bash scripts/pipeline/gate.sh REP-65
 # AC-37: the plugin repo's own pipeline.env (as committed) lets a user-facing ticket through without marketing evidence
 if [ "$INIT_MODE" = init ] && grep -q '^PIPELINE_HAS_MARKETING="no"' "$REPO_SRC/scripts/pipeline/pipeline.env"; then
   cp "$REPO_SRC/scripts/pipeline/pipeline.env" "$(env_file)"
+  set_capability TRACKER_TEAM_KEY '"REP"'; set_capability PIPELINE_TICKET_REGEX '"REP-[0-9]+"'   # the fixture's ids, not this repo's
   out=$(gate REP-65 production); assert_exit "AC-37: this repo's own pipeline.env passes a user-facing ticket with no marketing evidence" 0 $? "$out"
   assert_contains "AC-37: and reports marketing=off" "$out" "marketing=off"
 fi

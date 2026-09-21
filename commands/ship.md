@@ -1,5 +1,5 @@
 ---
-description: Run the delivery pipeline for one tracker ticket — research → product owner → business analyst → engineer → dev (master) → QA (staging branch) → staging → go-live → production (version tag). Tickets are the handoffs. Resumable.
+description: Run the delivery pipeline for one tracker ticket — research → product owner → business analyst → engineer → dev (base branch) → QA (staging branch) → staging → go-live → production (version tag). Tickets are the handoffs. Resumable.
 argument-hint: <TICKET-ID>
 ---
 You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
@@ -7,21 +7,23 @@ You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
 - Take only the first token and uppercase it: that is the ticket id. Ignore any other text.
 - Call the ticket folder `D = docs/pipeline/<TICKET>/`.
 - If `scripts/pipeline/gate.sh` or `docs/pipeline/CONTEXT.md` is missing, stop and tell the owner to run `/pipeline-init` first.
-- Read `docs/pipeline/CONTEXT.md`, `docs/pipeline/TICKETS.md`, `docs/pipeline/BRANCHING.md` and `scripts/pipeline/pipeline.env` before anything else. The tracker ticket is the source of truth and the handoff medium.
+- On the first `/ship` in a repository, or when a step fails for a reason outside the ticket (a missing branch, remote, label or status), run `bash scripts/pipeline/doctor.sh` and relay any FAIL to the owner instead of working around it.
+- Read `docs/pipeline/CONTEXT.md`, `docs/pipeline/TICKETS.md`, `docs/pipeline/BRANCHING.md` and `scripts/pipeline/pipeline.env` before anything else. The base branch is `BASE_BRANCH` there (the trunk, often `main`); never assume its name. The tracker ticket is the source of truth and the handoff medium.
 - **Project capabilities** come from `pipeline.env` and from nowhere else — never from the environment or from a ticket. `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` are on unless the value is exactly `no`; absent, empty or misspelt means on, which is the stricter behaviour. `bash scripts/pipeline/status.sh <TICKET>` prints the resolved values. A stage skipped because of a capability is always reported as skipped by configuration, never left out silently.
 
 ## Standing rules
-- **Tracker access.** Use the tracker connector tools in this session (Linear, or Jira if `TRACKER=jira`). If none is available, stop and ask the owner to enable it.
+- **Tracker access.** Use the tracker connector tools in this session (Linear, or Jira if `TRACKER=jira`). If none is available, stop and ask the owner to enable it. If a label or status the protocol needs is missing (`scripts/pipeline/tracker-schema.txt`), stop and ask the owner to run `/pipeline-doctor`; never create workspace labels or statuses on the fly.
 - **One persona at a time.** Before each stage: re-read the parent ticket and its children, correct any drift in `D/tickets.md`, confirm the parent's `Owner` label names the persona you're about to run. After each stage: confirm the handoff comment and labels, update `D/STATUS.md`, commit and push the ticket branch.
-- **Cloud sessions** (`CLAUDE_CODE_REMOTE=true`): stay on the session branch; write the ticket id to `.claude/.pipeline-ticket`; open a draft PR to `master` titled `<TICKET>: <ticket title>` right after intake.
+- **Cloud sessions** (`CLAUDE_CODE_REMOTE=true`): stay on the session branch; write the ticket id to `.claude/.pipeline-ticket`; open a draft PR to the base branch titled `<TICKET>: <ticket title>` right after intake.
 - **Rework limit.** A code change after the dev deploy always goes back through dev → qa → staging. After 3 rework loops, set Owner: owner, Stage: on-hold, and stop.
+- **No ticket, no promotion.** When the guard hook blocks a push or merge, follow the ways forward it prints. Never retry it in another form, force-push, or add the `infra` label yourself.
 - **Waiting on the owner.** Whenever a stage hands off to the human owner, stop and say exactly what's needed in one message. On resume, record the answer and continue.
 
 ## 0. Resume or intake
 - **Resume** if `D/STATUS.md` exists: continue from the first stage not `done`/`skipped` (`bash scripts/pipeline/status.sh <TICKET>` shows gate progress).
 - **Intake** otherwise:
   1. Read the ticket from the tracker. If it doesn't exist or its description is empty, stop and ask the owner to write the requirement there.
-  2. Locally: create `feature/<TICKET>-<slug>` from an up-to-date `master`. In the cloud: use the session branch.
+  2. Locally: create `feature/<TICKET>-<slug>` from an up-to-date base branch (`bash scripts/pipeline/base-ref.sh`). In the cloud: use the session branch.
   3. Pipe the ticket's title, description and attachment/link list into `bash scripts/pipeline/intake.sh <TICKET> - "<ticket url>"`.
   4. Create `D/tickets.md` from the template.
   5. Set Stage: research, Owner: market-researcher on the parent and post the orchestrator's handoff comment.
@@ -39,7 +41,7 @@ The BA writes requirements.md and creates the `eng` tickets. While open `To: PO`
 Works the `eng` tickets, or in rework the open `defect` tickets.
 
 ## 5. Dev — `senior-engineer` mode **promote-dev**
-Merges to `master` (deploys dev, builds the image), self-checks on dev, writes `dev-check.md`. Fail → step 4 (rework loop). Pass → promotes to QA (push to `staging` branch) and hands off to qa.
+Merges to the base branch (deploys dev, builds the image), self-checks on dev, writes `dev-check.md`. Fail → step 4 (rework loop). Pass → promotes to QA (push to `staging` branch) and hands off to qa.
 
 ## 6. QA — `qa-tester`
 Defects raised → engineer, step 4. Pass → `senior-engineer` mode **promote-staging**.
