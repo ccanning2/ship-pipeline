@@ -3,6 +3,7 @@
 Tracker: <ticket url>
 Branch: <branch>
 Rework loops used: 0/3
+Halt: none <!-- none | usage-limit (resume with no decision needed) | owner-input (see Waiting on the owner) | done -->
 
 | # | Stage | Owner | State | Outcome |
 |---|---|---|---|---|

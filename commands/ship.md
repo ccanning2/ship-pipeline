@@ -18,6 +18,10 @@ You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
 - **Rework limit.** A code change after the dev deploy always goes back through dev → qa → staging. After 3 rework loops, set Owner: owner, Stage: on-hold, and stop.
 - **No ticket, no promotion.** When the guard hook blocks a push or merge, follow the ways forward it prints. Never retry it in another form, force-push, or add the `infra` label yourself.
 - **Waiting on the owner.** Whenever a stage hands off to the human owner, stop and say exactly what's needed in one message. On resume, record the answer and continue.
+- **Halt signal, for unattended runs.** Whenever you stop without the parent reaching Stage: done, write one line near the top of `D/STATUS.md`: `Halt: usage-limit` or `Halt: owner-input`. Then, whichever it is:
+  - `usage-limit` — a checkpoint only, nothing to decide. This is the *only* value that means "just run `/ship <TICKET>` again", so an autonomous supervisor (a loop, a schedule, or the owner) can tell a resumable pause from a real question without reading the rest of the file. Never send a push notification for this value.
+  - `owner-input` — a real decision is needed (a `blocked`/`rejected` result, an open `To: Owner` question, a stop-and-ask from the engineer, an on-hold after 3 rework loops, or the go-live ask in step 8). If a push-notification tool is available in this session, send exactly one, with the same message you show the owner; if none is available, say so in your reply instead of skipping it silently.
+  On reaching Stage: done, write `Halt: done` and send the same notification with the release summary. A stage that hands off to the *next persona* (not the owner) is not a halt: keep going in the same run without writing `Halt:` or stopping.
 
 ## 0. Resume or intake
 - **Resume** if `D/STATUS.md` exists: continue from the first stage not `done`/`skipped` (`bash scripts/pipeline/status.sh <TICKET>` shows gate progress).
@@ -59,7 +63,7 @@ Run `marketing-specialist` only when both hold. If the project has no marketing 
 Tags the sha, waits for the deploy, verifies, rolls back on failure. Ends with the parent at Stage: done / Done and a release summary (version, image tag, tickets) reminding the owner the launch content is ready to publish.
 
 ## Usage-limit safety
-Before each stage, if the session may be near its usage limit: stop cleanly, make sure `D/STATUS.md` and the ticket labels are correct, commit and push, and tell the owner to run `/ship <TICKET>` to resume.
+Before each stage, if the session may be near its usage limit: stop cleanly, make sure `D/STATUS.md` and the ticket labels are correct, write `Halt: usage-limit` (see Standing rules), commit and push, and tell the owner to run `/ship <TICKET>` to resume — an autonomous supervisor may do this without the owner, since `Halt: usage-limit` means no decision is needed.
 
 ## Output to the owner
 Only this:
