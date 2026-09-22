@@ -101,6 +101,15 @@ tests/pipeline/              921 tests (bash); also installed into each project
 
 ## Release notes
 
+### v1.2.0
+
+Lets `/ship` run unattended overnight without the owner having to notice a pause and re-type `/ship <TICKET>`.
+
+- **`Halt:` field in `STATUS.md`.** Whenever a run stops without the parent reaching `Stage: done`, it now writes `Halt: usage-limit` (a checkpoint only — run `/ship <TICKET>` again, no decision needed) or `Halt: owner-input` (a real decision is needed) or `Halt: done`. An autonomous supervisor — a `/loop`, a schedule, or a script — can read this one field instead of parsing the whole file to tell a resumable pause from a real question.
+- **Push notification on every `owner-input` or `done` halt**, sent with the same message shown to the owner, when a push-notification tool is available in the session. Never sent for `usage-limit`.
+- **One blocked ticket no longer stalls the batch.** In build mode, a ticket that hits a stop-and-ask (a destructive migration, a breaking API/auth/payment change) is recorded and left `in-progress`; the engineer moves on to the next unblocked ticket instead of ending the run. The run itself only stops once every remaining open ticket is blocked this way, or none is.
+- **Everything else is unchanged.** Every gate, path-restriction hook and the guard hook behave exactly as before; this only changes when the next `/ship` invocation happens after a pause, never what it's allowed to do. Go-live still always asks the owner.
+
 ### v1.1.0
 
 Changes from installing the pipeline into a repository whose trunk is `main`, that was moving from GitLab to GitHub, had no deployed environments and tracked work in Linear.

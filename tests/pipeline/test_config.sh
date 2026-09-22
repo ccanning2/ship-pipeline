@@ -142,11 +142,12 @@ if [ "$A" = agents ]; then
       && ok "AC-34: $d.md repo copy and template copy agree" || bad "AC-34: $d.md repo copy and template copy agree"
   done
   grep -q 'behaves exactly as it did before' README.md && ok "AC-34: README states existing installs are unaffected" || bad "AC-34: README states existing installs are unaffected"
-  # AC-35: each release has exactly one release-notes section; plugin.json carries the newest (v1.1.0)
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="1.1.0" else 1)' \
-    && ok "plugin.json version is 1.1.0" || bad "plugin.json version is 1.1.0"
+  # AC-35: each release has exactly one release-notes section; plugin.json carries the newest (v1.2.0)
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="1.2.0" else 1)' \
+    && ok "plugin.json version is 1.2.0" || bad "plugin.json version is 1.2.0"
   assert_eq "AC-35: exactly one '### v1.0.0' release-notes heading" "1" "$(grep -c '^### v1.0.0' README.md || true)"
   assert_eq "exactly one '### v1.1.0' release-notes heading" "1" "$(grep -c '^### v1.1.0' README.md || true)"
+  assert_eq "exactly one '### v1.2.0' release-notes heading" "1" "$(grep -c '^### v1.2.0' README.md || true)"
   assert_eq "no 'Unreleased' release-notes heading" "0" "$(grep -c '^### Unreleased' README.md || true)"
   grep -q '^#### Upgrading from v1.0.0' README.md && ok "v1.1.0 notes explain the upgrade" || bad "v1.1.0 notes explain the upgrade"
   RELNOTES="$(sed -n '/^### v1.0.0/,$p' README.md | sed -n '/^## /q;p')"
