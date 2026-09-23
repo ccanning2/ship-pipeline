@@ -10,7 +10,8 @@ P="$(mktemp -d)"; git -C "$P" init -q -b master; git -C "$P" -c user.email=a@a -
 out=$(bash "$INIT" --project-dir "$P" --name radio --team-key RAD 2>&1); assert_exit "fresh install" 0 $? "$out"
 for f in scripts/pipeline/gate.sh scripts/pipeline/promote.sh scripts/pipeline/hooks/allow-paths.sh scripts/pipeline/hooks/guard-merge.sh scripts/pipeline/pipeline.env scripts/deploy/deploy.sh \
          .claude/agents/senior-engineer.md .claude/agents/qa-tester.md .claude/settings.json .github/workflows/deploy.yml .github/workflows/pipeline-gate.yml \
-         docs/pipeline/CONTEXT.md docs/pipeline/TICKETS.md docs/pipeline/BRANCHING.md docs/pipeline/CLOUD.md docs/pipeline/README.md docs/pipeline/_templates/releases.md RELEASE_CHECKLIST.md tests/pipeline/run-all.sh .gitignore; do
+         docs/pipeline/CONTEXT.md docs/pipeline/TICKETS.md docs/pipeline/BRANCHING.md docs/pipeline/CLOUD.md docs/pipeline/README.md docs/pipeline/_templates/releases.md RELEASE_CHECKLIST.md .gitignore \
+         scripts/pipeline/host.sh scripts/pipeline/tracker.sh scripts/pipeline/connect.sh scripts/pipeline/ci-gate.sh scripts/pipeline/ci-resolve.sh scripts/pipeline/hooks/allow-commands.sh; do
   [ -f "$P/$f" ] && ok "installs $f" || bad "installs $f"
 done
 [ -x "$P/scripts/pipeline/gate.sh" ] && ok "scripts executable" || bad "scripts executable"
@@ -31,14 +32,17 @@ done
 assert_contains "item 9: PIPELINE_REMOTE defaults to origin" "$(cat "$P/scripts/pipeline/pipeline.env")" 'PIPELINE_REMOTE="origin"'
 [ -f "$P/.claude/commands/ship.md" ] && bad "commands stay in the plugin (not copied)" || ok "commands stay in the plugin (not copied)"
 
-# the installed project's own test suite runs green (copy mode)
-out=$(cd "$P" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install && bash tests/pipeline/run-all.sh 2>&1 | tail -1); assert_eq "installed project self-test passes" "ALL PIPELINE TESTS PASSED" "$out"
+# the plugin's test suite stays in the plugin: an install is quick and ships no tests
+[ -e "$P/tests" ] && bad "no test suite is installed into the project" || ok "no test suite is installed into the project"
+grep -q 'tests/pipeline' "$P/scripts/pipeline/.install-manifest" && bad "the manifest records no test file" || ok "the manifest records no test file"
+assert_contains "the answers are reported" "$out" "host: github  tracker: linear  deploy-mode: merge"
+(cd "$P" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install)
 
 # project-owned files are never overwritten; tooling is refreshed
 echo "MY CONTEXT" > "$P/docs/pipeline/CONTEXT.md"; echo "MY ENV" > "$P/scripts/pipeline/pipeline.env"; echo "MY DEPLOY" > "$P/scripts/deploy/deploy.sh"
 [ -f "$P/scripts/pipeline/.install-manifest" ] && ok "install records a manifest" || bad "install records a manifest"
 echo "# stale" > "$P/scripts/pipeline/gate.sh"; echo "# stale" > "$P/.claude/agents/qa-tester.md"
-echo "# mine" > "$P/tests/pipeline/lib.sh"; rm "$P/scripts/pipeline/promote.sh"
+rm "$P/scripts/pipeline/promote.sh"
 out=$(bash "$INIT" --project-dir "$P" 2>&1); assert_exit "re-run (update)" 0 $? "$out"
 assert_eq "keeps CONTEXT.md" "MY CONTEXT" "$(cat "$P/docs/pipeline/CONTEXT.md")"
 assert_eq "keeps pipeline.env" "MY ENV" "$(cat "$P/scripts/pipeline/pipeline.env")"
@@ -65,7 +69,7 @@ for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh scripts/deploy/smok
   [ -e "$P3/$f" ] && bad "AC-21: does not create $f" || ok "AC-21: does not create $f"
 done
 [ -d "$P3/scripts/deploy" ] && bad "AC-21: does not create scripts/deploy/" || ok "AC-21: does not create scripts/deploy/"
-for f in .github/workflows/pipeline-gate.yml scripts/pipeline/gate.sh scripts/pipeline/promote.sh docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md tests/pipeline/run-all.sh; do
+for f in .github/workflows/pipeline-gate.yml scripts/pipeline/gate.sh scripts/pipeline/promote.sh docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md scripts/pipeline/tracker.sh; do
   [ -f "$P3/$f" ] && ok "AC-21: still installs $f" || bad "AC-21: still installs $f"
 done
 E3="$P3/scripts/pipeline/pipeline.env"
@@ -81,7 +85,7 @@ P4="$(mktemp -d)"; git -C "$P4" init -q -b master; git -C "$P4" -c user.email=a@
 out=$(bash "$INIT" --project-dir "$P4" --name duo --team-key DUO 2>&1); assert_exit "AC-22: install with no flags" 0 $? "$out"
 assert_contains "AC-22: deploy envs default to yes" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_DEPLOY_ENVS="yes"'
 assert_contains "AC-22: marketing defaults to yes" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="yes"'
-assert_contains "AC-22: default install still has the deploy URLs" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'DEV_URL="https://dev.duo.example"'
+assert_contains "AC-22: default install has placeholder deploy URLs that never resolve" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'DEV_URL="https://dev.duo.example.invalid"'
 
 P5="$(mktemp -d)"; git -C "$P5" init -q -b master; git -C "$P5" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
 out=$(bash "$INIT" --project-dir "$P5" --no-deploy-env 2>&1); assert_exit "AC-24: unknown flag fails" 1 $? "$out"
@@ -108,14 +112,15 @@ before6=$(cd "$P6" && find . -path ./.git -prune -o -type f -exec cksum {} \; | 
 out=$(bash "$INIT" --project-dir "$P6" --name lean --team-key LEA --no-deploy-envs --no-marketing 2>&1); assert_exit "AC-27: second identical run" 0 $? "$out"
 after6=$(cd "$P6" && find . -path ./.git -prune -o -type f -exec cksum {} \; | sort)
 assert_eq "AC-27: second run changes nothing" "$before6" "$after6"
-out=$(cd "$P6" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install && bash tests/pipeline/run-all.sh 2>&1 | tail -1)
-assert_eq "AC-27: opted-out project self-test passes" "ALL PIPELINE TESTS PASSED" "$out"
 
 # AC-28: /pipeline-init asks the two capability questions
 I="$REPO_SRC/commands/pipeline-init.md"
-for s in "--no-deploy-envs" "--no-marketing" "deployable environments" "marketing function" "CONTEXT.md"; do
+for s in "--no-deploy-envs" "--no-marketing" "deployable environments" "Marketing function" "CONTEXT.md" \
+         "AskUserQuestion" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
+         "--git-host" "--git-url" "--tracker" "--tracker-url" "--deploy-mode" "--create-branches" "connect.sh login" "tracker.sh setup"; do
   grep -qF -e "$s" "$I" && ok "AC-28: /pipeline-init mentions $s" || bad "AC-28: /pipeline-init mentions $s"
 done
+grep -q 'run-all.sh' "$I" && bad "/pipeline-init never runs the plugin's test suite" || ok "/pipeline-init never runs the plugin's test suite"
 
 # ---- QA (SHI-5): arguments are validated before anything is written (FR-15) ----
 mkp() { local d; d="$(mktemp -d)"; git -C "$d" init -q -b master; git -C "$d" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init; echo "$d"; }
@@ -209,11 +214,9 @@ import yaml,sys
 g=yaml.safe_load(open(sys.argv[1])); d=yaml.safe_load(open(sys.argv[2]))
 sys.exit(0 if (g.get("on") or g[True])["pull_request"]["branches"]==["main","staging"] and (d.get("on") or d[True])["push"]["branches"]==["main","staging"] else 1)
 PY
-cmp -s "$Pm/tests/pipeline/test_config.sh" "$REPO_SRC/tests/pipeline/test_config.sh" && cmp -s "$Pm/scripts/pipeline/gate.sh" "$REPO_SRC/scripts/pipeline/gate.sh" \
-  && ok "item 2: scripts and tests are copied verbatim (only docs, workflows and pipeline.env are rendered)" || bad "item 2: scripts and tests are copied verbatim (only docs, workflows and pipeline.env are rendered)"
+cmp -s "$Pm/scripts/pipeline/tracker.sh" "$REPO_SRC/scripts/pipeline/tracker.sh" && cmp -s "$Pm/scripts/pipeline/gate.sh" "$REPO_SRC/scripts/pipeline/gate.sh" \
+  && ok "item 2: scripts are copied verbatim (only docs, workflows and pipeline.env are rendered)" || bad "item 2: scripts are copied verbatim (only docs, workflows and pipeline.env are rendered)"
 assert_eq "item 2: base-ref.sh" "origin/main" "$(cd "$Pm" && bash scripts/pipeline/base-ref.sh)"
-out=$(cd "$Pm" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install && bash tests/pipeline/run-all.sh 2>&1 | tail -1)
-assert_eq "item 2: a main-trunk project's own self-test passes" "ALL PIPELINE TESTS PASSED" "$out"
 out=$(bash "$INIT" --project-dir "$Pm" 2>&1); assert_contains "item 2: a re-run reads the base branch from pipeline.env" "$out" "base=main (from pipeline.env)"
 Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" --base-branch trunk --staging-branch pre 2>&1); assert_exit "item 2: --base-branch/--staging-branch" 0 $? "$out"
 assert_contains "item 2: --base-branch written" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'BASE_BRANCH="trunk"'
@@ -246,6 +249,101 @@ out=$(bash "$INIT" --project-dir "$Pm" 2>&1); case "$out" in *"predates v1.1.0"*
 
 # ---- item 8: deploy.yml ships switched off ----
 assert_contains "item 8: installed deploy.yml is gated on PIPELINE_DEPLOY_ENABLED" "$(cat "$Pm/.github/workflows/deploy.yml")" "vars.PIPELINE_DEPLOY_ENABLED == 'true'"
+
+# ---- 2.0.0: every init question has a flag, and each answer lands where the tooling reads it ----
+for badargs in "--git-host svn" "--tracker trello" "--deploy-mode sometimes" "--dev-url dev.example.com" "--tracker-url ftp://x" "--health-path health" "--git-url https://x.com/a#b"; do
+  Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" $badargs 2>&1); assert_exit "2.0: '$badargs' is rejected" 1 $? "$out"
+  assert_eq "2.0: '$badargs' creates nothing" "" "$(ls -A "$Pq" | grep -v '^\.git$' || true)"
+done
+Pj="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pj" --name shop --team-key SHP --tracker jira --tracker-url 'https://acme.atlassian.net' --tracker-cloud-id 1a2b-3c \
+  --dev-url https://dev.shop.io --qa-url https://qa.shop.io --staging-url 'https://stg.shop.io/?a=1&b=2' --production-url https://shop.io --health-path /healthz 2>&1)
+assert_exit "2.0: a Jira install with every URL" 0 $? "$out"
+Ej="$(cat "$Pj/scripts/pipeline/pipeline.env")"
+for kv in 'TRACKER="jira"' 'TRACKER_URL="https://acme.atlassian.net"' 'TRACKER_CLOUD_ID="1a2b-3c"' 'TRACKER_TEAM_KEY="SHP"' 'DEV_URL="https://dev.shop.io"' \
+          'STAGING_URL="https://stg.shop.io/?a=1&b=2"' 'HEALTH_PATH="/healthz"' 'GIT_HOST="github"' 'GIT_HOST_URL=""' 'DEPLOY_MODE="merge"'; do
+  assert_contains "2.0: pipeline.env has $kv" "$Ej" "$kv"
+done
+grep -q '__' "$Pj/scripts/pipeline/pipeline.env" && bad "2.0: no placeholder survives in pipeline.env" || ok "2.0: no placeholder survives in pipeline.env"
+out=$(bash "$INIT" --project-dir "$Pj" 2>&1); assert_contains "2.0: a re-run reads the tracker from pipeline.env" "$out" "tracker: jira"
+# explicit deploys: no push or tag trigger survives in the CI files, and the dispatch path is still there
+Px="$(mkp)"; out=$(bash "$INIT" --project-dir "$Px" --deploy-mode explicit 2>&1); assert_exit "2.0: --deploy-mode explicit" 0 $? "$out"
+$PY - "$Px/.github/workflows/deploy.yml" <<'PY' && ok "2.0: explicit deploy.yml has only workflow_dispatch" || bad "2.0: explicit deploy.yml has only workflow_dispatch"
+import yaml,sys
+on=(lambda w: w.get("on") or w.get(True))(yaml.safe_load(open(sys.argv[1])))
+sys.exit(0 if list(on)==["workflow_dispatch"] else 1)
+PY
+grep -q '#@on-merge' "$Px/.github/workflows/deploy.yml" "$Pm/.github/workflows/deploy.yml" && bad "2.0: no #@on-merge marker is installed" || ok "2.0: no #@on-merge marker is installed"
+assert_contains "2.0: explicit is recorded" "$(cat "$Px/scripts/pipeline/pipeline.env")" 'DEPLOY_MODE="explicit"'
+# GitLab: the CI files are included from .gitlab-ci.yml, and a self-hosted URL is recorded
+Pl="$(mkp)"; git -C "$Pl" remote add origin https://git.acme.com/team/app.git
+out=$(bash "$INIT" --project-dir "$Pl" --git-host gitlab --git-url https://git.acme.com --tracker gitlab 2>&1); assert_exit "2.0: GitLab install" 0 $? "$out"
+assert_contains "2.0: GitLab and its self-hosted URL are reported" "$out" "host: gitlab (https://git.acme.com)"
+for f in .gitlab/pipeline-gate.yml .gitlab/pipeline-deploy.yml .gitlab-ci.yml; do [ -f "$Pl/$f" ] && ok "2.0: GitLab gets $f" || bad "2.0: GitLab gets $f"; done
+[ -e "$Pl/.github" ] && bad "2.0: GitLab gets no .github workflows" || ok "2.0: GitLab gets no .github workflows"
+$PY - "$Pl" <<'PY' && ok "2.0: the GitLab CI files parse and the gate targets both branches" || bad "2.0: the GitLab CI files parse and the gate targets both branches"
+import yaml,sys,os
+d=sys.argv[1]; c=yaml.safe_load(open(os.path.join(d,".gitlab-ci.yml")))
+g=yaml.safe_load(open(os.path.join(d,".gitlab/pipeline-gate.yml"))); p=yaml.safe_load(open(os.path.join(d,".gitlab/pipeline-deploy.yml")))
+inc=[i["local"] for i in c["include"]]
+rule=g["pipeline-gate"]["rules"][0]["if"]
+ok = inc==["/.gitlab/pipeline-gate.yml","/.gitlab/pipeline-deploy.yml"] and '"master"' in rule and '"staging"' in rule \
+  and all(k in p for k in ["ship-resolve","ship-build","ship-deploy-dev","ship-deploy-qa","ship-deploy-staging","ship-deploy-production"])
+sys.exit(0 if ok else 1)
+PY
+assert_contains "2.0: GIT_HOST_URL is recorded" "$(cat "$Pl/scripts/pipeline/pipeline.env")" 'GIT_HOST_URL="https://git.acme.com"'
+# an existing .gitlab-ci.yml gains the include once; one with its own include: list is left for /pipeline-init to merge
+Pl2="$(mkp)"; printf 'stages: [test]
+unit:
+  script: [make test]
+' > "$Pl2/.gitlab-ci.yml"
+bash "$INIT" --project-dir "$Pl2" --git-host gitlab >/dev/null 2>&1; bash "$INIT" --project-dir "$Pl2" >/dev/null 2>&1
+assert_eq "2.0: an existing .gitlab-ci.yml gains the include exactly once" "1|1" "$(grep -c '^include:' "$Pl2/.gitlab-ci.yml")|$(grep -c 'pipeline-gate.yml' "$Pl2/.gitlab-ci.yml")"
+assert_contains "2.0: and keeps its own jobs" "$(cat "$Pl2/.gitlab-ci.yml")" "make test"
+Pl3="$(mkp)"; printf 'include:
+  - template: Security/SAST.gitlab-ci.yml
+' > "$Pl3/.gitlab-ci.yml"; before="$(cat "$Pl3/.gitlab-ci.yml")"
+out=$(bash "$INIT" --project-dir "$Pl3" --git-host gitlab 2>&1)
+assert_eq "2.0: a .gitlab-ci.yml with its own include: list is not edited" "$before" "$(cat "$Pl3/.gitlab-ci.yml")"
+assert_contains "2.0: and the merge is handed to /pipeline-init" "$out" "ACTION: add to the include: list"
+# Bitbucket: one pipelines file; an existing one is never overwritten
+Pb="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pb" --git-host bitbucket 2>&1); assert_exit "2.0: Bitbucket install" 0 $? "$out"
+$PY - "$Pb/bitbucket-pipelines.yml" <<'PY' && ok "2.0: bitbucket-pipelines.yml parses, gates PRs, deploys on push and via custom: deploy" || bad "2.0: bitbucket-pipelines.yml parses, gates PRs, deploys on push and via custom: deploy"
+import yaml,sys
+p=yaml.safe_load(open(sys.argv[1]))["pipelines"]
+sys.exit(0 if "pull-requests" in p and list(p["branches"])==["master","staging"] and "deploy" in p["custom"] and p["tags"] else 1)
+PY
+Pb2="$(mkp)"; printf 'pipelines:
+  default:
+    - step: {script: [make]}
+' > "$Pb2/bitbucket-pipelines.yml"; before="$(cat "$Pb2/bitbucket-pipelines.yml")"
+out=$(bash "$INIT" --project-dir "$Pb2" --git-host bitbucket --no-deploy-envs 2>&1)
+assert_eq "2.0: an existing bitbucket-pipelines.yml is not edited" "$before" "$(cat "$Pb2/bitbucket-pipelines.yml")"
+[ -f "$Pb2/bitbucket-pipelines.ship.yml" ] && grep -q 'ci-gate.sh' "$Pb2/bitbucket-pipelines.ship.yml" && ! grep -q 'Deploy' "$Pb2/bitbucket-pipelines.ship.yml" \
+  && ok "2.0: the gate-only steps are written beside it" || bad "2.0: the gate-only steps are written beside it"
+# --create-branches: pushes a missing base branch, creates staging from it, never moves an existing branch
+Pc="$(mkp)"; Bc="$(mktemp -d)"; git init -q --bare "$Bc"; git -C "$Pc" remote add origin "$Bc"
+out=$(bash "$INIT" --project-dir "$Pc" --create-branches 2>&1); assert_exit "2.0: --create-branches" 0 $? "$out"
+assert_contains "2.0: reports what it created" "$out" "pushed master to origin; created staging on origin from master"
+assert_eq "2.0: staging starts at the base sha" "$(git -C "$Bc" rev-parse master)" "$(git -C "$Bc" rev-parse staging)"
+git -C "$Pc" -c user.email=a@a -c user.name=a commit -q --allow-empty -m later
+out=$(bash "$INIT" --project-dir "$Pc" --create-branches 2>&1)
+assert_contains "2.0: existing branches are left alone" "$out" "master and staging already exist on origin"
+[ "$(git -C "$Bc" rev-parse master)" != "$(git -C "$Pc" rev-parse master)" ] && ok "2.0: an existing remote branch is never moved" || bad "2.0: an existing remote branch is never moved"
+# an older install's copy of the test suite is removed when untouched, and kept when the owner changed it
+Po="$(mkp)"; bash "$INIT" --project-dir "$Po" >/dev/null 2>&1; mkdir -p "$Po/tests/pipeline"
+printf 'a\n' > "$Po/tests/pipeline/run-all.sh"; printf 'b\n' > "$Po/tests/pipeline/lib.sh"
+{ cat "$Po/scripts/pipeline/.install-manifest"; (cd "$Po" && cksum tests/pipeline/run-all.sh tests/pipeline/lib.sh); } > "$Po/m" && mv "$Po/m" "$Po/scripts/pipeline/.install-manifest"
+echo "# mine" >> "$Po/tests/pipeline/lib.sh"
+out=$(bash "$INIT" --project-dir "$Po" 2>&1)
+[ -e "$Po/tests/pipeline/run-all.sh" ] && bad "2.0: an untouched old test copy is removed" || ok "2.0: an untouched old test copy is removed"
+[ -f "$Po/tests/pipeline/lib.sh" ] && ok "2.0: an old test file the owner changed is kept" || bad "2.0: an old test file the owner changed is kept"
+assert_contains "2.0: the removal is reported" "$out" "removed tests/pipeline/run-all.sh"
+# a checkout with core.autocrlf rewrites every line ending: that is not a hand edit
+sed -i 's/$/\r/' "$Po/docs/pipeline/TICKETS.md" "$Po/scripts/pipeline/status.sh"
+out=$(bash "$INIT" --project-dir "$Po" 2>&1)
+case "$out" in *customised*) bad "2.0: CRLF-only differences are not reported as hand edits" "$out";; *) ok "2.0: CRLF-only differences are not reported as hand edits";; esac
+echo "# a real edit" >> "$Po/scripts/pipeline/status.sh"
+out=$(bash "$INIT" --project-dir "$Po" 2>&1); assert_contains "2.0: a real edit on a CRLF copy is still kept" "$out" "customised, kept scripts/pipeline/status.sh"
 
 # profile install
 P2="$(mktemp -d)"; git -C "$P2" init -q -b master; git -C "$P2" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init

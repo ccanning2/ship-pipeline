@@ -1,0 +1,109 @@
+# Ship pipeline: deploys (included from .gitlab-ci.yml). Branch/tag release model (docs/pipeline/BRANCHING.md):
+#   push to __BASE_BRANCH__              -> gate "dev"        -> build image :<sha> (once), deploy to dev
+#   push to __STAGING_BRANCH__           -> gate "qa"         -> deploy :<sha> to qa
+#   run with PIPELINE_ENV=staging        -> gate "staging"    -> deploy :<sha> to staging (promote.sh starts it)
+#   push tag vX.Y.Z                      -> gate "production" -> re-tag image :<version> + :latest, deploy to production
+# With DEPLOY_MODE="explicit" nothing deploys on a push: promote.sh starts every environment with PIPELINE_ENV,
+# PIPELINE_SHA and PIPELINE_TICKET.
+# OFF until the environments exist: every job is skipped unless the CI/CD variable PIPELINE_DEPLOY_ENABLED is "true"
+# (/pipeline-init sets it once the environment URLs are known).
+# Per environment (CI/CD variables scoped to environments dev, qa, staging, production): DEPLOY_HOST, DEPLOY_USER,
+# DEPLOY_PATH, APP_URL, and DEPLOY_SSH_KEY (type File, protected). The image goes to this project's container registry.
+# Jobs run in the .post stage (always present) and are ordered with needs, so the project's own stages are untouched.
+# Adapt the "ship-build" test commands and Dockerfile step to this project (the engineer does this on first build).
+.ship-rules:
+  rules:
+    - if: $PIPELINE_DEPLOY_ENABLED != "true"
+      when: never
+    - if: $PIPELINE_ENV && ($CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "web")
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/                                            #@on-merge
+    - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "__BASE_BRANCH__" || $CI_COMMIT_BRANCH == "__STAGING_BRANCH__")   #@on-merge
+
+ship-resolve:
+  extends: .ship-rules
+  stage: .post
+  image: alpine:3.20
+  variables: { GIT_DEPTH: "0" }
+  before_script: [apk add --no-cache bash git >/dev/null]
+  script:
+    - |
+      if [ -n "${PIPELINE_ENV:-}" ]; then ev=dispatch; elif [ -n "${CI_COMMIT_TAG:-}" ]; then ev=tag; else ev=branch; fi
+      bash scripts/pipeline/ci-resolve.sh "$ev" "${CI_COMMIT_TAG:-$CI_COMMIT_BRANCH}" "${PIPELINE_ENV:-}" "${PIPELINE_SHA:-}" "${PIPELINE_TICKET:-}" \
+        | sed 's/^/SHIP_/' > ship.env
+      cat ship.env
+  artifacts: { reports: { dotenv: ship.env } }
+
+ship-build:
+  # Build once, on the way into dev. Every later environment reuses the same image tag.
+  extends: .ship-rules
+  stage: .post
+  needs: [ship-resolve]
+  image: docker:27
+  services: [docker:27-dind]
+  script:
+    - |
+      case "$SHIP_ENV" in
+        dev)        # build and push the image once
+          docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+          docker build -t "$CI_REGISTRY_IMAGE:$SHIP_SHA" .
+          docker push "$CI_REGISTRY_IMAGE:$SHIP_SHA";;
+        production) # give the exact same image a permanent version tag
+          docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+          docker buildx imagetools create -t "$CI_REGISTRY_IMAGE:$SHIP_VERSION" -t "$CI_REGISTRY_IMAGE:latest" "$CI_REGISTRY_IMAGE:$SHIP_SHA";;
+        *) echo "$SHIP_ENV reuses the dev image: nothing to build";;
+      esac
+
+.ship-deploy:
+  # One job per environment: GitLab fixes an environment's name when the pipeline is created, so the rules that pick
+  # the environment (the push, the tag or PIPELINE_ENV) live on each job; ship-resolve then gates the exact sha.
+  stage: .post
+  needs: [ship-resolve, ship-build]
+  image: alpine:3.20
+  before_script: [apk add --no-cache bash curl openssh-client >/dev/null]
+  script:
+    - |
+      [ "$SHIP_ENV" != none ] || { echo "only pipeline records changed: nothing to deploy"; exit 0; }
+      [ "$SHIP_ENV" = "$CI_ENVIRONMENT_NAME" ] || { echo "ship-resolve chose $SHIP_ENV, not $CI_ENVIRONMENT_NAME" >&2; exit 1; }
+      install -m 700 -d ~/.ssh && cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+      IMAGE_REPO="$CI_REGISTRY_IMAGE" bash scripts/deploy/deploy.sh "$SHIP_ENV" "$SHIP_SHA" || {
+        [ "$SHIP_ENV" = production ] && bash scripts/deploy/rollback.sh production; exit 1; }
+      bash scripts/deploy/smoke.sh "$APP_URL" || { [ "$SHIP_ENV" = production ] && bash scripts/deploy/rollback.sh production; exit 1; }
+
+ship-deploy-dev:
+  extends: .ship-deploy
+  environment: { name: dev }
+  resource_group: deploy-dev
+  rules:
+    - if: $PIPELINE_DEPLOY_ENABLED != "true"
+      when: never
+    - if: $PIPELINE_ENV == "dev"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "__BASE_BRANCH__"   #@on-merge
+
+ship-deploy-qa:
+  extends: .ship-deploy
+  environment: { name: qa }
+  resource_group: deploy-qa
+  rules:
+    - if: $PIPELINE_DEPLOY_ENABLED != "true"
+      when: never
+    - if: $PIPELINE_ENV == "qa"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "__STAGING_BRANCH__"   #@on-merge
+
+ship-deploy-staging:
+  extends: .ship-deploy
+  environment: { name: staging }
+  resource_group: deploy-staging
+  rules:
+    - if: $PIPELINE_DEPLOY_ENABLED != "true"
+      when: never
+    - if: $PIPELINE_ENV == "staging"
+
+ship-deploy-production:
+  extends: .ship-deploy
+  environment: { name: production }
+  resource_group: deploy-production
+  rules:
+    - if: $PIPELINE_DEPLOY_ENABLED != "true"
+      when: never
+    - if: $PIPELINE_ENV == "production"
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/   #@on-merge

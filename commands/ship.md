@@ -12,7 +12,7 @@ You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
 - **Project capabilities** come from `pipeline.env` and from nowhere else — never from the environment or from a ticket. `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` are on unless the value is exactly `no`; absent, empty or misspelt means on, which is the stricter behaviour. `bash scripts/pipeline/status.sh <TICKET>` prints the resolved values. A stage skipped because of a capability is always reported as skipped by configuration, never left out silently.
 
 ## Standing rules
-- **Tracker access.** Use the tracker connector tools in this session (Linear, or Jira if `TRACKER=jira`). If none is available, stop and ask the owner to enable it. If a label or status the protocol needs is missing (`scripts/pipeline/tracker-schema.txt`), stop and ask the owner to run `/pipeline-doctor`; never create workspace labels or statuses on the fly.
+- **Tracker access.** Through the CLI adapter, never an MCP connector: `bash scripts/pipeline/tracker.sh <verb>` (`view`, `children`, `create`, `comment`, `describe`, `set`, `handoff`, `state`; the header of the script lists them). It drives the tracker named by `TRACKER` in `pipeline.env` (Jira, Linear, GitHub Issues or GitLab issues). Only when it exits 3 (`TRACKER=connector`) use the tracker's connector tools instead. If it reports that it is not signed in, stop and ask the owner to run `bash scripts/pipeline/connect.sh login`. If a label or status the protocol needs is missing, stop and ask the owner to run `/pipeline-doctor`. Never create workspace labels or statuses on the fly.
 - **One persona at a time.** Before each stage: re-read the parent ticket and its children, correct any drift in `D/tickets.md`, confirm the parent's `Owner` label names the persona you're about to run. After each stage: confirm the handoff comment and labels, update `D/STATUS.md`, commit and push the ticket branch.
 - **Cloud sessions** (`CLAUDE_CODE_REMOTE=true`): stay on the session branch; write the ticket id to `.claude/.pipeline-ticket`; open a draft PR to the base branch titled `<TICKET>: <ticket title>` right after intake.
 - **Rework limit.** A code change after the dev deploy always goes back through dev → qa → staging. After 3 rework loops, set Owner: owner, Stage: on-hold, and stop.
@@ -22,11 +22,11 @@ You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
 ## 0. Resume or intake
 - **Resume** if `D/STATUS.md` exists: continue from the first stage not `done`/`skipped` (`bash scripts/pipeline/status.sh <TICKET>` shows gate progress).
 - **Intake** otherwise:
-  1. Read the ticket from the tracker. If it doesn't exist or its description is empty, stop and ask the owner to write the requirement there.
+  1. Read the ticket: `bash scripts/pipeline/tracker.sh view <TICKET>`. If it doesn't exist or its description is empty, stop and ask the owner to write the requirement there.
   2. Locally: create `feature/<TICKET>-<slug>` from an up-to-date base branch (`bash scripts/pipeline/base-ref.sh`). In the cloud: use the session branch.
   3. Pipe the ticket's title, description and attachment/link list into `bash scripts/pipeline/intake.sh <TICKET> - "<ticket url>"`.
   4. Create `D/tickets.md` from the template.
-  5. Set Stage: research, Owner: market-researcher on the parent and post the orchestrator's handoff comment.
+  5. Set Stage: research, Owner: market-researcher on the parent and post the orchestrator's handoff comment in one call: `bash scripts/pipeline/tracker.sh handoff <TICKET> research market-researcher --body '<handoff comment>'`.
 
 ## 1. Research — `market-researcher`
 Skip only when the ticket is labelled Bug, Security or Chore (hand straight to the product owner). If it recommends build-later or drop, stop.

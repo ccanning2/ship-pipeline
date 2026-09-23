@@ -9,9 +9,9 @@
 # workflow dispatch and the smoke call; the sha still travels the base branch -> the staging branch -> the version tag.
 # Branches and the remote come from pipeline.env (BASE_BRANCH, STAGING_BRANCH, PIPELINE_REMOTE; see base-ref.sh).
 # Overrides for tests / other hosts:
-#   PIPELINE_DEPLOY_CMD  "cmd" run as: cmd <env> <sha> <ticket>   (replaces waiting on GitHub Actions)
+#   PIPELINE_DEPLOY_CMD  "cmd" run as: cmd <env> <sha> <ticket>   (replaces dispatching/waiting on the code host's CI)
 #   PIPELINE_SMOKE_CMD   "cmd" run as: cmd <url>
-#   PIPELINE_GH_CMD      gh replacement;  PIPELINE_NO_PUSH=1 skips pushes (local refs still move)
+#   PIPELINE_NO_PUSH=1   skips pushes (local refs still move). The code host is reached through host.sh (GIT_HOST).
 set -euo pipefail
 ticket="$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')"; env="${2:-}"
 [ -n "$ticket" ] || { echo "usage: promote.sh <TICKET> <dev|qa|staging|production>" >&2; exit 1; }
@@ -30,7 +30,7 @@ note() { if deploys; then printf '(%s deploy)' "$1"; else printf '(no deploy: pr
 base="$(bash scripts/pipeline/base-ref.sh --branch)"; stg="$(bash scripts/pipeline/base-ref.sh --staging)"; url="${!url_var:-}"
 remote="$(bash scripts/pipeline/base-ref.sh --remote)"
 dir="docs/pipeline/$ticket"; rel="$dir/releases.md"
-gh_cmd="${PIPELINE_GH_CMD:-gh}"; nopush="${PIPELINE_NO_PUSH:-0}"
+nopush="${PIPELINE_NO_PUSH:-0}"
 branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$branch" = "$base" ] || [ "$branch" = "$stg" ]; then echo "PROMOTE: run from the ticket branch, not $branch" >&2; exit 1; fi
 [ -z "$(git status --porcelain)" ] || { echo "PROMOTE: working tree not clean; commit first" >&2; exit 1; }
@@ -42,15 +42,10 @@ sha="$(echo "$gate_out" | sed -n 's/^DEPLOY_SHA=//p')"; version="$(echo "$gate_o
 push() { [ "$nopush" = 1 ] || git push -q "$@"; }
 push -u "$remote" "$branch" 2>/dev/null || true
 pr_mode=0; { [ "${CLAUDE_CODE_REMOTE:-}" = true ] || [ "${PIPELINE_MERGE_MODE:-}" = pr ]; } && pr_mode=1
-repo_slug() { $gh_cmd repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || git remote get-url "$remote" | sed -E 's#(git@|https://)([^/:]+)[/:]##; s#\.git$##'; }
+host() { bash scripts/pipeline/host.sh "$@"; }
 merge_branch_to_base() { # merges the ticket branch into the base branch (docs and/or code); leaves the branch containing it
   if [ "$pr_mode" = 1 ]; then
-    local or pr; or="$(repo_slug)"
-    pr="$($gh_cmd api "repos/$or/pulls?head=${or%%/*}:$branch&state=open" -q '.[0].number' 2>/dev/null || true)"
-    if [ -z "$pr" ] || [ "$pr" = null ]; then
-      pr="$($gh_cmd api -X POST "repos/$or/pulls" -f title="$ticket: ship" -f head="$branch" -f base="$base" -f body="Pipeline ticket $ticket. See docs/pipeline/$ticket/." -q .number)" || { echo "PROMOTE: could not create PR" >&2; return 1; }
-    fi
-    $gh_cmd api -X PUT "repos/$or/pulls/$pr/merge" -f merge_method=merge -f sha="$(git rev-parse HEAD)" >/dev/null || { echo "PROMOTE: GitHub refused to merge PR #$pr" >&2; return 1; }
+    host merge "$branch" "$base" "$ticket: ship" || { echo "PROMOTE: the code host refused the merge into $base" >&2; return 1; }
     git fetch -q "$remote" "$base" 2>/dev/null || true; git merge -q --no-edit "$remote/$base" 2>/dev/null || true
   else
     if [ "$nopush" = 1 ]; then git update-ref "refs/heads/$base" HEAD; else git push -q "$remote" "HEAD:$base" || { echo "PROMOTE: fast-forward of $base rejected; merge $base in and retry" >&2; return 1; }; fi
@@ -58,26 +53,20 @@ merge_branch_to_base() { # merges the ticket branch into the base branch (docs a
 }
 set_remote_ref() { # <refs/heads/x|refs/tags/x> <sha> — branch/tag updates; API in cloud sessions (direct pushes are limited there)
   if [ "$nopush" = 1 ]; then git update-ref "$1" "$2"; return; fi
-  if [ "$pr_mode" = 1 ]; then
-    local or; or="$(repo_slug)"
-    $gh_cmd api -X PATCH "repos/$or/git/$1" -f sha="$2" -F force=false >/dev/null 2>&1 \
-      || $gh_cmd api -X POST "repos/$or/git/refs" -f ref="$1" -f sha="$2" >/dev/null || { echo "PROMOTE: could not update $1" >&2; return 1; }
-  else
-    git push -q "$remote" "$2:$1" || { echo "PROMOTE: push to $1 rejected" >&2; return 1; }
-  fi
+  if [ "$pr_mode" = 1 ]; then host set-ref "$1" "$2" || { echo "PROMOTE: could not update $1" >&2; return 1; }
+  else git push -q "$remote" "$2:$1" || { echo "PROMOTE: push to $1 rejected" >&2; return 1; }; fi
 }
-
-wait_for_deploy() { # <env> <sha>
-  deploys || return 0                       # no deployable environments: nothing to wait for
-  if [ -n "${PIPELINE_DEPLOY_CMD:-}" ]; then $PIPELINE_DEPLOY_CMD "$1" "$2" "$ticket"; return; fi
-  local id=""
-  for _ in $(seq 1 45); do
-    id="$($gh_cmd run list --workflow "$DEPLOY_WORKFLOW" --commit "$2" --limit 5 --json databaseId,displayTitle \
-          -q "[.[] | select(.displayTitle | test(\"$1\"))][0].databaseId" 2>/dev/null || true)"
-    [ -n "$id" ] && [ "$id" != null ] && break; sleep 4
-  done
-  [ -n "$id" ] && [ "$id" != null ] || { echo "PROMOTE: no '$1' deploy run found for $2" >&2; return 1; }
-  echo "PROMOTE: watching run $id"; $gh_cmd run watch "$id" --exit-status
+# DEPLOY_MODE: "merge" (default) -> the push/tag itself starts dev, qa and production deploys and staging is dispatched;
+# "explicit" -> nothing deploys on a push: every environment is dispatched here, after its gate.
+deploy_mode="$(printf '%s' "${DEPLOY_MODE:-merge}" | tr '[:upper:]' '[:lower:]')"
+deploy() { # <env> <ref to run the pipeline on>
+  deploys || return 0                       # no deployable environments: nothing to deploy or wait for
+  if [ -n "${PIPELINE_DEPLOY_CMD:-}" ]; then $PIPELINE_DEPLOY_CMD "$1" "$sha" "$ticket"; return; fi
+  if [ "$deploy_mode" = explicit ] || [ "$1" = staging ]; then
+    host dispatch "$1" "$sha" "$ticket" "$2" || return 1
+    sleep "${PIPELINE_DISPATCH_SETTLE:-6}"
+  fi
+  host wait "$1" "$sha" "$2"
 }
 
 case "$env" in
@@ -85,18 +74,14 @@ case "$env" in
     merge_branch_to_base || exit 1
     sha="$(git rev-parse HEAD)"
     echo "PROMOTE [$ticket]: $base -> $sha $(note dev)"
-    wait_for_deploy dev "$sha" || { echo "PROMOTE: dev deploy failed (gh run view --log-failed)" >&2; exit 1; } ;;
+    deploy dev "$base" || { echo "PROMOTE: dev deploy failed (see the pipeline log on the code host)" >&2; exit 1; } ;;
   qa)
     set_remote_ref "refs/heads/$stg" "$sha" || exit 1
     echo "PROMOTE [$ticket]: $stg -> $sha $(note qa)"
-    wait_for_deploy qa "$sha" || { echo "PROMOTE: qa deploy failed" >&2; exit 1; } ;;
+    deploy qa "$stg" || { echo "PROMOTE: qa deploy failed" >&2; exit 1; } ;;
   staging)
     echo "PROMOTE [$ticket]: $stg -> $sha $(note staging)"
-    if ! deploys; then :
-    elif [ -n "${PIPELINE_DEPLOY_CMD:-}" ]; then $PIPELINE_DEPLOY_CMD staging "$sha" "$ticket"; else
-      $gh_cmd workflow run "$DEPLOY_WORKFLOW" --ref "$stg" -f env=staging -f sha="$sha" -f ticket="$ticket" || exit 1
-      sleep 6; wait_for_deploy staging "$sha" || { echo "PROMOTE: staging deploy failed" >&2; exit 1; }
-    fi ;;
+    deploy staging "$stg" || { echo "PROMOTE: staging deploy failed" >&2; exit 1; } ;;
   production)
     if git rev-parse -q --verify "refs/tags/$version^{commit}" >/dev/null 2>&1; then
       [ "$(git rev-parse "$version^{commit}")" = "$sha" ] || { echo "PROMOTE: tag $version exists on another commit" >&2; exit 1; }
@@ -105,7 +90,7 @@ case "$env" in
     fi
     set_remote_ref "refs/tags/$version" "$sha" || exit 1
     echo "PROMOTE [$ticket]: tagged $version on $sha $(note production)"
-    wait_for_deploy production "$sha" || { echo "PROMOTE: production deploy failed; roll back: bash scripts/deploy/rollback.sh production" >&2; exit 1; } ;;
+    deploy production "$version" || { echo "PROMOTE: production deploy failed; roll back: bash scripts/deploy/rollback.sh production" >&2; exit 1; } ;;
 esac
 
 if deploys; then

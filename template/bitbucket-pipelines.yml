@@ -1,0 +1,62 @@
+# Ship pipeline for Bitbucket Pipelines. Branch/tag release model (docs/pipeline/BRANCHING.md):
+#   pull request into __BASE_BRANCH__ / __STAGING_BRANCH__  -> the Pipeline Gate ("dev" / "qa" gate)
+#   push to __BASE_BRANCH__              -> gate "dev"        -> build image :<sha> (once), deploy to dev
+#   push to __STAGING_BRANCH__           -> gate "qa"         -> deploy :<sha> to qa
+#   custom "deploy" with PIPELINE_ENV    -> that gate         -> deploy :<sha> (promote.sh starts staging this way)
+#   push tag vX.Y.Z                      -> gate "production" -> re-tag image :<version> + :latest, deploy to production
+# With DEPLOY_MODE="explicit" nothing deploys on a push: promote.sh starts every environment through "custom: deploy".
+# OFF until the environments exist: deploy steps do nothing unless the repository variable PIPELINE_DEPLOY_ENABLED is
+# "true" (/pipeline-init sets it once the environment URLs are known).
+# Repository variables: REGISTRY_IMAGE (e.g. docker.io/acme/app), REGISTRY_USER, REGISTRY_PASSWORD (secured), and per
+# environment <ENV>_DEPLOY_HOST, <ENV>_DEPLOY_USER, <ENV>_DEPLOY_PATH, <ENV>_APP_URL (ENV = DEV, QA, STAGING, PRODUCTION).
+# The deploy SSH key is the repository's SSH key (Repository settings -> SSH keys).
+# Infra pull requests (repository maintenance with no ticket): Bitbucket has no PR labels, so a source branch named
+# infra/<anything> skips the ticket gate. Only a human pushes such a branch (the guard hook refuses agents); the PR
+# still needs that human to merge it.
+image: atlassian/default-image:4
+definitions:
+  steps:
+    - step: &gate
+        name: Pipeline Gate
+        script:
+          - infra=false; case "$BITBUCKET_BRANCH" in infra/*) infra=true;; esac
+          - bash scripts/pipeline/ci-gate.sh "$BITBUCKET_BRANCH" "" "$BITBUCKET_PR_DESTINATION_BRANCH" "$infra"
+    - step: &deploy
+        name: Deploy
+        services: [docker]
+        script:
+          - '[ "${PIPELINE_DEPLOY_ENABLED:-}" = true ] || { echo "deploys are off (PIPELINE_DEPLOY_ENABLED)"; exit 0; }'
+          - |
+            if [ -n "${PIPELINE_ENV:-}" ]; then ev=dispatch; elif [ -n "${BITBUCKET_TAG:-}" ]; then ev=tag; else ev=branch; fi
+            out="$(bash scripts/pipeline/ci-resolve.sh "$ev" "${BITBUCKET_TAG:-$BITBUCKET_BRANCH}" "${PIPELINE_ENV:-}" "${PIPELINE_SHA:-}" "${PIPELINE_TICKET:-}")"
+            env="$(echo "$out" | sed -n 's/^env=//p')"; sha="$(echo "$out" | sed -n 's/^sha=//p')"; version="$(echo "$out" | sed -n 's/^version=//p')"
+            [ "$env" != none ] || { echo "only pipeline records changed: nothing to deploy"; exit 0; }
+            E="$(echo "$env" | tr '[:lower:]' '[:upper:]')"; v() { eval "printf '%s' \"\${${E}_$1:-}\""; }
+            echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin "${REGISTRY_IMAGE%%/*}"
+            case "$env" in
+              dev) docker build -t "$REGISTRY_IMAGE:$sha" . && docker push "$REGISTRY_IMAGE:$sha";;
+              production) docker pull "$REGISTRY_IMAGE:$sha" && for t in "$version" latest; do docker tag "$REGISTRY_IMAGE:$sha" "$REGISTRY_IMAGE:$t"; docker push "$REGISTRY_IMAGE:$t"; done;;
+            esac
+            export IMAGE_REPO="$REGISTRY_IMAGE" DEPLOY_HOST="$(v DEPLOY_HOST)" DEPLOY_USER="$(v DEPLOY_USER)" DEPLOY_PATH="$(v DEPLOY_PATH)"
+            bash scripts/deploy/deploy.sh "$env" "$sha" && bash scripts/deploy/smoke.sh "$(v APP_URL)" || {
+              [ "$env" = production ] && bash scripts/deploy/rollback.sh production; exit 1; }
+pipelines:
+  pull-requests:
+    '**':
+      - step: *gate
+  branches:                        #@on-merge
+    __BASE_BRANCH__:               #@on-merge
+      - step: *deploy              #@on-merge
+    __STAGING_BRANCH__:            #@on-merge
+      - step: *deploy              #@on-merge
+  tags:                            #@on-merge
+    'v*.*.*':                      #@on-merge
+      - step: *deploy              #@on-merge
+  custom:
+    deploy:
+      - variables:
+          - name: PIPELINE_ENV
+            allowed-values: [dev, qa, staging, production]
+          - name: PIPELINE_SHA
+          - name: PIPELINE_TICKET
+      - step: *deploy

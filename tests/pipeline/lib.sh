@@ -17,7 +17,8 @@ unset PIPELINE_TICKET_REGEX PIPELINE_TICKET PIPELINE_BYPASS PIPELINE_BASE_REF PI
 PASS=0; FAIL=0
 
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [ -n "${2:-}" ] && printf '       %s\n' "$2"; }
+# bad returns 0, so `cond && bad "x" || ok "x"` never reports both
+bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [ -z "${2:-}" ] || printf '       %s\n' "$2"; }
 assert_exit()     { [ "$2" = "$3" ] && ok "$1" || bad "$1" "expected exit $2, got $3. ${4:-}"; }
 assert_contains() { case "$2" in *"$3"*) ok "$1";; *) bad "$1" "output missing '$3': $2";; esac; }
 assert_eq()       { [ "$2" = "$3" ] && ok "$1" || bad "$1" "expected '$2', got '$3'"; }
