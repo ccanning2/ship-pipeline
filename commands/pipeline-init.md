@@ -1,6 +1,6 @@
 ---
 description: Install or update the ship pipeline in the current project. Asks every question up front, then installs, connects the code host and tracker CLIs, sets up branches, tracker labels/fields/statuses and CI in one pass (never overwrites your project-specific files).
-argument-hint: [--git-host H] [--git-url URL] [--base-branch B] [--staging-branch B] [--tracker T] [--tracker-url URL] [--team-key KEY] [--no-marketing] [--no-deploy-envs] [--deploy-mode merge|explicit]
+argument-hint: [--git-host H] [--git-url URL] [--base-branch B] [--staging-branch B] [--tracker T] [--tracker-url URL] [--team-key KEY] [--no-deploy-envs] [--deploy-mode merge|explicit] [--start-at analysis|engineering|devops|qa]
 ---
 The goal is that the owner answers questions once, at the start, and does nothing else except the one sign-in step
 that only they can do. Work fast: detect before asking, ask everything in one go, run nothing slow. The plugin's test
@@ -22,13 +22,17 @@ Use `AskUserQuestion` (up to four questions per call), in at most three calls, a
 3. **Branching strategy (staging branch):** `staging` / `stable`. Pushing here deploys qa.
 4. **Ticketing platform:** Jira / Linear / GitHub Issues / GitLab Issues. Other: name it. `/pipeline-init` then checks for a CLI or API for it; if none fits, it falls back to an MCP connector (`--tracker connector`).
 
-**Call 2**
+**Call 2** (four questions)
 5. **Tracker location and ticket prefix.** One question whose options are the detected guesses, for example "Jira at https://acme.atlassian.net, prefix ABC". Other: the owner types `<url> <PREFIX>`. The URL is only needed for Jira (the site) and Linear (the workspace URL, for links); for GitHub or GitLab Issues it is the repository itself. The prefix is the searchString: `ABC` for tickets like `ABC-12`, which is the Jira project key, the Linear team key, or a prefix for issue numbers.
-6. **Marketing function:** Yes / No. With No, the marketing persona and the production marketing gate are skipped.
-7. **Deployment strategy:** three options:
+6. **Deployment strategy:** three options:
    - "Deploys on branch merges": merging the trunk deploys dev, pushing the staging branch deploys qa, and a tag deploys production.
    - "Explicit deploys": nothing deploys on a push, and each environment is deployed by `promote.sh` after its gate.
    - "No deployable environments".
+7. **Start level:** where this project's personas start. The teams before it work upstream, and tickets arrive with their work done:
+   - **Analysis** (Product Owner & Business Analyst): tickets arrive as requirements.
+   - **Engineering** (Senior Engineer): tickets arrive analysed, ready for dev.
+   - **DevOps** (DevOps): tickets arrive built, ready to promote.
+   - **Quality Assurance** (QA & App Specialist): tickets arrive already deployed to qa.
 8. **Consent** (multiSelect, four options, the first three recommended): "Set up now":
    - **Install CLIs:** install the missing ones (gh/glab/acli/jq).
    - **Branches:** create the trunk and staging branches if the remote lacks them, and protect both so the Pipeline Gate is required.
@@ -46,8 +50,7 @@ If a Jira URL was given, resolve its cloudId now: `bash "${CLAUDE_PLUGIN_ROOT}/s
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh"` from the repository root with every answer as a flag:
 - `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`
 - `--tracker`, `--tracker-url`, `--tracker-cloud-id`, `--team-key`
-- `--no-marketing`
-- `--no-deploy-envs` or `--deploy-mode merge|explicit`
+- `--no-deploy-envs` or `--deploy-mode merge|explicit`, `--start-at <level>`
 - `--dev-url --qa-url --staging-url --production-url --health-path`
 - `--create-branches` when "Branches" was ticked
 
@@ -77,9 +80,9 @@ Then relay the output:
 - If `docs/pipeline/CONTEXT.md` was just created, fill it in by inspecting the repository (build files, README, architecture docs):
   - product summary, stack, and the exact test and build commands;
   - environments, architecture rules and high-risk areas;
-  - brand and audience (for marketing), competitors (for research), regulatory notes.
+  - brand and audience, regulatory notes.
 
-  Record the answers from step 2 in prose (host, branches, tracker, capabilities, deploy strategy). Ask only what the repository cannot tell you, and do it in the step-2 questions if you can foresee it.
+  Record the answers from step 2 in prose (host, branches, tracker, deploy strategy, start level). Ask only what the repository cannot tell you, and do it in the step-2 questions if you can foresee it.
 - If `RELEASE_CHECKLIST.md` was just created, tailor it to this project (keep the Tickets, Security, Data and Infrastructure sections).
 
 ## 7. Upgrading an existing install
@@ -95,7 +98,7 @@ Project-owned files are never rewritten, so an older install keeps its old `pipe
 
 Reply with only:
 - **What was done:**
-  - the answers used (host, URL, branches, tracker, prefix, marketing, deploy strategy);
+  - the answers used (host, URL, branches, tracker, prefix, deploy strategy, start level);
   - files created, updated or kept;
   - CLIs installed and signed in;
   - tracker items created or mapped;

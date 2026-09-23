@@ -4,3 +4,4 @@
 # ship-pipeline
 .claude/.pipeline-ticket
 .claude/settings.local.json
+.claude/.pipeline-activity/

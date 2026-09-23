@@ -95,11 +95,25 @@ install_all() {
     c="$(install_cmd "$t")"
     if [ -z "$c" ]; then echo "INSTALL $t: no package manager found; install it by hand"; failed=1; continue; fi
     echo "INSTALL $t: $c"
-    if bash -c "$c" </dev/null >/dev/null 2>&1 && { installed "$t" || [ "$(os)" = windows ]; }; then echo "INSTALLED $t"
+    # winget exits non-zero when the package is already installed but not on PATH, so the result is judged by
+    # whether the tool can be found afterwards, not by the installer's exit code
+    bash -c "$c" </dev/null >/dev/null 2>&1 || true
+    [ "$(os)" = windows ] && link_winget "$t"
+    if installed "$t"; then echo "INSTALLED $t ($(command -v "$(bin_of "$t")"))"
     else echo "FAILED $t (run it yourself: $c)"; failed=1; fi
   done
-  [ "$(os)" = windows ] && echo "NOTE winget installs are on PATH in a new terminal; restart Claude Code if a tool still reads as missing"
   return $failed
+}
+# winget's portable packages (jq, glab, ...) land in %LOCALAPPDATA%\Microsoft\WinGet\Packages and are reachable only
+# through a Links shim that is not always on PATH, and never in an already-running shell. Put the exe in ~/bin,
+# which Git Bash puts on PATH, and on this shell's PATH now.
+link_winget() {
+  local t="$1" exe root="${LOCALAPPDATA:-$HOME/AppData/Local}/Microsoft/WinGet"
+  installed "$t" && return 0
+  exe="$(ls "$root/Links/$t.exe" 2>/dev/null || ls "$root"/Packages/*/"$t.exe" "$root"/Packages/*/*/"$t.exe" 2>/dev/null | head -n 1)"
+  [ -n "$exe" ] || return 0
+  mkdir -p "$HOME/bin" && cp "$exe" "$HOME/bin/$t.exe" && echo "LINKED $t: $HOME/bin/$t.exe"
+  case ":$PATH:" in *":$HOME/bin:"*) ;; *) PATH="$HOME/bin:$PATH";; esac
 }
 
 save_token() { # name KEY=value...

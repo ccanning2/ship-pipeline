@@ -5,9 +5,9 @@
 #                GitHub/GitLab: prefixed labels the adapter keeps to one)
 #   labels       plain labels
 #   status       <pipeline state>|<Linear workflow status> (other trackers: scripts/pipeline/tracker.map)
-label-group|Stage|research,product,analysis,build,dev,qa,staging,go-live,production,done,on-hold|one at a time: where the parent ticket is
-label-group|Owner|market-researcher,product-owner,business-analyst,engineer,qa,app-specialist,marketing,owner|one at a time: who holds the parent ticket
-labels|Kind|story,eng,defect,marketing,follow-up|on child tickets
+label-group|Stage|product,analysis,build,dev,qa,staging,go-live,production,done,on-hold|one at a time: where the parent ticket is
+label-group|Owner|product-owner,business-analyst,engineer,devops,qa,app-specialist,owner|one at a time: who holds the parent ticket
+labels|Kind|story,eng,defect,follow-up|on child tickets
 status|open|Todo|
 status|reopened|Todo|
 status|in-progress|In Progress|

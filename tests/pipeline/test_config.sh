@@ -4,7 +4,7 @@ echo "plugin layout / agents / commands / workflows"
 cd "$REPO_SRC"
 # Locate agents/commands whether we run in the plugin repo or an installed project.
 if [ -d agents ] && [ -f .claude-plugin/plugin.json ]; then A=agents; C=commands; else A=.claude/agents; C=.claude/commands; fi
-agents=(market-researcher product-owner business-analyst senior-engineer qa-tester app-specialist marketing-specialist)
+agents=(product-owner business-analyst senior-engineer devops qa-tester app-specialist)
 fm() { awk 'NR==1 && $0=="---"{f=1;next} f && $0=="---"{exit} f' "$1"; }
 fmval() { fm "$1" | grep -m1 -E "^$2:" | sed -E "s/^$2:[[:space:]]*//"; }
 
@@ -21,29 +21,29 @@ done
 d() { fmval "$A/$1.md" disallowedTools; }
 denies() { case ", $(d "$1")," in *", $2,"*) return 0;; esac; return 1; }
 denies app-specialist Write && denies app-specialist Edit && ok "app-specialist cannot write code" || bad "app-specialist cannot write code"
-# these personas may run exactly one shell command: the tracker CLI adapter (allow-commands.sh holds them to it)
-for a in product-owner business-analyst market-researcher marketing-specialist; do
-  ! denies "$a" Bash && fm "$A/$a.md" | grep -q 'allow-commands.sh\\" scripts/pipeline/tracker.sh' && ok "$a: Bash only for scripts/pipeline/tracker.sh" || bad "$a: Bash only for scripts/pipeline/tracker.sh"
+# the analysis personas work in plan mode: read-only, their only shell command is reading tickets, and /ship applies their plan
+for a in product-owner business-analyst; do
+  [ "$(fmval "$A/$a.md" permissionMode)" = plan ] && ok "$a: permissionMode is plan" || bad "$a: permissionMode is plan"
+  denies "$a" Write && denies "$a" Edit && ok "$a: cannot write files" || bad "$a: cannot write files"
+  fm "$A/$a.md" | grep -q 'allow-commands.sh\\" scripts/pipeline/tracker.sh:view,children"' && ok "$a: Bash only for reading tickets" || bad "$a: Bash only for reading tickets"
+  grep -q '^## Your plan' "$A/$a.md" && grep -q 'ExitPlanMode' "$A/$a.md" && ok "$a: returns a plan" || bad "$a: returns a plan"
 done
+for a in market-researcher marketing-specialist; do [ -e "$A/$a.md" ] && bad "3.0: $a is removed" || ok "3.0: $a is removed"; done
 for a in "${agents[@]}"; do grep -q 'bash scripts/pipeline/tracker.sh' "$A/$a.md" && ok "$a: tickets through the tracker CLI adapter" || bad "$a: tickets through the tracker CLI adapter"; done
 [ -z "$(d senior-engineer)" ] && ok "engineer unrestricted" || bad "engineer unrestricted"
-for a in market-researcher product-owner business-analyst qa-tester marketing-specialist; do
+for a in product-owner business-analyst qa-tester; do
   fm "$A/$a.md" | grep -q "allow-paths.sh" && ok "$a: write-boundary hook" || bad "$a: write-boundary hook"
 done
-grep -q "promote-dev" "$A/senior-engineer.md" && grep -q "dev-check.md" "$A/senior-engineer.md" && grep -qi "never write them yourself" "$A/senior-engineer.md" && ok "engineer: dev self-check, cannot self-approve go-live" || bad "engineer: dev self-check, cannot self-approve go-live"
-grep -q "vX.Y.Z" "$A/senior-engineer.md" && grep -q "staging" "$A/senior-engineer.md" && ok "engineer knows branch/tag model" || bad "engineer knows branch/tag model"
+# the engineer builds and hands over; devops promotes, checks dev and cannot self-approve go-live
+grep -q "promote.sh <TICKET>" "$A/senior-engineer.md" && bad "engineer never runs promote.sh" || ok "engineer never runs promote.sh"
+grep -q "handoff <TICKET> dev devops" "$A/senior-engineer.md" && ok "engineer hands the build to devops" || bad "engineer hands the build to devops"
+grep -q "promote-dev" "$A/devops.md" && grep -q "dev-check.md" "$A/devops.md" && grep -qi "never write them yourself" "$A/devops.md" && ok "devops: dev check, cannot self-approve go-live" || bad "devops: dev check, cannot self-approve go-live"
+grep -q "vX.Y.Z" "$A/devops.md" && grep -q "rollback.sh" "$A/devops.md" && ok "devops knows the branch/tag model and rollback" || bad "devops knows the branch/tag model and rollback"
+fm "$A/devops.md" | grep -q "allow-paths.sh" && ok "devops: write-boundary hook" || bad "devops: write-boundary hook"
+grep -q "Owner: devops" "$A/qa-tester.md" && ok "qa hands a passed build to devops" || bad "qa hands a passed build to devops"
 grep -q "eng. child tickets" "$A/business-analyst.md" && ok "BA creates eng tickets" || bad "BA creates eng tickets"
-for a in qa-tester app-specialist marketing-specialist; do grep -q "defect" "$A/$a.md" && ok "$a raises defect tickets" || bad "$a raises defect tickets"; done
-grep -q "Launch content" "$A/marketing-specialist.md" && ok "marketing creates launch ticket" || bad "marketing creates launch ticket"
-grep -qi "first" "$A/market-researcher.md" && ok "researcher goes first" || bad "researcher goes first"
-# marketing is a project capability AND a per-ticket flag (AC-29, AC-30)
-for a in senior-engineer app-specialist; do
-  grep -q "marketing function" "$A/$a.md" && ok "$a: marketing is a project capability" || bad "$a: marketing is a project capability"
-  grep -q "user-facing" "$A/$a.md" && ok "$a: and the ticket must be user-facing" || bad "$a: and the ticket must be user-facing"
-done
-grep -q "does not, by itself, decide whether any persona runs" "$A/product-owner.md" \
-  && ok "product-owner: User-facing no longer decides which personas run" || bad "product-owner: User-facing no longer decides which personas run"
-grep -qi "capabilit" "$A/marketing-specialist.md" && bad "marketing-specialist stays unaware of project capabilities" || ok "marketing-specialist stays unaware of project capabilities"
+for a in qa-tester app-specialist; do grep -q "defect" "$A/$a.md" && ok "$a raises defect tickets" || bad "$a raises defect tickets"; done
+for a in "${agents[@]}"; do grep -qi "marketing\|market-researcher" "$A/$a.md" && bad "3.0: $a no longer mentions marketing" || ok "3.0: $a no longer mentions marketing"; done
 
 if [ "$A" = agents ]; then
 s="$C/ship.md"; [ -f "$s" ] && ok "/ship exists" || bad "/ship exists"
@@ -53,17 +53,17 @@ done
 if grep -qiwE "reputabill|curate|chris" "$s"; then bad "/ship project-agnostic"; else ok "/ship project-agnostic"; fi
 order=$($PY - "$s" <<'PY'
 import sys; s=open(sys.argv[1]).read()
-seq=["## 1. Research","`market-researcher`","`product-owner`","`business-analyst`","mode **build**","promote-dev","`qa-tester`","promote-staging","`app-specialist`","`marketing-specialist`","next-version.sh","Go-live: approved","promote-production"]
-idx=[s.find(x) for x in seq]; print("yes" if all(i>=0 for i in idx) and idx==sorted(idx) else f"no {idx}")
+seq=["## 1. Product","`product-owner`","`business-analyst`","mode **build**","promote-dev","`qa-tester`","promote-staging","`app-specialist`","next-version.sh","Go-live: approved","promote-production"]
+idx=[]; at=0
+for x in seq:
+    i=s.find(x, at); idx.append(i); at=i+1 if i>=0 else at
+print("yes" if all(i>=0 for i in idx) else f"no {idx}")
 PY
 )
 assert_eq "/ship stage order" "yes" "$order"
-grep -q "marketing function" "$s" && ok "AC-29: /ship states the marketing condition as a project capability" || bad "AC-29: /ship states the marketing condition as a project capability"
-grep -qF "skipped — this project has no marketing function" "$s" && ok "AC-29: /ship reports a skipped stage as configuration" || bad "AC-29: /ship reports a skipped stage as configuration"
-for k in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING; do
-  grep -qF "$k" "$s" && ok "/ship reads $k" || bad "/ship reads $k"
-done
-grep -qF 'marketing function **and** User-facing: yes' "$s" && ok "AC-29: /ship step 7 names both conditions (project capability AND User-facing: yes)" || bad "AC-29: /ship step 7 names both conditions (project capability AND User-facing: yes)"
+grep -qF PIPELINE_HAS_DEPLOY_ENVS "$s" && ok "/ship reads PIPELINE_HAS_DEPLOY_ENVS" || bad "/ship reads PIPELINE_HAS_DEPLOY_ENVS"
+grep -qi "marketing\|research" "$s" && bad "3.0: /ship has no research or marketing stage" || ok "3.0: /ship has no research or marketing stage"
+grep -q "Plan-mode personas" "$s" && grep -q "NEW-n" "$s" && ok "/ship applies the plan-mode personas' plans" || bad "/ship applies the plan-mode personas' plans"
 # AC-31 / NFR-10: no vendor, product or person name in ANY persona or command file (the persona loop above only sees agents/)
 # "curate" is matched as a whole word only, so ordinary words such as "accurate" are not flagged; the
 # distinctive names are still matched anywhere, so a compound like "HetznerCloud" is caught too.
@@ -122,7 +122,7 @@ sys.exit(0 if j["resolve"]["if"]=="vars.PIPELINE_DEPLOY_ENABLED == 'true'" and a
 PY
   grep -q "PIPELINE_BASE_REF=\"origin/master\"\|origin/master" "$G" "$D" && bad "item 2: workflows name no origin/master" || ok "item 2: workflows name no origin/master"
 fi
-for tpl in STATUS product requirements clarifications research impl-notes dev-check qa-report signoff marketing releases tickets; do
+for tpl in STATUS product requirements clarifications impl-notes dev-check qa-report signoff releases tickets; do
   [ -f "$T/docs/pipeline/_templates/$tpl.md" ] && ok "template $tpl.md" || bad "template $tpl.md"
 done
 grep -q '^Version:' "$T/docs/pipeline/_templates/releases.md" && ok "releases template has Version" || bad "releases template has Version"
@@ -130,9 +130,8 @@ for f in TICKETS BRANCHING CLOUD; do [ -f "$T/docs/pipeline/$f.md" ] && ok "doc 
 if [ "$A" = agents ]; then
   grep -q "__PROJECT_NAME__" template/docs/pipeline/CONTEXT.md && grep -q "__TEAM_KEY__" template/scripts/pipeline/pipeline.env && ok "templates have placeholders" || bad "templates have placeholders"
   E=template/scripts/pipeline/pipeline.env
-  for k in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING; do
-    grep -q "^$k=\"yes\"" "$E" && ok "pipeline.env template: $k defaults to yes" || bad "pipeline.env template: $k defaults to yes"
-  done
+  grep -q '^PIPELINE_HAS_DEPLOY_ENVS="yes"' "$E" && ok "pipeline.env template: PIPELINE_HAS_DEPLOY_ENVS defaults to yes" || bad "pipeline.env template: PIPELINE_HAS_DEPLOY_ENVS defaults to yes"
+  grep -q PIPELINE_HAS_MARKETING "$E" && bad "3.0: the template has no marketing key" || ok "3.0: the template has no marketing key"
   grep -q 'yes | no' "$E" && ok "pipeline.env template documents the allowed values" || bad "pipeline.env template documents the allowed values"
   for sec in "Domain risks" "Security" "Data & migrations" "Tickets"; do grep -q "^## .*$sec" template/RELEASE_CHECKLIST.md && ok "generic checklist: $sec" || bad "generic checklist: $sec"; done
   # AC-34: the settings are documented, and the repo copy and the shipped template copy agree
@@ -146,23 +145,21 @@ if [ "$A" = agents ]; then
     diff -q <(tr -d '\r' < "docs/pipeline/$d.md") <(tr -d '\r' < "template/docs/pipeline/$d.md" | sed -e "s:__BASE_BRANCH__:$rb:g" -e "s:__STAGING_BRANCH__:$rs:g") >/dev/null \
       && ok "AC-34: $d.md repo copy and template copy agree" || bad "AC-34: $d.md repo copy and template copy agree"
   done
-  grep -q 'behaves exactly as it did before' README.md && ok "AC-34: README states existing installs are unaffected" || bad "AC-34: README states existing installs are unaffected"
-  # AC-35: each release has exactly one release-notes section; plugin.json carries the newest (v1.1.0)
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="2.0.0" else 1)' \
-    && ok "plugin.json version is 2.0.0" || bad "plugin.json version is 2.0.0"
-  assert_eq "exactly one '### v2.0.0' release-notes heading" "1" "$(grep -c '^### v2.0.0' README.md || true)"
-  grep -q '^#### Upgrading from v1.1.0' README.md && ok "v2.0.0 notes explain the upgrade" || bad "v2.0.0 notes explain the upgrade"
-  assert_eq "AC-35: exactly one '### v1.0.0' release-notes heading" "1" "$(grep -c '^### v1.0.0' README.md || true)"
-  assert_eq "exactly one '### v1.1.0' release-notes heading" "1" "$(grep -c '^### v1.1.0' README.md || true)"
-  assert_eq "no 'Unreleased' release-notes heading" "0" "$(grep -c '^### Unreleased' README.md || true)"
-  grep -q '^#### Upgrading from v1.0.0' README.md && ok "v1.1.0 notes explain the upgrade" || bad "v1.1.0 notes explain the upgrade"
-  RELNOTES="$(sed -n '/^### v1.0.0/,$p' README.md | sed -n '/^## /q;p')"
+  # release notes live in CHANGELOG.md, one section per release; plugin.json carries the newest
+  CL=CHANGELOG.md
+  grep -q 'behaves exactly as it did before' "$CL" && ok "AC-34: the changelog states existing installs are unaffected" || bad "AC-34: the changelog states existing installs are unaffected"
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="3.0.0" else 1)' \
+    && ok "plugin.json version is 3.0.0" || bad "plugin.json version is 3.0.0"
+  for v in v3.0.0 v2.0.0 v1.1.0 v1.0.0; do assert_eq "exactly one '## $v' changelog heading" "1" "$(grep -c "^## $v" "$CL" || true)"; done
+  for u in "Upgrading from v2" "Upgrading from v1.1.0" "Upgrading from v1.0.0"; do grep -q "^### $u" "$CL" && ok "changelog: $u" || bad "changelog: $u"; done
+  assert_eq "no 'Unreleased' changelog heading" "0" "$(grep -c '^## Unreleased' "$CL" || true)"
+  grep -q '^## Release notes\|^### v[0-9]' README.md && bad "README carries no release notes (they are in CHANGELOG.md)" || ok "README carries no release notes (they are in CHANGELOG.md)"
+  RELNOTES="$(sed -n '/^## v1.0.0/,$p' "$CL")"
   for tok in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING --no-deploy-envs; do
     assert_contains "AC-35: v1.0.0 release notes mention $tok" "$RELNOTES" "$tok"
   done
   # AC-36: this repo dogfoods the settings, and the four workaround texts are gone
   assert_contains "AC-36: this repo declares no deployable environments" "$(cat scripts/pipeline/pipeline.env)" 'PIPELINE_HAS_DEPLOY_ENVS="no"'
-  assert_contains "AC-36: this repo declares no marketing function" "$(cat scripts/pipeline/pipeline.env)" 'PIPELINE_HAS_MARKETING="no"'
   assert_eq "AC-36: no 'n/a' apology left in pipeline.env" "0" "$(grep -ci 'n/a' scripts/pipeline/pipeline.env || true)"
   assert_eq "AC-36: no 'N/A — no image, no host' in RELEASE_CHECKLIST.md" "0" "$(grep -c 'N/A — no image, no host' RELEASE_CHECKLIST.md || true)"
   assert_eq "AC-36: no hand-narrowed User-facing parenthetical" "0" "$(grep -c 'only for changes visible to the installing developer' RELEASE_CHECKLIST.md || true)"
@@ -170,9 +167,16 @@ if [ "$A" = agents ]; then
   assert_eq "AC-36: the SHI-5 open question is gone from CONTEXT.md" "0" "$(grep -c 'marketing-specialist persona should be opt-out' docs/pipeline/CONTEXT.md || true)"
   assert_eq "AC-36: no reference to the non-existent template/agents path" "0" "$(grep -rc 'template/agents' docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md | awk -F: '{s+=$2} END {print s+0}')"
 fi
-for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh; do
-  [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax"
+for f in scripts/pipeline/{gate,check-signoff,promote,intake,handover,board,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh scripts/pipeline/lib/*.sh $( [ "$A" = agents ] && echo scripts/pipeline/adapters/*.sh); do
+  case "$f" in */lib/*) bash -n "$f" && ok "$f syntax (sourced, not run)" || bad "$f syntax";; *) [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax";; esac
 done
+# one adapter per platform, each marked with what it is (the doctor matches it against pipeline.env)
+if [ "$A" = agents ]; then
+  for a in host:github host:gitlab host:bitbucket tracker:jira tracker:linear tracker:github tracker:gitlab tracker:connector; do
+    f="scripts/pipeline/adapters/${a%%:*}-${a#*:}.sh"
+    grep -qx "# adapter: ${a%%:*}=${a#*:}" "$f" && ok "adapter $f is marked ${a%%:*}=${a#*:}" || bad "adapter $f is marked ${a%%:*}=${a#*:}"
+  done
+fi
 # scripts/deploy/* is absent in a project installed with --no-deploy-envs
 if [ -d scripts/deploy ]; then
   for f in scripts/deploy/{deploy,rollback,smoke}.sh; do

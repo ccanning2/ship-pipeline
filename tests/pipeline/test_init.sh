@@ -35,7 +35,7 @@ assert_contains "item 9: PIPELINE_REMOTE defaults to origin" "$(cat "$P/scripts/
 # the plugin's test suite stays in the plugin: an install is quick and ships no tests
 [ -e "$P/tests" ] && bad "no test suite is installed into the project" || ok "no test suite is installed into the project"
 grep -q 'tests/pipeline' "$P/scripts/pipeline/.install-manifest" && bad "the manifest records no test file" || ok "the manifest records no test file"
-assert_contains "the answers are reported" "$out" "host: github  tracker: linear  deploy-mode: merge"
+assert_contains "the answers are reported" "$out" "host: github  tracker: linear  deploy-mode: merge  start-at: analysis"
 (cd "$P" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install)
 
 # project-owned files are never overwritten; tooling is refreshed
@@ -74,17 +74,16 @@ for f in .github/workflows/pipeline-gate.yml scripts/pipeline/gate.sh scripts/pi
 done
 E3="$P3/scripts/pipeline/pipeline.env"
 assert_contains "AC-22: declares no deployable environments" "$(cat "$E3")" 'PIPELINE_HAS_DEPLOY_ENVS="no"'
-assert_contains "AC-22: marketing stays on when not opted out" "$(cat "$E3")" 'PIPELINE_HAS_MARKETING="yes"'
+grep -q PIPELINE_HAS_MARKETING "$E3" && bad "3.0: pipeline.env has no marketing key" || ok "3.0: pipeline.env has no marketing key"
 for k in DEPLOY_WORKFLOW HEALTH_PATH DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do
   grep -q "^$k=\"\"$" "$E3" && ok "AC-23: $k present but empty" || bad "AC-23: $k present but empty"
 done
 grep -q '__' "$E3" && bad "AC-23: no placeholder survives" || ok "AC-23: no placeholder survives"
-assert_contains "AC-21: reports the declared capabilities" "$out" "capabilities: deploy-envs=no marketing=yes"
+assert_contains "AC-21: reports the declared capabilities" "$out" "capabilities: deploy-envs=no"
 
 P4="$(mktemp -d)"; git -C "$P4" init -q -b master; git -C "$P4" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
 out=$(bash "$INIT" --project-dir "$P4" --name duo --team-key DUO 2>&1); assert_exit "AC-22: install with no flags" 0 $? "$out"
 assert_contains "AC-22: deploy envs default to yes" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_DEPLOY_ENVS="yes"'
-assert_contains "AC-22: marketing defaults to yes" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="yes"'
 assert_contains "AC-22: default install has placeholder deploy URLs that never resolve" "$(cat "$P4/scripts/pipeline/pipeline.env")" 'DEV_URL="https://dev.duo.example.invalid"'
 
 P5="$(mktemp -d)"; git -C "$P5" init -q -b master; git -C "$P5" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
@@ -106,44 +105,38 @@ assert_eq "AC-26: --force-tooling does not resurrect deploy.sh" "MY DEPLOY" "$(c
 
 # AC-27: idempotent, and the installed project's own suite is green with both capabilities off
 P6="$(mktemp -d)"; git -C "$P6" init -q -b master; git -C "$P6" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init
-out=$(bash "$INIT" --project-dir "$P6" --name lean --team-key LEA --no-deploy-envs --no-marketing 2>&1); assert_exit "AC-27: opted-out install" 0 $? "$out"
-assert_contains "AC-27: declares no marketing function" "$(cat "$P6/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="no"'
+out=$(bash "$INIT" --project-dir "$P6" --name lean --team-key LEA --no-deploy-envs 2>&1); assert_exit "AC-27: opted-out install" 0 $? "$out"
 before6=$(cd "$P6" && find . -path ./.git -prune -o -type f -exec cksum {} \; | sort)
-out=$(bash "$INIT" --project-dir "$P6" --name lean --team-key LEA --no-deploy-envs --no-marketing 2>&1); assert_exit "AC-27: second identical run" 0 $? "$out"
+out=$(bash "$INIT" --project-dir "$P6" --name lean --team-key LEA --no-deploy-envs 2>&1); assert_exit "AC-27: second identical run" 0 $? "$out"
 after6=$(cd "$P6" && find . -path ./.git -prune -o -type f -exec cksum {} \; | sort)
 assert_eq "AC-27: second run changes nothing" "$before6" "$after6"
 
 # AC-28: /pipeline-init asks the two capability questions
 I="$REPO_SRC/commands/pipeline-init.md"
-for s in "--no-deploy-envs" "--no-marketing" "deployable environments" "Marketing function" "CONTEXT.md" \
-         "AskUserQuestion" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
+for s in "--no-deploy-envs" "deployable environments" "CONTEXT.md" \
+         "AskUserQuestion" "Start level" "--start-at" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
          "--git-host" "--git-url" "--tracker" "--tracker-url" "--deploy-mode" "--create-branches" "connect.sh login" "tracker.sh setup"; do
   grep -qF -e "$s" "$I" && ok "AC-28: /pipeline-init mentions $s" || bad "AC-28: /pipeline-init mentions $s"
 done
+grep -qi 'marketing' "$I" && bad "3.0: /pipeline-init no longer asks about marketing" || ok "3.0: /pipeline-init no longer asks about marketing"
 grep -q 'run-all.sh' "$I" && bad "/pipeline-init never runs the plugin's test suite" || ok "/pipeline-init never runs the plugin's test suite"
 
 # ---- QA (SHI-5): arguments are validated before anything is written (FR-15) ----
 mkp() { local d; d="$(mktemp -d)"; git -C "$d" init -q -b master; git -C "$d" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init; echo "$d"; }
-for badargs in "--no-deploy-envs=no" "-no-deploy-envs" "--no-deploy-envs --bogus" "--no-marketing extra" "--no-marketing --name x --wat" "--no-deploy-envs --no-marketing --force-toolin"; do
+for badargs in "--no-deploy-envs=no" "-no-deploy-envs" "--no-deploy-envs --bogus" "--no-marketing" "--no-deploy-envs --name x --wat" "--no-deploy-envs --no-marketing --force-toolin"; do
   Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" $badargs 2>&1); assert_exit "QA: '$badargs' is rejected" 1 $? "$out"
   assert_eq "QA: '$badargs' creates nothing" "" "$(ls -A "$Pq" | grep -v '^\.git$' || true)"
 done
 # a duplicated flag, or a flag given before --project-dir, is harmless
-Pq="$(mkp)"; out=$(bash "$INIT" --no-deploy-envs --no-marketing --no-deploy-envs --project-dir "$Pq" --no-marketing 2>&1); assert_exit "QA: duplicate flags, flags before --project-dir" 0 $? "$out"
+Pq="$(mkp)"; out=$(bash "$INIT" --no-deploy-envs --no-deploy-envs --project-dir "$Pq" 2>&1); assert_exit "QA: duplicate flags, flags before --project-dir" 0 $? "$out"
 assert_contains "QA: duplicate flags still declare deploy-envs no" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_DEPLOY_ENVS="no"'
-assert_contains "QA: duplicate flags still declare marketing no" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="no"'
-# --no-marketing on its own scaffolds the deploy machinery and keeps the deploy URLs
-Pq="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pq" --name mkt --no-marketing 2>&1); assert_exit "QA: --no-marketing only" 0 $? "$out"
-assert_contains "QA: --no-marketing declares marketing no" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_MARKETING="no"'
-assert_contains "QA: --no-marketing leaves deploy-envs yes" "$(cat "$Pq/scripts/pipeline/pipeline.env")" 'PIPELINE_HAS_DEPLOY_ENVS="yes"'
-[ -f "$Pq/scripts/deploy/smoke.sh" ] && [ -f "$Pq/.github/workflows/deploy.yml" ] && ok "QA: --no-marketing still scaffolds the deploy machinery" || bad "QA: --no-marketing still scaffolds the deploy machinery"
 # the opted-out pipeline.env sources cleanly under set -u and leaves every deploy key empty
 Pq="$(mkp)"; bash "$INIT" --project-dir "$Pq" --name lean --no-deploy-envs >/dev/null 2>&1
 assert_eq "QA: opted-out pipeline.env sources under set -u with empty deploy keys" "no||||||" \
   "$( (set -euo pipefail; source "$Pq/scripts/pipeline/pipeline.env"; echo "$PIPELINE_HAS_DEPLOY_ENVS|$DEPLOY_WORKFLOW|$HEALTH_PATH|$DEV_URL|$QA_URL|$STAGING_URL|$PRODUCTION_URL") 2>&1 )"
 
 # BR-13, every flag combination: a re-run over an existing install never touches a project-owned file
-for flags in "" "--no-marketing" "--no-deploy-envs" "--no-deploy-envs --no-marketing" "--no-deploy-envs --force-tooling" "--no-deploy-envs --no-marketing --force-tooling"; do
+for flags in "" "--no-deploy-envs" "--no-deploy-envs --force-tooling" "--deploy-mode explicit" "--start-at qa"; do
   Pq="$(mkp)"; bash "$INIT" --project-dir "$Pq" --name ex --team-key EX >/dev/null 2>&1
   for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh scripts/deploy/smoke.sh .github/workflows/deploy.yml .github/workflows/pipeline-gate.yml \
            scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md .claude/settings.json; do echo "MINE $f" > "$Pq/$f"; done
@@ -344,6 +337,44 @@ out=$(bash "$INIT" --project-dir "$Po" 2>&1)
 case "$out" in *customised*) bad "2.0: CRLF-only differences are not reported as hand edits" "$out";; *) ok "2.0: CRLF-only differences are not reported as hand edits";; esac
 echo "# a real edit" >> "$Po/scripts/pipeline/status.sh"
 out=$(bash "$INIT" --project-dir "$Po" 2>&1); assert_contains "2.0: a real edit on a CRLF copy is still kept" "$out" "customised, kept scripts/pipeline/status.sh"
+
+# ---- 3.0: one adapter per platform, chosen at install; retired tooling is cleaned up ----
+Pa="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pa" --git-host gitlab --tracker jira --tracker-url https://acme.atlassian.net 2>&1); assert_exit "3.0: gitlab + jira install" 0 $? "$out"
+assert_eq "3.0: host.sh is the gitlab adapter" "# adapter: host=gitlab" "$(grep '^# adapter:' "$Pa/scripts/pipeline/host.sh")"
+assert_eq "3.0: tracker.sh is the jira adapter" "# adapter: tracker=jira" "$(grep '^# adapter:' "$Pa/scripts/pipeline/tracker.sh")"
+for f in lib/host-common.sh lib/tracker-common.sh; do [ -f "$Pa/scripts/pipeline/$f" ] && ok "3.0: installs $f" || bad "3.0: installs $f"; done
+[ -e "$Pa/scripts/pipeline/adapters" ] && bad "3.0: the other platforms' adapters are not installed" || ok "3.0: the other platforms' adapters are not installed"
+for a in market-researcher marketing-specialist; do [ -e "$Pa/.claude/agents/$a.md" ] && bad "3.0: no $a persona" || ok "3.0: no $a persona"; done
+for t in research marketing; do [ -e "$Pa/docs/pipeline/_templates/$t.md" ] && bad "3.0: no $t.md template" || ok "3.0: no $t.md template"; done
+# a platform flag that disagrees with the kept pipeline.env installs that adapter and says which line to change
+out=$(bash "$INIT" --project-dir "$Pa" --tracker github 2>&1)
+assert_eq "3.0: the adapter follows the flag" "# adapter: tracker=github" "$(grep '^# adapter:' "$Pa/scripts/pipeline/tracker.sh")"
+assert_contains "3.0: and names the pipeline.env line to change" "$out" 'ACTION: set TRACKER="github" in scripts/pipeline/pipeline.env (it says jira)'
+out=$(bash "$INIT" --project-dir "$Pa" 2>&1)
+assert_eq "3.0: without a flag the adapter follows pipeline.env" "# adapter: tracker=jira" "$(grep '^# adapter:' "$Pa/scripts/pipeline/tracker.sh")"
+Pc2="$(mkp)"; bash "$INIT" --project-dir "$Pc2" --tracker connector >/dev/null 2>&1
+out=$(cd "$Pc2" && bash scripts/pipeline/tracker.sh view REP-1 2>&1); assert_exit "3.0: the connector adapter exits 3" 3 $? "$out"
+[ -e "$Pc2/scripts/pipeline/lib/tracker-common.sh" ] && bad "3.0: the connector needs no tracker library" || ok "3.0: the connector needs no tracker library"
+# an install from before 3.0: its removed personas and templates go, unless the owner edited them
+Pr="$(mkp)"; bash "$INIT" --project-dir "$Pr" >/dev/null 2>&1
+for f in .claude/agents/market-researcher.md .claude/agents/marketing-specialist.md docs/pipeline/_templates/research.md; do printf 'old %s\n' "$f" > "$Pr/$f"; done
+(cd "$Pr" && cksum .claude/agents/market-researcher.md .claude/agents/marketing-specialist.md docs/pipeline/_templates/research.md) >> "$Pr/scripts/pipeline/.install-manifest"
+echo "# my notes" >> "$Pr/.claude/agents/marketing-specialist.md"
+out=$(bash "$INIT" --project-dir "$Pr" 2>&1)
+for f in .claude/agents/market-researcher.md docs/pipeline/_templates/research.md; do
+  [ -e "$Pr/$f" ] && bad "3.0: an untouched retired $f is removed" || ok "3.0: an untouched retired $f is removed"
+done
+[ -f "$Pr/.claude/agents/marketing-specialist.md" ] && ok "3.0: a retired file the owner edited is kept" || bad "3.0: a retired file the owner edited is kept"
+assert_contains "3.0: and reported" "$out" "kept    .claude/agents/marketing-specialist.md (no longer part of the pipeline, but edited by hand"
+grep -q 'market-researcher' "$Pr/scripts/pipeline/.install-manifest" && bad "3.0: retired files leave the manifest" || ok "3.0: retired files leave the manifest"
+out=$(bash "$INIT" --project-dir "$Pr" --no-marketing 2>&1); assert_exit "3.0: --no-marketing is no longer a flag" 1 $? "$out"
+[ -f "$Pr/.claude/agents/devops.md" ] && ok "3.0: installs the devops persona" || bad "3.0: installs the devops persona"
+[ -x "$Pr/scripts/pipeline/handover.sh" ] && ok "3.0: installs handover.sh" || bad "3.0: installs handover.sh"
+assert_contains "3.0: the start level defaults to analysis" "$(cat "$Pr/scripts/pipeline/pipeline.env")" 'PIPELINE_START_LEVEL="analysis"'
+Ps="$(mkp)"; out=$(bash "$INIT" --project-dir "$Ps" --start-at Engineering 2>&1); assert_exit "3.0: --start-at engineering" 0 $? "$out"
+assert_contains "3.0: the start level is recorded" "$(cat "$Ps/scripts/pipeline/pipeline.env")" 'PIPELINE_START_LEVEL="engineering"'
+Ps2="$(mkp)"; out=$(bash "$INIT" --project-dir "$Ps2" --start-at marketing 2>&1); assert_exit "3.0: an unknown start level is refused" 1 $? "$out"
+assert_eq "3.0: and creates nothing" "" "$(ls -A "$Ps2" | grep -v '^\.git$' || true)"
 
 # profile install
 P2="$(mktemp -d)"; git -C "$P2" init -q -b master; git -C "$P2" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init

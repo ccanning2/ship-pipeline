@@ -34,9 +34,18 @@ for f in $P/pipeline.env $P/gate.sh $P/promote.sh $P/intake.sh $P/status.sh $P/n
          "$gate_ci" .claude/settings.json; do
   [ -f "$f" ] || missing="$missing $f"
 done
-for f in host tracker connect ci-gate ci-resolve; do [ -f "$P/$f.sh" ] || missing="$missing $P/$f.sh"; done
+for f in host tracker connect ci-gate ci-resolve lib/host-common; do [ -f "$P/$f.sh" ] || missing="$missing $P/$f.sh"; done
 [ -f $P/hooks/allow-commands.sh ] || missing="$missing $P/hooks/allow-commands.sh"
 [ -z "$missing" ] && pass "files: the pipeline is installed" || fail "files: missing$missing (run /pipeline-init)"
+# host.sh and tracker.sh are the adapters for the platforms chosen at install; after a change of GIT_HOST or TRACKER
+# they must be swapped too (/pipeline-init does it)
+trk_want="$(printf '%s' "${TRACKER:-linear}" | tr '[:upper:]' '[:lower:]')"
+for a in "host:$git_host" "tracker:$trk_want"; do
+  k="${a%%:*}"; want="${a#*:}"; got="$(sed -n "s/^# adapter: $k=//p" "$P/$k.sh" 2>/dev/null | head -n 1)"
+  [ -f "$P/$k.sh" ] || continue
+  if [ "$got" = "$want" ]; then pass "files: $k.sh is the $want adapter"
+  else fail "files: $k.sh is the ${got:-unknown} adapter, but pipeline.env says $want; re-run /pipeline-init to install the $want adapter"; fi
+done
 notx=""; for f in $P/*.sh $P/hooks/*.sh scripts/deploy/*.sh; do [ -f "$f" ] && [ ! -x "$f" ] && notx="$notx $f"; done
 [ -z "$notx" ] && pass "files: scripts are executable" || fail "files: not executable:$notx (chmod +x them)"
 if [ -f $P/.install-manifest ]; then
@@ -70,11 +79,14 @@ case "$git_host" in github|gitlab|bitbucket) pass "pipeline.env: GIT_HOST=$git_h
   *) fail "pipeline.env: GIT_HOST='$git_host' is not github, gitlab or bitbucket";; esac
 de_on="$(printf '%s' "${PIPELINE_HAS_DEPLOY_ENVS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
 if [ "$de_on" != no ]; then
-  ph="$(for k in DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do case "${!k:-}" in ""|*example*) printf '%s ' "$k";; esac; done)"
+  ph="$(for k in DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do case "${!k:-}" in ""|*.example.invalid*) printf '%s ' "$k";; esac; done)"
   [ -z "$ph" ] && pass "pipeline.env: every environment URL is set" \
     || warn "pipeline.env: ${ph}still a placeholder; /pipeline-init asks for the real URLs (or set PIPELINE_HAS_DEPLOY_ENVS=\"no\")"
 fi
-for k in PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING; do
+case "$(printf '%s' "${PIPELINE_START_LEVEL:-analysis}" | tr '[:upper:]' '[:lower:]')" in
+  analysis|engineering|devops|qa) pass "pipeline.env: PIPELINE_START_LEVEL=${PIPELINE_START_LEVEL:-analysis} (where /ship picks tickets up)";;
+  *) fail "pipeline.env: PIPELINE_START_LEVEL='${PIPELINE_START_LEVEL}' is not analysis, engineering, devops or qa";; esac
+for k in PIPELINE_HAS_DEPLOY_ENVS; do
   v="$(printf '%s' "${!k:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   case "$v" in yes|no) ;; "") warn "pipeline.env: $k is not set (resolves to yes); state it explicitly";; *) warn "pipeline.env: $k='${!k}' is not yes or no (resolves to yes)";; esac
 done
@@ -103,7 +115,7 @@ if url="$(git remote get-url "$remote" 2>/dev/null)"; then
     pass "git: $remote/$base shares history with the local repository"
   fi
   if [ -z "$rs" ]; then
-    warn "git: $remote has no branch '$stg'. The owner creates it from the base branch: git push $remote $base:refs/heads/$stg"
+    warn "git: $remote has no branch '$stg'. /pipeline-init creates it (the Branches option), or: git push $remote $base:refs/heads/$stg"
   elif [ -n "$rb" ] && git cat-file -e "$rs^{commit}" 2>/dev/null && git cat-file -e "$rb^{commit}" 2>/dev/null; then
     git merge-base --is-ancestor "$rs" "$rb" && pass "git: $stg is on $base" \
       || warn "git: $remote/$stg ($rs) is not a $base commit; the staging branch should always equal some $base sha"

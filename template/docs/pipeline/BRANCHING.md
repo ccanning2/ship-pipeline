@@ -16,10 +16,10 @@ feature/<TICKET>-slug ──merge──► __BASE_BRANCH__ ──► DEV   (imag
 
 | Action | Who | Deploys | Gate enforced |
 |---|---|---|---|
-| Merge ticket branch → `__BASE_BRANCH__` | engineer (`promote.sh dev`) | dev; builds the image | `dev`: eng tickets done, no open defects, branch contains the latest `__BASE_BRANCH__` |
-| Push `__BASE_BRANCH__` sha → `__STAGING_BRANCH__` branch | engineer (`promote.sh qa`) | qa | `qa`: dev self-check passed on that sha, no code change since |
-| Dispatch same sha → staging env | engineer (`promote.sh staging`) | staging | `staging`: QA passed on that sha, QA defects verified |
-| Tag `vX.Y.Z` on that sha | engineer (`promote.sh production`), after the owner's go | production | `production`: sign-off, all defects verified, marketing ready (only if the project has a marketing function and the ticket is user-facing), Go-live + Version set |
+| Merge ticket branch → `__BASE_BRANCH__` | devops (`promote.sh dev`) | dev; builds the image | `dev`: eng tickets done, no open defects, branch contains the latest `__BASE_BRANCH__` |
+| Push `__BASE_BRANCH__` sha → `__STAGING_BRANCH__` branch | devops (`promote.sh qa`) | qa | `qa`: devops' dev check passed on that sha, no code change since |
+| Dispatch same sha → staging env | devops (`promote.sh staging`) | staging | `staging`: QA passed on that sha, QA defects verified |
+| Tag `vX.Y.Z` on that sha | devops (`promote.sh production`), after the owner's go | production | `production`: sign-off, all defects verified, Go-live + Version set |
 
 Rules:
 - **Build once.** The image is built on the way into dev and never rebuilt; every environment runs the identical `:<sha>` image. Production adds the `:vX.Y.Z` tag so any release can be found and redeployed by version.

@@ -50,7 +50,7 @@ out=$(promote REP-80 staging); assert_exit "staging promote succeeds" 0 $? "$out
 assert_contains "staging gets the same build" "$(tail -1 "$LOG")" "deploy staging $head REP-80"
 
 out=$(promote REP-80 production); assert_exit "production blocked before sign-off" 1 $? "$out"
-signoff REP-80 approved "$head"; marketing REP-80 ready; add_ticket REP-80 REP-8090 marketing - - done; commit_all x
+signoff REP-80 approved "$head"
 out=$(promote REP-80 production); assert_exit "production blocked without go-live" 1 $? "$out"
 golive REP-80
 : > "$LOG"
@@ -100,7 +100,7 @@ qa_report REP-83 pass "$head"
 out=$(promote REP-83 staging); assert_exit "no-deploy: staging promote succeeds" 0 $? "$out"
 assert_contains "AC-14: no workflow dispatch at staging" "$out" "no deploy: project has no deployable environments"
 signoff REP-83 approved "$head"; golive REP-83
-out=$(PIPELINE_SMOKE_CMD=false promote REP-83 production); assert_exit "AC-38/AC-15: an opted-out user-facing feature reaches production with no marketing evidence and no smoke" 0 $? "$out"
+out=$(PIPELINE_SMOKE_CMD=false promote REP-83 production); assert_exit "AC-38/AC-15: an opted-out user-facing feature reaches production with no smoke" 0 $? "$out"
 assert_eq "AC-14: nothing was deployed at any stage" "" "$(cat "$LOG")"
 assert_eq "AC-16: the version tag is still created on the build" "$head" "$(g rev-parse v1.0.0^{commit})"
 assert_contains "AC-16: releases.md still records Production" "$(cat "$(tdir REP-83)/releases.md")" "Production: $head"
@@ -172,7 +172,7 @@ assert_eq "QA: still nothing deployed" "" "$(cat "$LOG")"
 if [ "$INIT_MODE" = init ]; then
   R="$(mktemp -d)"; git -C "$R" init -q -b master; git -C "$R" config user.email t@t; git -C "$R" config user.name t
   mkdir -p "$R/src"; echo "class App {}" > "$R/src/App.java"; g add -A; g commit -qm init
-  out=$(bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name lean --team-key REP --no-deploy-envs --no-marketing 2>&1); assert_exit "AC-38: opted-out install" 0 $? "$out"
+  out=$(bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name lean --team-key REP --no-deploy-envs 2>&1); assert_exit "AC-38: opted-out install" 0 $? "$out"
   assert_eq "AC-38: no scripts/deploy in the installed project" "no" "$([ -e "$R/scripts/deploy" ] && echo yes || echo no)"
   commit_all "install pipeline"; branch feature/REP-91-x
   ready_build REP-91 feature yes; built REP-91; head=$(g rev-parse HEAD)
@@ -183,9 +183,9 @@ if [ "$INIT_MODE" = init ]; then
   qa_report REP-91 pass "$head"
   out=$(instp REP-91 staging); assert_exit "AC-38: staging, no overrides (no gh dispatch)" 0 $? "$out"
   signoff REP-91 approved "$head"; golive REP-91
-  out=$(instp REP-91 production); assert_exit "AC-38: production, user-facing, no marketing evidence, no overrides" 0 $? "$out"
+  out=$(instp REP-91 production); assert_exit "AC-38: production, user-facing, no overrides" 0 $? "$out"
   assert_eq "AC-38: the version tag exists on the built sha" "$head" "$(g rev-parse v1.0.0^{commit})"
-  assert_contains "AC-38: the gate said marketing was off" "$out" "marketing=off"
+  assert_contains "AC-38: the gate said deploy-envs was off" "$out" "deploy-envs=off"
 fi
 
 # cloud: dev promote merges via PR API

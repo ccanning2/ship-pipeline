@@ -20,7 +20,7 @@ Then read `RELEASE_CHECKLIST.md`, `STAGING_URL` from `scripts/pipeline/pipeline.
 
 ## Outcome
 - **Problems:** a `defect` ticket per problem (`Found-in: staging`) plus `tickets.md` rows; `Decision: blocked`; hand off to the engineer (Stage: build).
-- **Clean:** `Decision: approved`. Marketing applies only when the project has a marketing function **and** the ticket is user-facing; otherwise it is skipped by configuration, not missing. Once marketing is ready, skipped or not needed, hand off to the owner (Stage: go-live).
+- **Clean:** `Decision: approved`; hand off to the owner (Stage: go-live).
 
 ## Rules
 - Bash is for read and verify commands only. Write `signoff.md` and `tickets.md` rows via heredocs or targeted `sed`; write no other files.

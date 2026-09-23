@@ -31,10 +31,8 @@ A FAIL in a section marked (blocking) blocks the release.
       from the staging ref.
 
 ## 6. Product & brand
-- [ ] product.md and requirements.md approved; research complete (features); no open clarifications.
-- [ ] `User-facing: yes` **and** `PIPELINE_HAS_MARKETING="yes"`: marketing.md `ready`, launch ticket
-      done, copy defects verified. With either one off, marketing is skipped by configuration — say so
-      in `signoff.md` rather than leaving it blank.
+- [ ] product.md and requirements.md approved; no open clarifications.
+- [ ] User-facing copy matches requirements.md exactly; copy defects verified.
 - [ ] Empty, error and loading states exist for new UI.
 
 ## 7. Tickets (blocking)
