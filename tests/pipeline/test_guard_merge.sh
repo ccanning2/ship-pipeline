@@ -34,7 +34,7 @@ record REP-90 Dev "$head"; dev_check REP-90 pass "$head"; g update-ref refs/head
 out=$(hook "git push origin $head:refs/heads/staging"); assert_exit "staging push allowed after dev-check" 0 $? "$out"
 out=$(hook "git push origin v1.0.0"); assert_exit "tag still blocked before sign-off" 2 $? "$out"
 record REP-90 QA "$head"; qa_report REP-90 pass "$head"; record REP-90 Staging "$head"; signoff REP-90 approved "$head"
-marketing REP-90 ready; add_ticket REP-90 REP-9090 marketing - - done; commit_all mk; golive REP-90
+golive REP-90
 out=$(hook "git push origin refs/tags/v1.0.0"); assert_exit "tag push allowed after go-live + version" 0 $? "$out"
 out=$(hook "git push origin v2.0.0"); assert_exit "tag push allowed (gate reads Version from releases, tag name not checked here)" 0 $? "$out"
 

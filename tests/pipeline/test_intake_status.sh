@@ -68,34 +68,27 @@ out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
 assert_contains "status: shipped" "$out" "none (shipped)"
 out=$(cd "$R" && bash scripts/pipeline/status.sh 2>&1); assert_exit "status: no args fails" 1 $? "$out"
 
-# status: project capabilities (AC-32, AC-33)
+# status: the project capability (AC-32, AC-33)
 out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
 assert_contains "status: capabilities line present" "$out" "Project capabilities:"
 assert_contains "status: deploy-envs on by default" "$out" "deploy-envs=on"
-assert_contains "status: marketing on by default" "$out" "marketing=on"
-set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'; set_capability PIPELINE_HAS_MARKETING '"no"'
+case "$out" in *marketing*) bad "status: marketing is no longer a capability" "$out";; *) ok "status: marketing is no longer a capability";; esac
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
 out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1); assert_exit "AC-32: status still exits 0" 0 $? "$out"
 assert_contains "AC-32: deploy-envs off" "$out" "deploy-envs=off"
 assert_contains "AC-32: names what deploy-envs off disables" "$out" "deploy, dispatch and smoke steps are skipped; promotion still runs"
-assert_contains "AC-32: marketing off" "$out" "marketing=off"
-assert_contains "AC-32: names what marketing off disables" "$out" "marketing-specialist and the production marketing requirement are skipped"
-set_capability PIPELINE_HAS_MARKETING '"flase"'
-out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
-assert_contains "AC-33: an unrecognised value resolves strict" "$out" "marketing=on"
-assert_contains "AC-33: the raw value is surfaced here and nowhere else" "$out" "unrecognised value 'flase'"
-assert_eq "AC-33: gate.sh stderr stays empty on a passing run" "" "$(cd "$R" && bash scripts/pipeline/gate.sh REP-80 build 2>&1 >/dev/null)"
-unset_capability PIPELINE_HAS_MARKETING
-out=$(cd "$R" && PIPELINE_HAS_MARKETING=no bash scripts/pipeline/status.sh REP-80 2>&1)
-assert_contains "AC-33: the environment cannot flip a capability" "$out" "marketing=on"
-# QA (SHI-5): status.sh trims/lowercases like the gate, and shows the raw text of a typo for either key
-set_capability PIPELINE_HAS_MARKETING '" No "'; set_capability PIPELINE_HAS_DEPLOY_ENVS '"flase"'
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"flase"'
 out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1); assert_exit "QA: status exits 0 with a typo in deploy-envs" 0 $? "$out"
-assert_contains "QA: ' No ' shows marketing=off" "$out" "marketing=off"
-assert_contains "QA: a typo in deploy-envs resolves on" "$out" "deploy-envs=on (unrecognised value 'flase'"
-set_capability_crlf PIPELINE_HAS_MARKETING no; set_capability PIPELINE_HAS_DEPLOY_ENVS '"false"'
-out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
-assert_contains "QA: 'no' with a trailing CR shows marketing=off" "$out" "marketing=off"
-assert_contains "QA: 'false' is surfaced as unrecognised, not accepted as no" "$out" "deploy-envs=on (unrecognised value 'false'"
+assert_contains "AC-33: a typo resolves on, and the raw value is surfaced" "$out" "deploy-envs=on (unrecognised value 'flase'"
+assert_eq "AC-33: gate.sh stderr stays empty on a passing run" "" "$(cd "$R" && bash scripts/pipeline/gate.sh REP-80 build 2>&1 >/dev/null)"
+set_capability PIPELINE_HAS_DEPLOY_ENVS '" No "'
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1); assert_contains "QA: ' No ' trims and lowercases to off" "$out" "deploy-envs=off"
+set_capability_crlf PIPELINE_HAS_DEPLOY_ENVS no
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1); assert_contains "QA: 'no' with a trailing CR shows off" "$out" "deploy-envs=off"
+unset_capability PIPELINE_HAS_DEPLOY_ENVS
+out=$(cd "$R" && PIPELINE_HAS_DEPLOY_ENVS=no bash scripts/pipeline/status.sh REP-80 2>&1)
+assert_contains "AC-33: the environment cannot flip the capability" "$out" "deploy-envs=on"
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'
 
 # acceptance test 2: intake takes this team's ids only
 printf 'brief\n' > "$R/b.md"
@@ -104,4 +97,41 @@ for s in macos-14 UTF-8 v1.45.0-jammy ABC-12; do
   out=$(cd "$R" && bash scripts/pipeline/intake.sh "$s" b.md 2>&1); assert_exit "intake rejects $s" 1 $? "$out"
 done
 [ -d "$R/docs/pipeline/MACOS-14" ] && bad "a rejected id creates no folder" || ok "a rejected id creates no folder"
+
+# ---- handover.sh: a ticket picked up at a later start level passes the same gates ----
+ho() { (cd "$R" && bash scripts/pipeline/handover.sh "$@" 2>&1); }
+new_repo; set_capability PIPELINE_START_LEVEL '"engineering"'; commit_all level
+branch feature/REP-300-x; printf 'Analysed upstream: do X.\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-300 - https://t/REP-300 >/dev/null)
+out=$(ho REP-300 --type bugfix --user-facing no --eng REP-301,rep-302); assert_exit "handover: engineering" 0 $? "$out"
+assert_contains "handover: the level comes from pipeline.env" "$out" "at the engineering level"
+assert_contains "handover: product.md is approved with the given type" "$(cat "$(tdir REP-300)/product.md")" "Type: bugfix"
+assert_eq "handover: both eng rows, open" "2" "$(grep -cE '^\| REP-30[12] \| eng \|.*\| open \|' "$(tdir REP-300)/tickets.md")"
+[ -e "$(tdir REP-300)/impl-notes.md" ] && bad "handover: engineering writes no impl-notes.md" || ok "handover: engineering writes no impl-notes.md"
+commit_all handover
+out=$(gate REP-300 build); assert_exit "handover: an engineering hand-over passes the build gate" 0 $? "$out"
+out=$(gate REP-300 dev); assert_exit "handover: but not the dev gate (the engineer has not built it)" 1 $? "$out"
+before="$(cat "$(tdir REP-300)/product.md")"; out=$(ho REP-300 --type feature)
+assert_eq "handover: a re-run keeps every existing record" "$before" "$(cat "$(tdir REP-300)/product.md")"
+assert_eq "handover: and adds no second row" "1" "$(grep -c '^| REP-300 ' "$(tdir REP-300)/tickets.md")"
+
+new_repo; branch feature/REP-310-x; echo "class Built {}" > "$R/src/Built.java"; commit_all built
+printf 'Built upstream.\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-310 - >/dev/null)
+out=$(ho REP-310 --level devops); assert_exit "handover: devops" 0 $? "$out"; commit_all handover
+assert_contains "handover: devops rows are done" "$(cat "$(tdir REP-310)/tickets.md")" "| REP-310 | eng | - | - | done |"
+assert_contains "handover: impl-notes names the branch" "$(cat "$(tdir REP-310)/impl-notes.md")" "feature/REP-310-x"
+out=$(gate REP-310 dev); assert_exit "handover: a devops hand-over passes the dev gate" 0 $? "$out"
+
+new_repo; branch feature/REP-320-x; echo "class OnQa {}" > "$R/src/OnQa.java"; commit_all onqa
+qa_sha=$(g rev-parse HEAD); g update-ref refs/heads/master "$qa_sha"; g update-ref refs/remotes/origin/master "$qa_sha"; g update-ref refs/remotes/origin/staging "$qa_sha"
+printf 'On qa upstream.\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-320 - >/dev/null)
+out=$(ho REP-320 --level qa); assert_exit "handover: qa" 0 $? "$out"
+assert_contains "handover: qa takes the build from the staging branch" "$(cat "$(tdir REP-320)/releases.md")" "QA: $qa_sha"
+commit_all handover
+out=$(gate REP-320 qa); assert_exit "handover: a qa hand-over passes the qa gate" 0 $? "$out"
+out=$(gate REP-320 staging); assert_exit "handover: but staging still needs QA's own report" 1 $? "$out"
+qa_report REP-320 pass "$qa_sha"
+out=$(gate REP-320 staging); assert_exit "handover: after QA passes, the staging gate passes" 0 $? "$out"
+out=$(ho REP-320 --level nope); assert_exit "handover: an unknown level is refused" 1 $? "$out"
+out=$(ho REP-999 --level engineering); assert_exit "handover: needs intake first" 1 $? "$out"
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-320 2>&1); assert_contains "status: prints the start level" "$out" "Start level: analysis"
 summary

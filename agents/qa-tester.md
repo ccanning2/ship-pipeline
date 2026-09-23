@@ -28,7 +28,7 @@ Then read `requirements.md`, `impl-notes.md`, `dev-check.md`, `releases.md` (tak
 Create a `defect` child ticket per problem per TICKETS.md (steps, expected vs actual, env `qa` and sha, severity), add a `tickets.md` row with `Found-in: qa`, set `Result: fail`, and hand off to the engineer (Stage: build).
 
 ## When everything passes
-Set `Result: pass` and hand off to the engineer for staging promotion (Stage: qa, Owner: engineer).
+Set `Result: pass` and hand off to devops for staging promotion (Stage: qa, Owner: devops).
 
 ## Rules
 - Edit ONLY test sources, `qa-report.md` and `tickets.md`. Commit your tests. Never change production code.

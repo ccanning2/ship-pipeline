@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Scaffold (or update) the pipeline in a project. Idempotent; never overwrites project-owned files.
 # Usage: init.sh [--project-dir DIR] [--name NAME] [--team-key KEY] [--profile NAME] [--force-tooling]
-#               [--base-branch NAME] [--staging-branch NAME] [--no-deploy-envs] [--no-marketing]
+#               [--base-branch NAME] [--staging-branch NAME] [--no-deploy-envs]
 #               [--git-host github|gitlab|bitbucket] [--git-url URL] [--tracker jira|linear|github|gitlab|connector]
 #               [--tracker-url URL] [--tracker-cloud-id ID] [--deploy-mode merge|explicit]
 #               [--dev-url URL] [--qa-url URL] [--staging-url URL] [--production-url URL] [--health-path PATH]
-#               [--create-branches]
+#               [--create-branches] [--start-at analysis|engineering|devops|qa]
 # Every question /pipeline-init asks has a flag here, so one run installs everything; nothing below prompts.
 #   --git-host        default: GIT_HOST from an existing pipeline.env, else the remote's URL (gitlab / bitbucket),
 #                     else github. Picks the CI files: .github/workflows/* (github), .gitlab/pipeline-*.yml plus an
@@ -15,6 +15,9 @@
 #                     scripts/pipeline/tracker.sh with the tracker's CLI; "connector" falls back to an MCP connector
 #   --deploy-mode     merge (default): pushes and tags deploy; explicit: nothing deploys on a push, promote.sh
 #                     dispatches every environment. CI template lines marked "#@on-merge" are dropped for explicit
+#   --start-at        where /ship picks a ticket up (default analysis): analysis (product owner + business analyst),
+#                     engineering (tickets arrive ready for dev), devops (built, ready to promote), qa (already on qa).
+#                     The work upstream of the level is recorded by scripts/pipeline/handover.sh at intake
 #   --create-branches push the base branch when the remote lacks it, and create the staging branch from the remote
 #                     base branch when it is missing. Never moves or forces an existing branch
 #   --base-branch     the trunk (merging here = dev). Default: BASE_BRANCH from an existing pipeline.env, else
@@ -25,15 +28,15 @@
 #                     and the new version is written beside them as <file>.new), and refresh scripts/deploy/*
 #   --no-deploy-envs  the project has no hosts/image/deploy workflow: no scripts/deploy/*, no deploy.yml,
 #                     empty deploy keys, and PIPELINE_HAS_DEPLOY_ENVS="no" in a freshly created pipeline.env
-#   --no-marketing    the project has no marketing function: PIPELINE_HAS_MARKETING="no"
 #   Without --no-deploy-envs, an existing scripts/pipeline/pipeline.env is read (never written): a project
 #   that already declares PIPELINE_HAS_DEPLOY_ENVS="no" is scaffolded as if the flag had been passed.
-#   Neither flag ever deletes anything from an existing install; both default to "yes" (today's behaviour).
+#   It never deletes anything from an existing install; the capability defaults to "yes".
 #   Project-owned (created once, then yours): docs/pipeline/CONTEXT.md, RELEASE_CHECKLIST.md, scripts/pipeline/pipeline.env,
 #     the host's CI files (.github/workflows/*.yml | .gitlab/*.yml + .gitlab-ci.yml | bitbucket-pipelines.yml),
 #     scripts/deploy/*, .claude/settings.json
-#   Tooling (refreshed on every run): scripts/pipeline/{gate,promote,intake,status,next-version,check-signoff,cloud-setup,
-#     ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh, scripts/pipeline/tracker-schema.txt,
+#   Tooling (refreshed on every run): scripts/pipeline/{gate,promote,intake,handover,status,next-version,check-signoff,
+#     cloud-setup,ticket-id,base-ref,enforcement,doctor,connect,ci-gate,ci-resolve}.sh, scripts/pipeline/lib/*,
+#     host.sh + tracker.sh (the adapters for the chosen platforms, from scripts/pipeline/adapters/), tracker-schema.txt,
 #     scripts/pipeline/hooks/*, .claude/agents/*, docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md, docs/pipeline/_templates/*
 #   The plugin's test suite (tests/pipeline/*) is never installed; an older install's untouched copy is removed.
 #   scripts/pipeline/.install-manifest records a checksum of every tooling file as installed. A tooling file whose
@@ -42,17 +45,17 @@
 #   __BASE_BRANCH__ / __STAGING_BRANCH__ in any scaffolded file are replaced with the project's branch names.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-dir="$(pwd)"; name=""; key=""; profile=""; force=0; deploy_envs=yes; marketing=yes; base=""; stg=""
-git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=merge; mkbranches=0
+dir="$(pwd)"; name=""; key=""; profile=""; force=0; deploy_envs=yes; base=""; stg=""
+git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=merge; mkbranches=0; start=""
 dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""
 while [ $# -gt 0 ]; do case "$1" in
   --project-dir) dir="$2"; shift 2;; --name) name="$2"; shift 2;; --team-key) key="$2"; shift 2;;
   --profile) profile="$2"; shift 2;; --force-tooling) force=1; shift;;
   --base-branch) base="${2:-}"; shift 2;; --staging-branch) stg="${2:-}"; shift 2;;
-  --no-deploy-envs) deploy_envs=no; shift;; --no-marketing) marketing=no; shift;;
+  --no-deploy-envs) deploy_envs=no; shift;;
   --git-host) git_host="${2:-}"; shift 2;; --git-url) git_url="${2:-}"; shift 2;;
   --tracker) tracker="${2:-}"; shift 2;; --tracker-url) tracker_url="${2:-}"; shift 2;; --tracker-cloud-id) cloud_id="${2:-}"; shift 2;;
-  --deploy-mode) deploy_mode="${2:-}"; shift 2;; --create-branches) mkbranches=1; shift;;
+  --deploy-mode) deploy_mode="${2:-}"; shift 2;; --create-branches) mkbranches=1; shift;; --start-at) start="${2:-}"; shift 2;;
   --dev-url) dev_url="${2:-}"; shift 2;; --qa-url) qa_url="${2:-}"; shift 2;; --staging-url) stg_url="${2:-}"; shift 2;;
   --production-url) prod_url="${2:-}"; shift 2;; --health-path) health="${2:-}"; shift 2;;
   *) echo "unknown arg $1" >&2; exit 1;; esac; done
@@ -134,6 +137,9 @@ case "$git_host" in github|gitlab|bitbucket) ;; *) echo "init: --git-host must b
 tracker="$(printf '%s' "$tracker" | tr '[:upper:]' '[:lower:]')"
 case "$tracker" in jira|linear|github|gitlab|connector) ;; *) echo "init: --tracker must be jira, linear, github, gitlab or connector (got '$tracker')" >&2; exit 1;; esac
 [ -n "$tracker_url" ] || tracker_url="$(unfilled "$(declared_value scripts/pipeline/pipeline.env TRACKER_URL)")"
+[ -n "$start" ] || start="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env PIPELINE_START_LEVEL)")"
+start="$(printf '%s' "${start:-analysis}" | tr '[:upper:]' '[:lower:]')"
+case "$start" in analysis|engineering|devops|qa) ;; *) echo "init: --start-at must be analysis, engineering, devops or qa (got '$start')" >&2; exit 1;; esac
 case "$deploy_mode" in merge|explicit) ;; *) echo "init: --deploy-mode must be merge or explicit (got '$deploy_mode')" >&2; exit 1;; esac
 for u in "$git_url" "$tracker_url" "$dev_url" "$qa_url" "$stg_url" "$prod_url"; do
   case "$u" in ""|http://*|https://*) ;; *) echo "init: '$u' is not an http(s) URL" >&2; exit 1;; esac
@@ -141,6 +147,13 @@ for u in "$git_url" "$tracker_url" "$dev_url" "$qa_url" "$stg_url" "$prod_url"; 
 done
 case "$health" in ""|/*) ;; *) echo "init: --health-path must start with / (got '$health')" >&2; exit 1;; esac
 case "$cloud_id$health" in *[!A-Za-z0-9/._-]*) echo "init: --tracker-cloud-id and --health-path take letters, digits and / . _ - only" >&2; exit 1;; esac
+# an existing pipeline.env is never rewritten: a flag that picks another platform installs that adapter, and says
+# which line of pipeline.env the owner (or /pipeline-init, with their yes) must change to match
+env_note=""
+for kv in "GIT_HOST:$git_host" "TRACKER:$tracker" "PIPELINE_START_LEVEL:$start"; do
+  was="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env "${kv%%:*}")" | tr '[:upper:]' '[:lower:]')"
+  [ -z "$was" ] || [ "$was" = "${kv#*:}" ] || env_note="${env_note:+$env_note; }set ${kv%%:*}=\"${kv#*:}\" in scripts/pipeline/pipeline.env (it says $was)"
+done
 sed_esc() { printf '%s' "$1" | sed 's/[&\\]/\\&/g'; }
 base_esc="$(sed_esc "$base")"; stg_esc="$(sed_esc "$stg")"
 
@@ -150,7 +163,7 @@ if [ "$deploy_envs" = yes ]; then
   [ "$declared_deploy_envs" = no ] && deploy_envs=no || true
 fi
 
-created=(); updated=(); kept=(); customised=(); removed=()
+created=(); updated=(); kept=(); customised=(); removed=(); retired_kept=()
 tmpd="$(mktemp -d)"; trap 'rm -rf "$tmpd"' EXIT
 render() { # src dst [out] -> sets $rendered to the file to install (no subshell: init copies ~60 files).
   # Only docs, CI files, the checklist and pipeline.env get the branch placeholders filled; scripts and agents are
@@ -237,9 +250,14 @@ copy_owned() { # src dst
 }
 
 # --- tooling (always current) ---
-for f in gate promote intake status next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor host tracker connect ci-gate ci-resolve; do
+for f in gate promote intake handover status next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor connect ci-gate ci-resolve; do
   copy_tooling "$here/scripts/pipeline/$f.sh" "scripts/pipeline/$f.sh"
 done
+# the code host and the tracker: the one adapter for each platform chosen, installed under a fixed name
+copy_tooling "$here/scripts/pipeline/adapters/host-$git_host.sh" scripts/pipeline/host.sh
+copy_tooling "$here/scripts/pipeline/adapters/tracker-$tracker.sh" scripts/pipeline/tracker.sh
+copy_tooling "$here/scripts/pipeline/lib/host-common.sh" scripts/pipeline/lib/host-common.sh
+[ "$tracker" = connector ] || copy_tooling "$here/scripts/pipeline/lib/tracker-common.sh" scripts/pipeline/lib/tracker-common.sh
 copy_tooling "$here/scripts/pipeline/tracker-schema.txt" "scripts/pipeline/tracker-schema.txt"
 copy_tooling "$here/scripts/pipeline/hooks/allow-paths.sh" "scripts/pipeline/hooks/allow-paths.sh"
 copy_tooling "$here/scripts/pipeline/hooks/guard-merge.sh" "scripts/pipeline/hooks/guard-merge.sh"
@@ -247,18 +265,23 @@ copy_tooling "$here/scripts/pipeline/hooks/allow-commands.sh" "scripts/pipeline/
 for f in "$here"/agents/*.md; do copy_tooling "$f" ".claude/agents/${f##*/}"; done
 for f in TICKETS BRANCHING CLOUD; do copy_tooling "$here/template/docs/pipeline/$f.md" "docs/pipeline/$f.md"; done
 for f in "$here"/template/docs/pipeline/_templates/*.md; do copy_tooling "$f" "docs/pipeline/_templates/${f##*/}"; done
+planned=" ${plan_dst[*]} "
 apply_tooling
-# The plugin's own test suite stays in the plugin: it tests the tooling, not the project, and takes minutes.
-# An older install copied it in: remove each copy that is still exactly as installed; a changed one is the owner's.
-if [ "$(cd "$here" && pwd -P)" != "$(pwd -P)" ]; then
-  if [ -f "$manifest" ]; then
-    while read -r sum size path; do
-      case "$path" in tests/pipeline/*) ;; *) continue;; esac
-      [ -f "$path" ] || continue
-      if [ "$(sum_of "$path")" = "$sum $size" ]; then rm -f "$path"; removed+=("$path"); else kept+=("$path"); fi
-    done < "$manifest"
-    rmdir tests/pipeline 2>/dev/null && rmdir tests 2>/dev/null || true
-  fi
+# Retired tooling: a file an earlier install put in place that this version no longer ships (a removed persona or
+# template, the adapter for a platform no longer chosen, the test suite older versions copied in). It is removed
+# when it is still exactly as installed (line endings aside); a copy the owner edited is kept and reported.
+if [ -f "$manifest" ]; then
+  while read -r sum size path; do
+    case "$path" in scripts/pipeline/*|.claude/agents/*|docs/pipeline/_templates/*|docs/pipeline/TICKETS.md|docs/pipeline/BRANCHING.md|docs/pipeline/CLOUD.md) ;;
+      tests/pipeline/*) [ "$(cd "$here" && pwd -P)" != "$(pwd -P)" ] || continue;;   # the plugin's own suite stays put
+      *) continue;; esac
+    case "$planned" in *" $path "*) continue;; esac
+    [ -f "$path" ] || continue
+    if [ "$(sum_of "$path")" = "$sum $size" ] || [ "$(tr -d '\r' < "$path" | cksum | awk '{print $1" "$2}')" = "$sum $size" ]; then
+      rm -f "$path" "$path.new"; removed+=("$path")
+    else retired_kept+=("$path"); fi
+  done < "$manifest"
+  for d in tests/pipeline tests scripts/pipeline/lib; do rmdir "$d" 2>/dev/null || true; done
 fi
 
 # --- project-owned (created once) --- (src_ctx / src_chk were resolved during argument validation)
@@ -325,7 +348,7 @@ for f in scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md; do
       -e "s#__STAGING_URL__#$(urlesc "$stg_url")#g" -e "s#__PRODUCTION_URL__#$(urlesc "$prod_url")#g" \
       -e "s#__HEALTH_PATH__#$health#g" -e "s#__GIT_HOST__#$git_host#g" -e "s#__GIT_HOST_URL__#$(urlesc "$git_url")#g" \
       -e "s#__TRACKER__#$tracker#g" -e "s#__TRACKER_URL__#$(urlesc "$tracker_url")#g" -e "s#__TRACKER_CLOUD_ID__#$cloud_id#g" \
-      -e "s#__DEPLOY_MODE__#$deploy_mode#g" "$f" && rm -f "$f.bak"
+      -e "s#__DEPLOY_MODE__#$deploy_mode#g" -e "s#__START_LEVEL__#$start#g" "$f" && rm -f "$f.bak"
   fi
 done
 # record the declared capabilities in a freshly created pipeline.env (an existing one is project-owned)
@@ -337,14 +360,8 @@ if printf '%s\n' "${created[@]}" | grep -qx scripts/pipeline/pipeline.env; then
   else
     de_line='PIPELINE_HAS_DEPLOY_ENVS="yes" # yes | no - no skips the deploy wait, the staging dispatch and smoke'
   fi
-  if [ "$marketing" = no ]; then
-    mk_line='PIPELINE_HAS_MARKETING="no"    # this project has no marketing function: the marketing persona and the production marketing gate are skipped'
-  else
-    mk_line='PIPELINE_HAS_MARKETING="yes"   # yes | no - no skips the marketing persona and the production marketing gate'
-  fi
-  awk -v de="$de_line" -v mk="$mk_line" '
+  awk -v de="$de_line" '
     /^PIPELINE_HAS_DEPLOY_ENVS=/ { print de; next }
-    /^PIPELINE_HAS_MARKETING=/   { print mk; next }
     { print }' "$e" > "$e.new" && mv "$e.new" "$e"
 fi
 apply_tooling   # the --force-tooling deploy scripts above
@@ -397,16 +414,16 @@ fi
 
 printf 'init: %s (team key %s)\n' "$name" "$key"
 printf '  branches: base=%s (from %s) staging=%s\n' "$base" "$base_from" "$stg"
-mk_shown="$marketing"   # report what pipeline.env says (the flag only shapes a new pipeline.env)
-[ "$marketing" = yes ] && [ "$(declared_capability scripts/pipeline/pipeline.env PIPELINE_HAS_MARKETING)" = no ] && mk_shown=no
-printf '  capabilities: deploy-envs=%s marketing=%s\n' "$deploy_envs" "$mk_shown"
-printf '  host: %s%s  tracker: %s  deploy-mode: %s\n' "$git_host" "${git_url:+ ($git_url)}" "$tracker" "$deploy_mode"
+printf '  capabilities: deploy-envs=%s\n' "$deploy_envs"
+printf '  host: %s%s  tracker: %s  deploy-mode: %s  start-at: %s\n' "$git_host" "${git_url:+ ($git_url)}" "$tracker" "$deploy_mode" "$start"
 [ -n "$branch_note" ] && printf '  branches on the remote: %s\n' "$branch_note"
 [ -n "$ci_note" ] && printf '  ACTION: %s\n' "$ci_note"
+[ -n "$env_note" ] && printf '  ACTION: %s\n' "$env_note"
 [ ${#created[@]} -gt 0 ] && printf '  created %s\n' "${created[@]}"
 [ ${#updated[@]} -gt 0 ] && printf '  updated %s\n' "${updated[@]}"
 [ ${#kept[@]} -gt 0 ] && printf '  kept    %s\n' "${kept[@]}"
-[ ${#removed[@]} -gt 0 ] && printf '  removed %s (installer leftover)\n' "${removed[@]}"
+[ ${#removed[@]} -gt 0 ] && printf '  removed %s (no longer part of the pipeline)\n' "${removed[@]}"
+[ ${#retired_kept[@]} -gt 0 ] && printf '  kept    %s (no longer part of the pipeline, but edited by hand: delete it when you are done with it)\n' "${retired_kept[@]}"
 if [ ${#customised[@]} -gt 0 ]; then
   for f in "${customised[@]}"; do printf '  customised, kept %s (new version beside it: %s.new)\n' "$f" "$f"; done
   echo 'These tooling files were edited by hand since the last install. Merge each <file>.new by hand, or re-run with --force-tooling to take the new versions. Keep project-specific rules in docs/pipeline/CONTEXT.md so the tooling can stay stock.'
@@ -419,9 +436,6 @@ if [ "$had_manifest" = 0 ] && [ ${#updated[@]} -gt 0 ] && [ -f scripts/pipeline/
 fi
 if [ "$deploy_envs" = no ] && [ "$declared_deploy_envs" != no ] && printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeline/pipeline.env; then
   echo 'This project declared no deployable environments. Existing deploy files were left untouched — set PIPELINE_HAS_DEPLOY_ENVS="no" in scripts/pipeline/pipeline.env yourself, and delete scripts/deploy/* and .github/workflows/deploy.yml if you no longer want them.'
-fi
-if [ "$marketing" = no ] && printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeline/pipeline.env; then
-  echo 'This project declared no marketing function. Set PIPELINE_HAS_MARKETING="no" in scripts/pipeline/pipeline.env yourself — an existing pipeline.env is yours and is never rewritten.'
 fi
 cat <<MSG
 Next (/pipeline-init runs these for you, after asking everything up front):

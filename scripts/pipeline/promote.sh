@@ -19,7 +19,7 @@ case "$env" in dev) label=Dev; url_var=DEV_URL;; qa) label=QA; url_var=QA_URL;; 
   *) echo "usage: promote.sh <TICKET> <dev|qa|staging|production>" >&2; exit 1;; esac
 root="$(git rev-parse --show-toplevel)"; cd "$root"
 # Project capabilities are project-level settings, never per-run overrides (see gate.sh).
-unset PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING
+unset PIPELINE_HAS_DEPLOY_ENVS
 # shellcheck disable=SC1091
 source scripts/pipeline/pipeline.env
 capability() { case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" in no) echo no;; *) echo yes;; esac; }

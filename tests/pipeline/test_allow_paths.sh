@@ -18,15 +18,18 @@ out=$(run /repo/src/main/resources/application.yml 'src/test/*'); assert_exit "q
 out=$(printf 'garbage' | bash "$H" 'x' 2>&1); assert_exit "malformed input ignored" 0 $? "$out"
 out=$(printf '{"tool_input":{}}' | bash "$H" 'x' 2>&1); assert_exit "no path ignored" 0 $? "$out"
 
-# every restricted agent's frontmatter hook must block a source write and allow its own artifact
+# every restricted agent's frontmatter write hook: qa-tester writes only tests and its reports; the plan-mode
+# personas write nothing at all (/ship applies their plans)
 cd "$REPO_SRC"; AD=.claude/agents; [ -d agents ] && [ -f .claude-plugin/plugin.json ] && AD=agents
-for a in market-researcher product-owner business-analyst qa-tester marketing-specialist; do
-  cmd=$($PY -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); print(yaml.safe_load(s)["hooks"]["PreToolUse"][0]["hooks"][0]["command"])' "$AD/$a.md")
-  out=$(printf '{"tool_input":{"file_path":"%s/src/main/java/Escrow.java"}}' "$REPO_SRC" | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$cmd" 2>&1); assert_exit "$a: cannot write production code" 2 $? "$out"
+wcmd() { $PY -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); h=yaml.safe_load(s)["hooks"]["PreToolUse"]; print([x for x in h if "Write" in x["matcher"]][0]["hooks"][0]["command"])' "$AD/$1.md"; }
+wtry() { printf '{"tool_input":{"file_path":"%s/%s"}}' "$REPO_SRC" "$2" | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$(wcmd "$1")" >/dev/null 2>&1; echo $?; }
+for a in product-owner business-analyst qa-tester; do assert_eq "$a: cannot write production code" 2 "$(wtry "$a" src/main/java/Escrow.java)"; done
+assert_eq "qa-tester: can write qa-report.md" 0 "$(wtry qa-tester docs/pipeline/REP-5/qa-report.md)"
+assert_eq "devops: cannot write production code" 2 "$(wtry devops src/main/java/Escrow.java)"
+assert_eq "devops: cannot write tests" 2 "$(wtry devops src/test/java/EscrowTest.java)"
+for f in .github/workflows/deploy.yml .gitlab-ci.yml scripts/deploy/deploy.sh Dockerfile docker-compose.yml docs/pipeline/REP-5/dev-check.md; do
+  assert_eq "devops: can write $f" 0 "$(wtry devops "$f")"
 done
-for a in market-researcher:research.md product-owner:product.md business-analyst:requirements.md qa-tester:qa-report.md marketing-specialist:marketing.md; do
-  n=${a%%:*}; f=${a#*:}
-  cmd=$($PY -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); print(yaml.safe_load(s)["hooks"]["PreToolUse"][0]["hooks"][0]["command"])' "$AD/$n.md")
-  out=$(printf '{"tool_input":{"file_path":"%s/docs/pipeline/REP-5/%s"}}' "$REPO_SRC" "$f" | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$cmd" 2>&1); assert_exit "$n: can write $f" 0 $? "$out"
-done
+assert_eq "product-owner (plan mode): cannot write even product.md" 2 "$(wtry product-owner docs/pipeline/REP-5/product.md)"
+assert_eq "business-analyst (plan mode): cannot write even requirements.md" 2 "$(wtry business-analyst docs/pipeline/REP-5/requirements.md)"
 summary

@@ -11,7 +11,6 @@
 #   predate the records, so CI must read docs from the base branch.
 # Success prints "DEPLOY_SHA=<sha>" (and "VERSION=<tag>" for production) and exits 0.
 # Project capabilities come from scripts/pipeline/pipeline.env only (never from the environment):
-#   PIPELINE_HAS_MARKETING="no"    -> a user-facing ticket no longer needs marketing evidence at production
 #   PIPELINE_HAS_DEPLOY_ENVS="no"  -> no gate condition changes (deploy/smoke live in promote.sh)
 # Anything but an explicit "no" keeps the stricter default, so an install without the keys is unchanged.
 set -euo pipefail
@@ -28,7 +27,7 @@ rel="docs/pipeline/$ticket"
 fail() { echo "PIPELINE GATE [$ticket/$stage]: $*" >&2; exit 1; }
 # Project capabilities are project-level settings, never per-run overrides: drop anything inherited
 # from the environment so only pipeline.env can set them.
-unset PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING
+unset PIPELINE_HAS_DEPLOY_ENVS
 # shellcheck disable=SC1091
 [ -f "$root/scripts/pipeline/pipeline.env" ] && source "$root/scripts/pipeline/pipeline.env"
 regex="$(bash "$root/scripts/pipeline/ticket-id.sh" --regex)"   # the one ticket-id definition
@@ -37,7 +36,6 @@ base_branch="$(bash "$root/scripts/pipeline/base-ref.sh" --branch)"; remote="$(b
 # absent, empty or any unrecognised value falls through to `yes` = today's stricter behaviour.
 capability() { case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" in no) echo no;; *) echo yes;; esac; }
 on_off() { case "$1" in no) echo off;; *) echo on;; esac; }
-has_marketing="$(capability "${PIPELINE_HAS_MARKETING:-}")"
 has_deploy_envs="$(capability "${PIPELINE_HAS_DEPLOY_ENVS:-}")"
 
 docs_ref="${PIPELINE_DOCS_REF:-$ref}"
@@ -92,7 +90,7 @@ ticket_rows() {
 }
 rows_where() { ticket_rows | awk -F'|' "$1"; }
 list_ids() { awk -F'|' '{printf "%s(%s) ", $1, $5}'; }
-known_states='open|in-progress|fixed|verified|done|wontfix|reopened'; known_kinds='story|eng|defect|marketing|follow-up'
+known_states='open|in-progress|fixed|verified|done|wontfix|reopened'; known_kinds='story|eng|defect|follow-up|marketing'   # marketing: rows from installs before 3.0.0
 level() { case "$1" in build) echo 1;; dev) echo 2;; qa) echo 3;; staging) echo 4;; production) echo 5;; esac; }
 L="$(level "$stage")"
 
@@ -101,7 +99,6 @@ has_dir || fail "no pipeline folder at $rel${ref:+ on $ref}"
 require_file brief.md; require_file product.md; expect product.md Status approved
 type="$(field product.md Type)"; case "$type" in feature|bugfix|security|chore) ;; *) fail "product.md Type must be feature|bugfix|security|chore (got '$type')";; esac
 uf="$(field product.md User-facing)"; case "$uf" in yes|no) ;; *) fail "product.md User-facing must be yes|no (got '$uf')";; esac
-if [ "$type" = feature ]; then require_file research.md; expect research.md Status complete; fi
 require_file requirements.md; expect requirements.md Status approved
 require_file tickets.md
 bad="$(rows_where "\$2 !~ /^($known_kinds)\$/ || \$5 !~ /^($known_states)\$/" | list_ids)"; [ -z "$bad" ] || fail "tickets.md has rows with unknown kind/state: $bad"
@@ -146,7 +143,6 @@ if [ "$L" -ge 5 ]; then
   [ "$(resolve_sha "signoff.md Commit" "$(field signoff.md Commit)")" = "$st_sha" ] || fail "signoff.md approved a different sha than staging runs ($st_sha)"
   x="$(rows_where '$2=="defect" && $5!="verified" && $5!="wontfix"' | list_ids)"; [ -z "$x" ] || fail "defects not verified: $x"
   x="$(rows_where '$2=="defect" && $5=="wontfix" && $4=="high"' | list_ids)"; [ -z "$x" ] || fail "High-severity defects cannot be wontfix: $x"
-  if [ "$uf" = yes ] && [ "$has_marketing" = yes ]; then require_file marketing.md; expect marketing.md Status ready; [ -n "$(rows_where '$2=="marketing" && $5=="done"')" ] || fail "no completed marketing launch ticket"; fi
   case "$(field releases.md Go-live)" in approved*) ;; *) fail "releases.md Go-live is not approved (the owner must give the go)";; esac
   version="$(first_word "$(field releases.md Version)")"
   [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "releases.md Version must be vMAJOR.MINOR.PATCH (got '$version')"
@@ -155,7 +151,7 @@ if [ "$L" -ge 5 ]; then
   deploy_sha="$st_sha"
 fi
 
-echo "PIPELINE GATE [$ticket/$stage]: PASS (type=$type, user-facing=$uf, marketing=$(on_off "$has_marketing"), deploy-envs=$(on_off "$has_deploy_envs")${ref:+, ref=$ref})"
+echo "PIPELINE GATE [$ticket/$stage]: PASS (type=$type, user-facing=$uf, deploy-envs=$(on_off "$has_deploy_envs")${ref:+, ref=$ref})"
 echo "DEPLOY_SHA=$deploy_sha"
 [ -n "$version" ] && echo "VERSION=$version"
 exit 0

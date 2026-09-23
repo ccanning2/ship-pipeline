@@ -42,11 +42,9 @@ is verified by installing it, not by deploying it.
 - [ ] Previous production version tag recorded for rollback.
 
 ## 6. Product & brand
-This project declares `PIPELINE_HAS_MARKETING="no"`: there is no marketing function, so the
-marketing-specialist does not run and the production gate does not ask for launch content.
-- [ ] product.md and requirements.md approved; research complete (features); no open clarifications.
-- [ ] `User-facing:` is set honestly on its own merits — it describes the change, it does not decide
-      which personas run. Marketing is recorded as skipped by configuration.
+- [ ] product.md and requirements.md approved; no open clarifications.
+- [ ] `User-facing:` is set honestly on its own merits: it describes the change.
+- [ ] CHANGELOG.md has one section for the release, with upgrade steps when an install needs any.
 - [ ] Anything an installing developer sees (README, command UX, `/pipeline-init` output, release
       notes) reads correctly and matches what the release actually does.
 - [ ] No product, person, vendor or project-type names introduced into `agents/*.md` or `commands/*.md`

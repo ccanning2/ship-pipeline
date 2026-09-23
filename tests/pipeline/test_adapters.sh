@@ -5,28 +5,29 @@ new_repo
 trk() { (cd "$R" && bash scripts/pipeline/tracker.sh "$@" 2>&1); }
 
 # ---- TRACKER=connector: every verb hands the step to the MCP connector ----
-set_capability TRACKER '"connector"'
+use_tracker connector
 out=$(trk view REP-1); assert_exit "connector: exit 3" 3 $? "$out"
 assert_contains "connector: says to use the connector" "$out" "MCP connector"
-set_capability TRACKER '"trello"'
-out=$(trk view REP-1); assert_exit "an unknown tracker is an error" 1 $? "$out"
+# the doctor catches an adapter that no longer matches pipeline.env (TRACKER changed by hand)
+set_capability TRACKER '"jira"'
+out=$(cd "$R" && bash scripts/pipeline/doctor.sh --offline 2>&1); assert_contains "doctor: a mismatched adapter is a FAIL" "$out" "FAIL  files: tracker.sh is the connector adapter, but pipeline.env says jira"
 # a missing credential is one clear error, found before any API call (not a second, misleading one after it)
 if command -v jq >/dev/null 2>&1; then
-  set_capability TRACKER '"linear"'
+  use_tracker linear
   out=$(cd "$R" && env -u LINEAR_API_KEY PIPELINE_TRACKER_CONFIG="$(mktemp -d)" bash scripts/pipeline/tracker.sh check 2>&1); assert_exit "linear: no API key is an error" 1 $? "$out"
   assert_eq "linear: and exactly one line that says how to sign in" "tracker.sh: no Linear API key: the owner runs bash scripts/pipeline/connect.sh login once" "$out"
-  set_capability TRACKER '"jira"'; set_capability TRACKER_URL '""'
+  use_tracker jira; set_capability TRACKER_URL '""'
   out=$(cd "$R" && PIPELINE_TRACKER_CONFIG="$(mktemp -d)" JIRA_API_TOKEN=x bash scripts/pipeline/tracker.sh check 2>&1); assert_exit "jira: no site is an error" 1 $? "$out"
   assert_contains "jira: the missing site is named" "$out" "TRACKER_URL (the Jira site) is not set"
 fi
 # the doctor flags only the placeholders init writes, not a real URL that happens to contain "example"
-set_capability TRACKER '"connector"'; set_capability DEV_URL '"https://dev.shop.example"'; set_capability QA_URL '"https://qa.x.example.invalid"'
+use_tracker connector; set_capability DEV_URL '"https://dev.shop.example"'; set_capability QA_URL '"https://qa.x.example.invalid"'
 out=$(cd "$R" && bash scripts/pipeline/doctor.sh --offline 2>&1)
 assert_contains "doctor: a .example.invalid URL is a placeholder" "$out" "WARN  pipeline.env: QA_URL STAGING_URL PRODUCTION_URL still a placeholder"
 case "$out" in *"DEV_URL QA_URL"*) bad "doctor: a real .example URL is not a placeholder" "$out";; *) ok "doctor: a real .example URL is not a placeholder";; esac
 
 # ---- GitHub Issues through a fake gh that keeps each issue's labels in a file ----
-set_capability TRACKER '"github"'
+use_tracker github
 ST="$(mktemp -d)"; export ST
 cat > "$R/fake-gh.sh" <<'FAKE'
 #!/usr/bin/env bash
@@ -60,11 +61,11 @@ FAKE
 chmod +x "$R/fake-gh.sh"; echo "fake-gh.sh" >> "$R/.git/info/exclude"
 export PIPELINE_GH_CMD="$R/fake-gh.sh"
 out=$(trk check); assert_exit "github: check" 0 $? "$out"; assert_contains "github: check names the repository" "$out" "GitHub Issues of o/r"
-echo "stage:research" > "$ST/labels.7"; echo "owner:market-researcher" >> "$ST/labels.7"
+echo "stage:product" > "$ST/labels.7"; echo "owner:product-owner" >> "$ST/labels.7"
 out=$(trk set REP-7 stage=dev owner=engineer); assert_exit "github: set Stage and Owner" 0 $? "$out"
 assert_eq "github: one Stage and one Owner label afterwards" "owner:engineer,stage:dev" "$(sort "$ST/labels.7" | paste -sd, -)"
 out=$(trk set REP-7 stage=launch); assert_exit "github: an unknown stage is refused" 1 $? "$out"
-assert_contains "github: and the allowed stages are listed" "$out" "research"
+assert_contains "github: and the allowed stages are listed" "$out" "analysis"
 out=$(trk view ABC-7); assert_exit "github: another team's id is refused" 1 $? "$out"
 out=$(trk create REP-7 eng 'Badge endpoint' --body 'FR-1, AC-1'); assert_exit "github: create a child" 0 $? "$out"
 assert_eq "github: create prints the new id" "REP-42" "$out"
@@ -124,11 +125,11 @@ exit 1
 out=$(printf '{"tool_input":{"command":"ls"}}' | PATH="$NB:$PATH" bash "$H" scripts/pipeline/tracker.sh 2>&1); assert_exit "allow-commands: fails closed when it cannot read the command" 2 $? "$out"
 # every Bash-limited persona's frontmatter hook really is this one
 cd "$REPO_SRC"; AD=.claude/agents; [ -d agents ] && [ -f .claude-plugin/plugin.json ] && AD=agents
-for a in market-researcher product-owner business-analyst marketing-specialist; do
+for a in product-owner business-analyst; do
   cmd=$($PY -c 'import yaml,sys; s=open(sys.argv[1]).read().split("\n---\n")[0].lstrip("---\n"); h=yaml.safe_load(s)["hooks"]["PreToolUse"]; print([x for x in h if x["matcher"]=="Bash"][0]["hooks"][0]["command"])' "$AD/$a.md")
-  o1=$(printf '{"tool_input":{"command":"git push origin HEAD:master"}}' | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$cmd" 2>&1); r1=$?
-  o2=$(printf '{"tool_input":{"command":"bash scripts/pipeline/tracker.sh view REP-1"}}' | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$cmd" 2>&1); r2=$?
-  assert_eq "$a: its Bash hook blocks git and allows the tracker adapter" "2|0" "$r1|$r2"
+  rc() { printf '%s' "$1" | $PY -c 'import json,sys; print(json.dumps({"tool_input":{"command":sys.stdin.read()}}))' | CLAUDE_PROJECT_DIR="$REPO_SRC" bash -c "$cmd" >/dev/null 2>&1; echo $?; }
+  assert_eq "$a: its Bash hook blocks git, allows view and children, and blocks every write verb" "2|0|0|2|2|2" \
+    "$(rc 'git push origin HEAD:master')|$(rc 'bash scripts/pipeline/tracker.sh view REP-1')|$(rc 'bash scripts/pipeline/tracker.sh children REP-1')|$(rc "bash scripts/pipeline/tracker.sh create REP-1 eng 'x' --body 'y'")|$(rc "bash scripts/pipeline/tracker.sh handoff REP-1 build engineer --body 'x'")|$(rc 'bash scripts/pipeline/tracker.sh setup')"
 done
 cd - >/dev/null
 

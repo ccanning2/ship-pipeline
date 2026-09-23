@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # PreToolUse hook (Bash) that confines a persona's shell to named scripts, e.g. the tracker CLI adapter.
 # Usage in agent frontmatter:  command: "bash scripts/pipeline/hooks/allow-commands.sh scripts/pipeline/tracker.sh"
+#   <script>:<verb>,<verb>  allows only those first arguments, e.g. scripts/pipeline/tracker.sh:view,children for a
+#                           read-only persona
 # A command is allowed only when it is exactly `bash <allowed script> <args...>` (a leading `./` or the project
 # path is accepted) and the arguments cannot start another command: outside single quotes there is no ; & | < >
 # ( ) ` $ or newline. Text inside single quotes is literal, so --body '...' may hold anything but a single quote
@@ -31,5 +33,9 @@ bad="$(printf '%s' "$cmd" | awk -v sq="'" '
 read -r -a w <<<"$cmd"
 [ "${w[0]:-}" = bash ] || refuse "$@"
 s="${w[1]:-}"; s="${s//\\//}"; s="${s#"$project"/}"; s="${s#./}"
-for a in "$@"; do [ "$s" = "$a" ] && exit 0; done
+for a in "$@"; do
+  [ "$s" = "${a%%:*}" ] || continue
+  case "$a" in *:*) ;; *) exit 0;; esac          # no verb list: any verb of that script
+  case ",${a#*:}," in *",${w[2]:-},"*) exit 0;; esac
+done
 refuse "$@"

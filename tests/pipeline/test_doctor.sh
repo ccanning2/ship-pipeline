@@ -3,7 +3,7 @@ source "$(dirname "$0")/lib.sh"
 echo "ticket-id.sh, base-ref.sh, enforcement.sh, doctor.sh"
 new_repo
 # the tracker is reached through its CLI (test_adapters.sh); here it is left to a connector, so the doctor lists it
-set_capability TRACKER '"connector"'
+use_tracker connector
 tid() { (cd "$R" && bash scripts/pipeline/ticket-id.sh "$@" 2>&1); }
 doc() { (cd "$R" && bash scripts/pipeline/doctor.sh "$@" 2>&1); }
 
@@ -67,7 +67,7 @@ assert_contains "doctor: no remote is a FAIL" "$out" "FAIL  git: no remote named
 assert_contains "doctor: team key checked" "$out" "PASS  pipeline.env: TRACKER_TEAM_KEY=REP"
 assert_contains "doctor: narrow regex passes" "$out" "ticket ids match"
 # acceptance test 6: every tracker item is listed for the connector step
-for item in "label group 'Stage'" "label group 'Owner'" "labels (Kind): story,eng,defect,marketing,follow-up" "workflow status 'In Review'" "workflow status 'Canceled'"; do
+for item in "label group 'Stage'" "label group 'Owner'" "labels (Kind): story,eng,defect,follow-up" "workflow status 'In Review'" "workflow status 'Canceled'"; do
   assert_contains "acceptance 6: doctor lists $item" "$out" "$item"
 done
 
@@ -77,11 +77,11 @@ out=$(doc --offline); g fetch -q origin; out=$(doc --offline)
 assert_contains "doctor: shared history passes" "$out" "PASS  git: origin/master shares history"
 assert_contains "doctor: staging on base passes" "$out" "PASS  git: staging is on master"
 assert_contains "item 9: a remote that is not the configured host is flagged" "$out" "which is not github.com"
-set_capability GIT_HOST '"gitlab"'; set_capability GIT_HOST_URL '"https://git.acme.com"'; g remote set-url origin https://git.acme.com/team/app.git
+use_host gitlab; set_capability GIT_HOST_URL '"https://git.acme.com"'; g remote set-url origin https://git.acme.com/team/app.git
 out=$(doc --offline); assert_contains "2.0: a self-hosted GIT_HOST_URL is matched against the remote" "$out" "PASS  git: origin is https://git.acme.com/team/app.git (gitlab)"
 g remote set-url origin "$BARE"
 assert_contains "2.0: GitLab needs .gitlab-ci.yml to include the gate" "$out" "FAIL  workflows: .gitlab-ci.yml does not include"
-set_capability GIT_HOST '"github"'; set_capability GIT_HOST_URL '""'
+use_host github; set_capability GIT_HOST_URL '""'
 out=$(doc); assert_contains "doctor: online check reads the remote too" "$out" "shares history"
 
 # acceptance test 1: a host-created README-only first commit
@@ -111,7 +111,7 @@ set_capability BASE_BRANCH '"master"'; rm -f "$R/.claude/agents/x.md"
 out=$(cd "$R" && PIPELINE_GH_CMD="$FAKE/gh" bash scripts/pipeline/doctor.sh 2>&1)
 assert_contains "item 6: doctor reports local-hook-only enforcement" "$out" "WARN  host: Enforcement: local hook only"
 # upgrading a v1.0.0 install: every project-owned leftover is an [upgrade] finding, and nothing FAILs because of it
-legacy_env; mkdir -p "$R/.github/workflows"
+legacy_env; use_tracker linear; mkdir -p "$R/.github/workflows"
 cat > "$R/.github/workflows/pipeline-gate.yml" <<'YML'
 name: Pipeline Gate
 on:

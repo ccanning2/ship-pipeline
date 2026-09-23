@@ -1,4 +1,4 @@
-# <TICKET> — Dev self-check (engineer)
+# <TICKET> — Dev check (devops)
 
 Result: pass | fail
 Environment: dev
