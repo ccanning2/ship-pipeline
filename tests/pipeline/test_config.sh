@@ -148,9 +148,10 @@ if [ "$A" = agents ]; then
   done
   grep -q 'behaves exactly as it did before' README.md && ok "AC-34: README states existing installs are unaffected" || bad "AC-34: README states existing installs are unaffected"
   # AC-35: each release has exactly one release-notes section; plugin.json carries the newest (v1.1.0)
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="2.0.0" else 1)' \
-    && ok "plugin.json version is 2.0.0" || bad "plugin.json version is 2.0.0"
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="2.0.1" else 1)' \
+    && ok "plugin.json version is 2.0.1" || bad "plugin.json version is 2.0.1"
   assert_eq "exactly one '### v2.0.0' release-notes heading" "1" "$(grep -c '^### v2.0.0' README.md || true)"
+  assert_eq "exactly one '### v2.0.1' release-notes heading" "1" "$(grep -c '^### v2.0.1' README.md || true)"
   grep -q '^#### Upgrading from v1.1.0' README.md && ok "v2.0.0 notes explain the upgrade" || bad "v2.0.0 notes explain the upgrade"
   assert_eq "AC-35: exactly one '### v1.0.0' release-notes heading" "1" "$(grep -c '^### v1.0.0' README.md || true)"
   assert_eq "exactly one '### v1.1.0' release-notes heading" "1" "$(grep -c '^### v1.1.0' README.md || true)"

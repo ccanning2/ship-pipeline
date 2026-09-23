@@ -70,7 +70,7 @@ case "$git_host" in github|gitlab|bitbucket) pass "pipeline.env: GIT_HOST=$git_h
   *) fail "pipeline.env: GIT_HOST='$git_host' is not github, gitlab or bitbucket";; esac
 de_on="$(printf '%s' "${PIPELINE_HAS_DEPLOY_ENVS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
 if [ "$de_on" != no ]; then
-  ph="$(for k in DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do case "${!k:-}" in ""|*example*) printf '%s ' "$k";; esac; done)"
+  ph="$(for k in DEV_URL QA_URL STAGING_URL PRODUCTION_URL; do case "${!k:-}" in ""|*.example.invalid*) printf '%s ' "$k";; esac; done)"
   [ -z "$ph" ] && pass "pipeline.env: every environment URL is set" \
     || warn "pipeline.env: ${ph}still a placeholder; /pipeline-init asks for the real URLs (or set PIPELINE_HAS_DEPLOY_ENVS=\"no\")"
 fi
@@ -103,7 +103,7 @@ if url="$(git remote get-url "$remote" 2>/dev/null)"; then
     pass "git: $remote/$base shares history with the local repository"
   fi
   if [ -z "$rs" ]; then
-    warn "git: $remote has no branch '$stg'. The owner creates it from the base branch: git push $remote $base:refs/heads/$stg"
+    warn "git: $remote has no branch '$stg'. /pipeline-init creates it (the Branches option), or: git push $remote $base:refs/heads/$stg"
   elif [ -n "$rb" ] && git cat-file -e "$rs^{commit}" 2>/dev/null && git cat-file -e "$rb^{commit}" 2>/dev/null; then
     git merge-base --is-ancestor "$rs" "$rb" && pass "git: $stg is on $base" \
       || warn "git: $remote/$stg ($rs) is not a $base commit; the staging branch should always equal some $base sha"

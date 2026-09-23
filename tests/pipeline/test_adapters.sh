@@ -10,6 +10,20 @@ out=$(trk view REP-1); assert_exit "connector: exit 3" 3 $? "$out"
 assert_contains "connector: says to use the connector" "$out" "MCP connector"
 set_capability TRACKER '"trello"'
 out=$(trk view REP-1); assert_exit "an unknown tracker is an error" 1 $? "$out"
+# a missing credential is one clear error, found before any API call (not a second, misleading one after it)
+if command -v jq >/dev/null 2>&1; then
+  set_capability TRACKER '"linear"'
+  out=$(cd "$R" && env -u LINEAR_API_KEY PIPELINE_TRACKER_CONFIG="$(mktemp -d)" bash scripts/pipeline/tracker.sh check 2>&1); assert_exit "linear: no API key is an error" 1 $? "$out"
+  assert_eq "linear: and exactly one line that says how to sign in" "tracker.sh: no Linear API key: the owner runs bash scripts/pipeline/connect.sh login once" "$out"
+  set_capability TRACKER '"jira"'; set_capability TRACKER_URL '""'
+  out=$(cd "$R" && PIPELINE_TRACKER_CONFIG="$(mktemp -d)" JIRA_API_TOKEN=x bash scripts/pipeline/tracker.sh check 2>&1); assert_exit "jira: no site is an error" 1 $? "$out"
+  assert_contains "jira: the missing site is named" "$out" "TRACKER_URL (the Jira site) is not set"
+fi
+# the doctor flags only the placeholders init writes, not a real URL that happens to contain "example"
+set_capability TRACKER '"connector"'; set_capability DEV_URL '"https://dev.shop.example"'; set_capability QA_URL '"https://qa.x.example.invalid"'
+out=$(cd "$R" && bash scripts/pipeline/doctor.sh --offline 2>&1)
+assert_contains "doctor: a .example.invalid URL is a placeholder" "$out" "WARN  pipeline.env: QA_URL STAGING_URL PRODUCTION_URL still a placeholder"
+case "$out" in *"DEV_URL QA_URL"*) bad "doctor: a real .example URL is not a placeholder" "$out";; *) ok "doctor: a real .example URL is not a placeholder";; esac
 
 # ---- GitHub Issues through a fake gh that keeps each issue's labels in a file ----
 set_capability TRACKER '"github"'

@@ -124,6 +124,14 @@ tests/pipeline/              the tooling's test suite (bash); stays in the plugi
 
 ## Release notes
 
+### v2.0.1
+
+Fixes found by running `/pipeline-init` on a fresh test repository:
+- **winget installs work on Windows.** winget puts portable packages such as jq and glab under `%LOCALAPPDATA%\Microsoft\WinGet\Packages`, and not always on `PATH`, so `connect.sh install` reported them installed although they could not be run. It now copies the exe into `~/bin` and reports `INSTALLED` only once the tool is found. A re-run no longer fails because winget says the package is already installed.
+- **One clear tracker error.** A missing Linear key or Jira token or site is now reported once, before any API call, instead of being followed by a misleading "no team with key …".
+- **Placeholder URLs.** The doctor flags only the `.example.invalid` placeholders that init writes, not real URLs that contain "example".
+- **Staging branch advice.** The doctor's missing-staging-branch advice now points at `/pipeline-init`'s Branches option.
+
 ### v2.0.0
 
 `/pipeline-init` is now a single upfront interview followed by an unattended setup. Everything goes through CLIs, not MCP connectors.

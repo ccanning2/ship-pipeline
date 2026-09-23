@@ -420,6 +420,13 @@ write_map() { # project-owned record of how the pipeline's names map onto this t
 
 # ================================================================ dispatch ====
 case "$tracker" in github) pfx=gh;; gitlab) pfx=gl;; linear) pfx=lin;; jira) pfx=jira;; esac
+# credentials are checked once, here: a die inside $(...) only ends that subshell, so a missing key found deep in a
+# call would be followed by a second, misleading error
+case "$tracker" in
+  linear) [ -n "${LINEAR_API_KEY:-}" ] || die "no Linear API key: the owner runs bash scripts/pipeline/connect.sh login once";;
+  jira) [ -n "${JIRA_API_TOKEN:-}" ] || die "no Jira API token: the owner runs bash scripts/pipeline/connect.sh login once"
+        [ -n "$site" ] || die "TRACKER_URL (the Jira site) is not set in pipeline.env";;
+esac
 check_only=0
 verb="${1:-}"; [ $# -gt 0 ] && shift
 need_id() { [ -n "${1:-}" ] || die "usage: tracker.sh $verb <ID> ..."; bash "$here/ticket-id.sh" "$1" >/dev/null || die "'$1' is not a $key ticket id"; }
