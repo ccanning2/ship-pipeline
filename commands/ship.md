@@ -15,6 +15,20 @@ You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
 
   `bash scripts/pipeline/status.sh <TICKET>` prints both. A stage skipped because of a setting is reported as skipped by configuration, never left out silently.
 
+## What the owner sees: the board, nothing else
+The owner follows the run on a status board, not in your reasoning. `bash scripts/pipeline/board.sh <TICKET>` prints it: every stage (done, current, waiting, skipped), who holds the ticket, what they are doing, the sha in each environment, open defects and the last handoffs.
+- **Live view.** At intake and on resume, run `bash scripts/pipeline/board.sh <TICKET> --pane`. Inside tmux it opens a side pane that redraws the board. Elsewhere it prints the command for a second terminal: relay that one line. If this session can open a terminal tab for the owner, open one with it.
+- **Before a persona runs:**
+  - set that stage's State in `D/STATUS.md` to `in-progress`;
+  - record who is busy: `bash scripts/pipeline/board.sh <TICKET> now <persona> '<what, at most 8 words>'`;
+  - name the Agent call `<persona> · <stage>`, for example `devops · promote dev`.
+- **After each stage:**
+  - record the handoff: `bash scripts/pipeline/board.sh <TICKET> handoff <from> <to> '<reason, at most 8 words>'`, for example `business-analyst engineer '4 eng tickets ready'`;
+  - set the stage's State to `done`;
+  - show the board: the output of `bash scripts/pipeline/board.sh <TICKET>` in a `text` code block. That block, plus one line when something needs the owner, is your whole message for the stage.
+- **Never relay** a persona's reasoning, tool output, test logs, diffs or file contents. The detail lives in `D/` and on the tracker ticket; say where, if the owner asks.
+- **When you stop for the owner** (questions, go-live, on-hold): the board, then the ask, in as few lines as it takes.
+
 ## Start level (`PIPELINE_START_LEVEL`)
 The personas are four teams, in this order. A project starts at one level; the teams before it work upstream (another team or tool), and every stage from the start level on runs as below.
 
@@ -95,6 +109,6 @@ Tags the sha, waits for the deploy, verifies, rolls back on failure. Ends with t
 Before each stage, if the session may be near its usage limit: stop cleanly, make sure `D/STATUS.md` and the ticket labels are correct, commit and push, and tell the owner to run `/ship <TICKET>` to resume.
 
 ## Output to the owner
-Only this:
-- What was done: <one bullet per stage run this session, with outcome and ticket ids; stages skipped by the start level or by configuration get one bullet saying so>
-- Impact: <current environment/sha/version, open defect tickets, what the owner must do next>
+Only this, when the run stops or finishes:
+- the board (`bash scripts/pipeline/board.sh <TICKET>`) in a `text` code block;
+- **Needs you:** <one line: the question, the go-live decision, or "nothing">.

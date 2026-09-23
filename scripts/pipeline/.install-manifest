@@ -18,6 +18,7 @@
 748301195 488 docs/pipeline/_templates/signoff.md
 1046703134 350 docs/pipeline/_templates/tickets.md
 2868289858 1387 scripts/pipeline/base-ref.sh
+4125584007 7300 scripts/pipeline/board.sh
 2828444048 179 scripts/pipeline/check-signoff.sh
 1061107409 1444 scripts/pipeline/ci-gate.sh
 4115445676 2936 scripts/pipeline/ci-resolve.sh
@@ -26,7 +27,7 @@
 957606586 15595 scripts/pipeline/doctor.sh
 1061720773 1051 scripts/pipeline/enforcement.sh
 3448334002 10451 scripts/pipeline/gate.sh
-2889982070 5473 scripts/pipeline/handover.sh
+3784209020 5481 scripts/pipeline/handover.sh
 1215287641 2718 scripts/pipeline/hooks/allow-commands.sh
 2244903990 1557 scripts/pipeline/hooks/allow-paths.sh
 2898724920 11554 scripts/pipeline/hooks/guard-merge.sh

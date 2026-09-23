@@ -25,6 +25,11 @@ The personas regroup into four teams, a project chooses the level where its tick
   - `scripts/pipeline/adapters/host-{github,gitlab,bitbucket}.sh` and `tracker-{jira,linear,github,gitlab,connector}.sh` share `scripts/pipeline/lib/*-common.sh`.
   - `init.sh` installs only the pair for the chosen platforms, as `host.sh` and `tracker.sh`. The doctor fails when an installed adapter no longer matches `GIT_HOST` / `TRACKER`.
   - A platform flag that disagrees with a kept `pipeline.env` prints the line to change.
+- **A status board instead of a transcript.**
+  - `scripts/pipeline/board.sh` shows, in about fifteen lines: every stage (done, current, waiting, skipped), who holds the ticket and what they are doing, the sha in each environment, open defects and the last handoffs.
+  - `/ship` records who is busy (`board.sh <T> now`) and each handoff (`board.sh <T> handoff <from> <to> '<reason>'`). After each stage it shows only the board, never the personas' reasoning or tool output.
+  - `--watch` redraws it live; `--pane` opens it in a tmux side pane; `--all` lists the tickets in flight.
+  - `/pipeline-status` leads with it. The live activity log is kept out of git (`.claude/.pipeline-activity/`).
 - **Retired tooling is removed.** A file an earlier install put in place that this version no longer ships (a removed persona or template, the adapter of a platform no longer chosen, the old test-suite copy) is deleted when it is still exactly as installed. A copy the owner edited is kept and reported.
 - **Fixes from a trial `/pipeline-init` run:**
   Fixes found by running `/pipeline-init` on a fresh test repository:

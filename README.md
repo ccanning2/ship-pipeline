@@ -48,6 +48,32 @@ Every answer is also an `init.sh` flag, so setup can be scripted: `--git-host`, 
 ```
 It runs from the terminal, the Desktop app, or the iOS app as a cloud session (`docs/pipeline/CLOUD.md`).
 
+**While it runs you see a board, not the personas' reasoning.** After each stage `/ship` shows only this:
+
+```
+ABC-142  Add a health endpoint                         start: analysis
+────────────────────────────────────────────────────────────────────────────────
+ ✓ product     product-owner
+ ✓ analysis    business-analyst/product-owner
+ ▶ build       senior-engineer                 ABC-143: health route + test
+ · dev         devops
+ · qa          qa-tester
+ · staging     app-specialist
+ · go-live     the owner
+ · production  devops
+────────────────────────────────────────────────────────────────────────────────
+ dev -  qa -  staging -  prod -    open defects: 0
+ last handoffs
+   14:02  business-analyst → senior-engineer: 2 eng tickets ready
+```
+
+To watch it live:
+- Run `/ship` inside **tmux** and the board opens in a side pane that redraws itself.
+- Anywhere else, run `bash scripts/pipeline/board.sh ABC-142 --watch` in a second terminal.
+- `board.sh --all` lists every ticket in flight.
+
+The detail stays in `docs/pipeline/ABC-142/` and on the tracker ticket.
+
 **Work without a ticket** (the install commit, a CI change, a dependency bump): open a PR/MR, and a human marks it infra so the Pipeline Gate skips the ticket requirement. On GitHub and GitLab that is the `infra` label; on Bitbucket it is a source branch named `infra/…`. Agents can never mark it infra themselves.
 
 ## How it works
@@ -109,7 +135,7 @@ Project knowledge lives in `docs/pipeline/CONTEXT.md` and `RELEASE_CHECKLIST.md`
 commands/                /ship, /pipeline-init, /pipeline-status, /pipeline-doctor
 agents/                  the six personas (installed into .claude/agents/)
 scripts/init.sh          the installer
-scripts/pipeline/        gate, promote, intake, handover, status, next-version, doctor, connect, ci-gate, ci-resolve
+scripts/pipeline/        gate, promote, intake, handover, board, status, next-version, doctor, connect, ci-gate, ci-resolve
   adapters/              host-<github|gitlab|bitbucket>.sh, tracker-<jira|linear|github|gitlab|connector>.sh:
                          init installs the chosen two as host.sh and tracker.sh
   lib/                   the code the adapters share

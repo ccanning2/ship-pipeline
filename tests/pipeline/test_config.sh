@@ -167,7 +167,7 @@ if [ "$A" = agents ]; then
   assert_eq "AC-36: the SHI-5 open question is gone from CONTEXT.md" "0" "$(grep -c 'marketing-specialist persona should be opt-out' docs/pipeline/CONTEXT.md || true)"
   assert_eq "AC-36: no reference to the non-existent template/agents path" "0" "$(grep -rc 'template/agents' docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md | awk -F: '{s+=$2} END {print s+0}')"
 fi
-for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh scripts/pipeline/lib/*.sh $( [ "$A" = agents ] && echo scripts/pipeline/adapters/*.sh); do
+for f in scripts/pipeline/{gate,check-signoff,promote,intake,handover,board,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh scripts/pipeline/lib/*.sh $( [ "$A" = agents ] && echo scripts/pipeline/adapters/*.sh); do
   case "$f" in */lib/*) bash -n "$f" && ok "$f syntax (sourced, not run)" || bad "$f syntax";; *) [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax";; esac
 done
 # one adapter per platform, each marked with what it is (the doctor matches it against pipeline.env)

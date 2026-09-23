@@ -134,4 +134,30 @@ out=$(gate REP-320 staging); assert_exit "handover: after QA passes, the staging
 out=$(ho REP-320 --level nope); assert_exit "handover: an unknown level is refused" 1 $? "$out"
 out=$(ho REP-999 --level engineering); assert_exit "handover: needs intake first" 1 $? "$out"
 out=$(cd "$R" && bash scripts/pipeline/status.sh REP-320 2>&1); assert_contains "status: prints the start level" "$out" "Start level: analysis"
+# ---- board.sh: where the ticket is and who is busy, without the reasoning ----
+new_repo; branch feature/REP-400-x
+printf 'Add a health endpoint\nmore detail\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-400 - >/dev/null)
+st="$(tdir REP-400)/STATUS.md"
+sed -i -e 's/^| 2 | product | \(.*\) | pending |/| 2 | product | \1 | done |/' -e 's/^| 3 | analysis | \(.*\) | pending |/| 3 | analysis | \1 | done |/' -e 's/^| 4 | build | \(.*\) | pending |/| 4 | build | \1 | in-progress |/' "$st"
+bd() { (cd "$R" && PIPELINE_BOARD_ASCII=1 bash scripts/pipeline/board.sh "$@" 2>&1); }
+out=$(bd REP-400 handoff business-analyst senior-engineer '2 eng tickets ready'); assert_exit "board: record a handoff" 0 $? "$out"
+out=$(bd REP-400 now senior-engineer 'REP-401: health route + test'); assert_exit "board: record who is busy" 0 $? "$out"
+out=$(bd REP-400); assert_exit "board: print" 0 $? "$out"
+assert_contains "board: the ticket and its title" "$out" "REP-400  Add a health endpoint"
+assert_contains "board: done stages are ticked" "$out" "[x] analysis    business-analyst/product-owner"
+assert_contains "board: the current stage shows who and what" "$out" "[>] build       senior-engineer"
+assert_contains "board: with what they are doing" "$out" "REP-401: health route + test"
+assert_contains "board: later stages wait" "$out" "[ ] dev         devops"
+assert_contains "board: the environments" "$out" "dev -  qa -  staging -  prod -"
+assert_contains "board: the last handoff, one line" "$out" "business-analyst -> senior-engineer: 2 eng tickets ready"
+case "$out" in *intake*) bad "board: intake is not a stage row" "$out";; *) ok "board: intake is not a stage row";; esac
+[ "$(printf '%s\n' "$out" | wc -l)" -le 20 ] && ok "board: fits in twenty lines" || bad "board: fits in twenty lines" "$out"
+out=$(cd "$R" && bash scripts/pipeline/board.sh REP-400 2>&1); assert_contains "board: box-drawing by default" "$out" "▶ build"
+out=$(bd --all); assert_contains "board --all: one line per ticket in flight" "$out" "REP-400    build"
+case "$out" in *_templates*) bad "board --all: skips the templates" "$out";; *) ok "board --all: skips the templates";; esac
+out=$(TMUX= bd REP-400 --pane </dev/null); assert_contains "board --pane: outside tmux, the command for a second terminal" "$out" "board.sh REP-400 --watch"
+(cd "$R" && git check-ignore -q .claude/.pipeline-activity/REP-400.log) && ok "board: the activity log is not committed" || bad "board: the activity log is not committed"
+out=$(bd ABC-1); assert_exit "board: another team's id is refused" 1 $? "$out"
+out=$(bd REP-999); assert_exit "board: a ticket with no folder says so" 1 $? "$out"
+
 summary

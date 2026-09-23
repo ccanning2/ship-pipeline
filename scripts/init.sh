@@ -250,7 +250,7 @@ copy_owned() { # src dst
 }
 
 # --- tooling (always current) ---
-for f in gate promote intake handover status next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor connect ci-gate ci-resolve; do
+for f in gate promote intake handover status board next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor connect ci-gate ci-resolve; do
   copy_tooling "$here/scripts/pipeline/$f.sh" "scripts/pipeline/$f.sh"
 done
 # the code host and the tracker: the one adapter for each platform chosen, installed under a fixed name
