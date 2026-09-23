@@ -1,17 +1,39 @@
-# Ticket handoff protocol (Linear / Jira)
+# Ticket handoff protocol (Jira / Linear / GitHub Issues / GitLab issues)
 
 **The tracker is the source of truth and the handoff medium.**
 - Every persona picks work up from a ticket and hands it on by updating that ticket.
 - The repo keeps a mirror (`docs/pipeline/<TICKET>/tickets.md`) so gates and CI can check state without calling the tracker.
 
-Config lives in `scripts/pipeline/pipeline.env`: `TRACKER` (`linear` | `jira`), `TRACKER_TEAM_KEY` (ticket ids are `<TEAM KEY>-<number>`, matched through `PIPELINE_TICKET_REGEX` by `scripts/pipeline/ticket-id.sh`, the one definition the hook, the gate and both workflows share), and the two project capabilities `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` (`yes` | `no`, both defaulting to `yes`; only an explicit `no` turns one off, so a `pipeline.env` without them behaves exactly as before). Agents use whichever tracker connector tools the session has: the Linear connector by default, or the Atlassian connector for Jira. The human product owner is referred to as **the owner** (Owner label `owner`).
+Config lives in `scripts/pipeline/pipeline.env`: `TRACKER` (`linear` | `jira`), `TRACKER_TEAM_KEY` (ticket ids are `<TEAM KEY>-<number>`, matched through `PIPELINE_TICKET_REGEX` by `scripts/pipeline/ticket-id.sh`, the one definition the hook, the gate and both workflows share), and the two project capabilities `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` (`yes` | `no`, both defaulting to `yes`; only an explicit `no` turns one off, so a `pipeline.env` without them behaves exactly as before). The human product owner is referred to as **the owner** (Owner label `owner`).
+
+## Reading and changing tickets: `scripts/pipeline/tracker.sh`
+Every persona reaches the tracker through one CLI adapter, never through an MCP connector. `TRACKER` in `pipeline.env` picks the backend:
+
+| `TRACKER` | Driven through | Stage / Owner | Children |
+|---|---|---|---|
+| `jira` | Atlassian CLI `acli`, plus Jira REST for fields and statuses | single-select fields `Stage` / `Owner` when the project's screens carry them, else labels `stage:<v>` / `owner:<v>` | sub-tasks |
+| `linear` | Linear GraphQL API (personal API key) | label groups `Stage` / `Owner` | sub-issues |
+| `github` | `gh` (this repository's issues; `KEY-12` is issue #12) | labels `stage:<v>` / `owner:<v>` | sub-issues |
+| `gitlab` | `glab` (this project's issues; `KEY-12` is issue #12) | scoped labels `Stage::<v>` / `Owner::<v>` | linked issues |
+| `connector` | the tracker's MCP connector tools (only when no CLI fits) | as the tracker allows | as the tracker allows |
+
+```
+bash scripts/pipeline/tracker.sh view <ID>                         # title, state, Stage, Owner, labels, description, children, comments
+bash scripts/pipeline/tracker.sh children <ID>                     # ID | kind | state | title
+bash scripts/pipeline/tracker.sh create <PARENT> <kind> '<title>' --body '<description>'   # prints the new id
+bash scripts/pipeline/tracker.sh comment <ID> --body '<text>'      # or --body-file <file>
+bash scripts/pipeline/tracker.sh describe <ID> --body-file <file>  # replace the description (PO / BA only)
+bash scripts/pipeline/tracker.sh handoff <ID> <stage> <owner> --body '<handoff comment>'
+bash scripts/pipeline/tracker.sh state <ID> <open|reopened|in-progress|fixed|verified|done|wontfix>
+```
+Put free text in single quotes; write a quote inside it as `'''`. The personas that may not run other shell commands (research, product, analysis, marketing) are held to exactly these calls by `scripts/pipeline/hooks/allow-commands.sh`. Exit 3 means `TRACKER=connector`: use the connector's tools for that step. Sign-ins live outside the repository (`bash scripts/pipeline/connect.sh login`, once, by the owner).
 
 ## Parent ticket
 `/ship <TICKET>` takes only the ticket id. The parent ticket must already exist and contain the owner's requirement: title, description, and optionally attachments or links.
 
 Two label groups track the parent. Each group allows one label at a time, so the labels always show where the ticket is and who holds it. They must be **single-select**: in Linear, create each as a label *group* (Settings → Labels → New group) and add its labels inside it; in Jira, use a single-select custom field. Plain labels would let a ticket carry two stages at once.
 
-The full list of labels and workflow statuses the pipeline needs is `scripts/pipeline/tracker-schema.txt`. `/pipeline-doctor` compares it with the workspace and offers to create what is missing; nothing is created without the owner's yes.
+The full list of labels, fields and workflow statuses the pipeline needs is `scripts/pipeline/tracker-schema.txt`. `/pipeline-init` creates them (`tracker.sh setup`) with the owner's one upfront yes, and records in `scripts/pipeline/tracker.map` how each pipeline state maps onto this tracker's statuses. `/pipeline-doctor` reports anything missing later.
 
 | Label group | Labels |
 |---|---|
@@ -51,7 +73,7 @@ Rules:
 - The **engineer** moves `eng`/`defect` tickets to in-progress, then done/fixed, and comments with the fixing commit.
 - **Only the reporter** marks a defect `verified` (after re-testing) or `reopened`. `wontfix` needs product-owner agreement in a comment; High-severity defects can't be `wontfix`.
 
-State mapping to Linear workflow states: open/reopened → Todo, in-progress → In Progress, fixed → In Review, verified/done → Done, wontfix → Canceled. A new Linear team has no **In Review** status: add it (a *Started*-type status) before the first defect is fixed.
+State mapping (`tracker.map`, written by `tracker.sh setup`; edit it to remap). Linear: open/reopened → Todo, in-progress → In Progress, fixed → In Review, verified/done → Done, wontfix → Canceled; setup adds **In Review** as a *Started* status. Jira: the project's statuses, with any that are missing mapped to the nearest one until the owner adds them to the workflow. GitHub/GitLab issues: open/closed, plus a `state:` label for in-progress and fixed.
 
 ## Repo mirror: `tickets.md`
 Whoever creates or changes a ticket also updates the matching row, in the same step:

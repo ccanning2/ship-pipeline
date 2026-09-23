@@ -1,9 +1,10 @@
-# The tracker workspace the pipeline needs. One definition, read by /pipeline-doctor (through the tracker
-# connector), checked against docs/pipeline/TICKETS.md by the test suite, and printed by doctor.sh.
+# The tracker workspace the pipeline needs. One definition: tracker.sh setup creates it (through the tracker's CLI),
+# doctor.sh checks it (tracker.sh setup --check), and the test suite checks it against docs/pipeline/TICKETS.md.
 # Format: <type>|<name>|<values, comma-separated>|<note>
-#   label-group  a label group whose labels are mutually exclusive (Linear: a label group; Jira: a single-select field)
+#   label-group  a label group whose labels are mutually exclusive (Linear: a label group; Jira: a single-select field;
+#                GitHub/GitLab: prefixed labels the adapter keeps to one)
 #   labels       plain labels
-#   status       <pipeline state>|<tracker workflow status>
+#   status       <pipeline state>|<Linear workflow status> (other trackers: scripts/pipeline/tracker.map)
 label-group|Stage|research,product,analysis,build,dev,qa,staging,go-live,production,done,on-hold|one at a time: where the parent ticket is
 label-group|Owner|market-researcher,product-owner,business-analyst,engineer,qa,app-specialist,marketing,owner|one at a time: who holds the parent ticket
 labels|Kind|story,eng,defect,marketing,follow-up|on child tickets

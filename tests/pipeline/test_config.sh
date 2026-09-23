@@ -21,7 +21,11 @@ done
 d() { fmval "$A/$1.md" disallowedTools; }
 denies() { case ", $(d "$1")," in *", $2,"*) return 0;; esac; return 1; }
 denies app-specialist Write && denies app-specialist Edit && ok "app-specialist cannot write code" || bad "app-specialist cannot write code"
-for a in product-owner business-analyst market-researcher marketing-specialist; do denies "$a" Bash && ok "$a has no Bash" || bad "$a has no Bash"; done
+# these personas may run exactly one shell command: the tracker CLI adapter (allow-commands.sh holds them to it)
+for a in product-owner business-analyst market-researcher marketing-specialist; do
+  ! denies "$a" Bash && fm "$A/$a.md" | grep -q 'allow-commands.sh\\" scripts/pipeline/tracker.sh' && ok "$a: Bash only for scripts/pipeline/tracker.sh" || bad "$a: Bash only for scripts/pipeline/tracker.sh"
+done
+for a in "${agents[@]}"; do grep -q 'bash scripts/pipeline/tracker.sh' "$A/$a.md" && ok "$a: tickets through the tracker CLI adapter" || bad "$a: tickets through the tracker CLI adapter"; done
 [ -z "$(d senior-engineer)" ] && ok "engineer unrestricted" || bad "engineer unrestricted"
 for a in market-researcher product-owner business-analyst qa-tester marketing-specialist; do
   fm "$A/$a.md" | grep -q "allow-paths.sh" && ok "$a: write-boundary hook" || bad "$a: write-boundary hook"
@@ -43,7 +47,7 @@ grep -qi "capabilit" "$A/marketing-specialist.md" && bad "marketing-specialist s
 
 if [ "$A" = agents ]; then
 s="$C/ship.md"; [ -f "$s" ] && ok "/ship exists" || bad "/ship exists"
-for step in intake.sh "promote-dev" "promote-staging" "promote-production" "next-version.sh" "Version:" "Go-live: approved by" "argument-hint: <TICKET-ID>" "tracker connector" "CLAUDE_CODE_REMOTE" ".pipeline-ticket" "/pipeline-init"; do
+for step in intake.sh "promote-dev" "promote-staging" "promote-production" "next-version.sh" "Version:" "Go-live: approved by" "argument-hint: <TICKET-ID>" "scripts/pipeline/tracker.sh" "CLAUDE_CODE_REMOTE" ".pipeline-ticket" "/pipeline-init"; do
   grep -qF "$step" "$s" && ok "/ship includes: $step" || bad "/ship includes: $step"
 done
 if grep -qiwE "reputabill|curate|chris" "$s"; then bad "/ship project-agnostic"; else ok "/ship project-agnostic"; fi
@@ -109,7 +113,8 @@ if [ "$A" = agents ]; then
   grep -q "ticket-id.sh" "$G" && ! grep -q "grep -oiE" "$G" && ok "item 3: PR gate reads the one ticket-id definition" || bad "item 3: PR gate reads the one ticket-id definition"
   grep -q "ticket-id.sh" "$D" && ! grep -q "grep -oiE" "$D" && ok "item 3: deploy.yml reads the one ticket-id definition" || bad "item 3: deploy.yml reads the one ticket-id definition"
   grep -q "labels.\*.name, 'infra'" "$G" && grep -q "labeled" "$G" && ok "item 10: PR gate honours the infra label" || bad "item 10: PR gate honours the infra label"
-  grep -q 'git diff --name-only' "$G" && ok "item 10: self-test runs only when the tooling changed" || bad "item 10: self-test runs only when the tooling changed"
+  grep -q 'run-all.sh' "$G" && bad "an installed PR gate never runs the plugin's own test suite" || ok "an installed PR gate never runs the plugin's own test suite"
+  grep -q '#@on-merge' "$D" && ok "deploy.yml marks its push triggers for DEPLOY_MODE=explicit" || bad "deploy.yml marks its push triggers for DEPLOY_MODE=explicit"
   $PY - "$D" <<'PY' && ok "item 8: every deploy.yml job waits for PIPELINE_DEPLOY_ENABLED" || bad "item 8: every deploy.yml job waits for PIPELINE_DEPLOY_ENABLED"
 import yaml,sys
 j=yaml.safe_load(open(sys.argv[1]))["jobs"]
@@ -143,8 +148,10 @@ if [ "$A" = agents ]; then
   done
   grep -q 'behaves exactly as it did before' README.md && ok "AC-34: README states existing installs are unaffected" || bad "AC-34: README states existing installs are unaffected"
   # AC-35: each release has exactly one release-notes section; plugin.json carries the newest (v1.1.0)
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="1.1.0" else 1)' \
-    && ok "plugin.json version is 1.1.0" || bad "plugin.json version is 1.1.0"
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="2.0.0" else 1)' \
+    && ok "plugin.json version is 2.0.0" || bad "plugin.json version is 2.0.0"
+  assert_eq "exactly one '### v2.0.0' release-notes heading" "1" "$(grep -c '^### v2.0.0' README.md || true)"
+  grep -q '^#### Upgrading from v1.1.0' README.md && ok "v2.0.0 notes explain the upgrade" || bad "v2.0.0 notes explain the upgrade"
   assert_eq "AC-35: exactly one '### v1.0.0' release-notes heading" "1" "$(grep -c '^### v1.0.0' README.md || true)"
   assert_eq "exactly one '### v1.1.0' release-notes heading" "1" "$(grep -c '^### v1.1.0' README.md || true)"
   assert_eq "no 'Unreleased' release-notes heading" "0" "$(grep -c '^### Unreleased' README.md || true)"
@@ -163,7 +170,7 @@ if [ "$A" = agents ]; then
   assert_eq "AC-36: the SHI-5 open question is gone from CONTEXT.md" "0" "$(grep -c 'marketing-specialist persona should be opt-out' docs/pipeline/CONTEXT.md || true)"
   assert_eq "AC-36: no reference to the non-existent template/agents path" "0" "$(grep -rc 'template/agents' docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md | awk -F: '{s+=$2} END {print s+0}')"
 fi
-for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor}.sh scripts/pipeline/hooks/{allow-paths,guard-merge}.sh; do
+for f in scripts/pipeline/{gate,check-signoff,promote,intake,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh; do
   [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax"
 done
 # scripts/deploy/* is absent in a project installed with --no-deploy-envs
@@ -192,7 +199,8 @@ if [ "$A" = agents ]; then
   [ -f "$C/pipeline-doctor.md" ] && grep -q 'doctor.sh' "$C/pipeline-doctor.md" && ok "item 1: /pipeline-doctor exists" || bad "item 1: /pipeline-doctor exists"
   grep -q 'doctor' "$C/pipeline-init.md" && grep -q -- '--base-branch' "$C/pipeline-init.md" && ok "item 1/2: /pipeline-init asks for the base branch and ends with the doctor" || bad "item 1/2: /pipeline-init asks for the base branch and ends with the doctor"
   grep -q 'enforcement.sh' "$C/pipeline-status.md" && ok "item 6: /pipeline-status reports the enforcement mode" || bad "item 6: /pipeline-status reports the enforcement mode"
-  lit="$(grep -rnw 'master' "$A" "$C" template | grep -v '^template/profiles' || true)"
+  # the one allowed mention: /pipeline-init offers main or master as the answer to its branching question
+  lit="$(grep -rnw 'master' "$A" "$C" template | grep -v '^template/profiles' | grep -v 'Branching strategy (trunk)' || true)"
   assert_eq "item 2: no 'master' literal in agents, commands or template" "" "$lit"
   grep -qF 'PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+"' template/scripts/pipeline/pipeline.env && ok "item 3: the template regex is the team key" || bad "item 3: the template regex is the team key"
   grep -q '^PIPELINE_REMOTE="origin"' template/scripts/pipeline/pipeline.env && ok "item 9: the template declares PIPELINE_REMOTE" || bad "item 9: the template declares PIPELINE_REMOTE"

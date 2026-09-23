@@ -5,6 +5,7 @@ name: Deploy
 #   push to __STAGING_BRANCH__           -> gate "qa"         -> deploy :<sha> to qa
 #   workflow_dispatch staging -> gate "staging"    -> deploy :<sha> to staging
 #   push tag vX.Y.Z           -> gate "production" -> re-tag image :<version> + :latest, deploy to production
+# With DEPLOY_MODE="explicit" there are no push triggers: scripts/pipeline/promote.sh dispatches every environment.
 # Configure GitHub environments dev, qa, staging, production with:
 #   secret DEPLOY_SSH_KEY; vars DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, APP_URL
 # Adapt the "Backend tests" / "Frontend tests" / Dockerfile steps to this project (the engineer does this on first build).
@@ -12,10 +13,10 @@ name: Deploy
 # 'true' (Settings -> Secrets and variables -> Actions -> Variables), so CI is not red from day one.
 
 on:
-  push:
-    branches: [__BASE_BRANCH__, __STAGING_BRANCH__]
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
-    paths-ignore: ['docs/pipeline/**']
+  push:                                        #@on-merge
+    branches: [__BASE_BRANCH__, __STAGING_BRANCH__]   #@on-merge
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']              #@on-merge
+    paths-ignore: ['docs/pipeline/**']         #@on-merge
   workflow_dispatch:
     inputs:
       env:

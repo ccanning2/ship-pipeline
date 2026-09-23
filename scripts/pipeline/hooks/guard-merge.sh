@@ -5,7 +5,8 @@
 #   push of a tag vX.Y.Z / gh release    -> "production" gate
 # The command is split into simple commands (on ; & | && || newlines, subshells; quotes respected, heredoc
 # bodies skipped; wrappers such as `bash -c`, sudo, xargs and eval are looked through) and only a simple command that IS `git push`, `git merge`, `gh pr merge`, `gh api` on a
-# merge or ref, or `gh release create` is examined. Text in echo, grep, tail or a commit message never trips it.
+# merge or ref, `gh release create`, their glab equivalents (`glab mr merge`, `glab api` on a merge or tag,
+# `glab release create`) or `scripts/pipeline/host.sh merge|set-ref` is examined. Text in echo, grep, tail or a commit message never trips it.
 # Never allowed from an agent, ticket or not: force pushes or deletes of the base/staging branch or a version
 # tag, bulk pushes (--all, --mirror), and adding the `infra` label (a human's decision; see pipeline-gate.yml).
 # Exit 2 blocks (stderr shown to Claude). PIPELINE_BYPASS=1 in the environment Claude Code itself was started
@@ -23,6 +24,7 @@ project="${CLAUDE_PROJECT_DIR:-$(pwd)}"; cd "$project" 2>/dev/null || exit 0
 P="$project/scripts/pipeline"
 [ -f "$P/base-ref.sh" ] || exit 0
 base="$(bash "$P/base-ref.sh" --branch)"; stg="$(bash "$P/base-ref.sh" --staging)"
+git_host="$(grep -E '^[[:space:]]*GIT_HOST=' "$P/pipeline.env" 2>/dev/null | tail -n 1 | sed -E 's/^[^=]*=//; s/[[:space:]]+#.*$//' | tr -d "\"' " | tr '[:upper:]' '[:lower:]')"
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
 ticket_in() { bash "$P/ticket-id.sh" "$@" 2>/dev/null; }
 semver='^v[0-9]+\.[0-9]+\.[0-9]+$'
@@ -92,6 +94,8 @@ check_push() { # args after `push`
     case "$rs" in +*) force=1; rs="${rs#+}";; esac
     src="${rs%%:*}"; dst="$rs"; case "$rs" in *:*) dst="${rs#*:}"; [ -z "$src" ] && del=1;; esac
     [ -n "$dst" ] || dst="$src"
+    # Bitbucket has no PR labels: an infra/* source branch is how a human marks a PR as maintenance with no ticket
+    case "$git_host:${dst#refs/heads/}" in bitbucket:infra/*) human_only "pushing an infra/ branch, which lets a pull request skip the ticket requirement";; esac
     s="$(dst_stage "$dst")"; [ -n "$s" ] || continue
     [ "$force" = 1 ] && human_only "a force push to '$dst'. The release model never rewrites $base, $stg or a version tag"
     [ "$del" = 1 ] && human_only "deleting '$dst'"
@@ -131,6 +135,33 @@ check_gh() { # args after `gh`
     esac
   done
 }
+check_glab() { # args after `glab`
+  local sub="${1:-}" act="${2:-}" a all=" $* " method=""
+  case "$sub $act" in
+    "mr merge") gate dev; return;;
+    "release create") gate production; return;;
+    "mr update"|"issue update"|"mr create"|"issue create")
+      for a in "$@"; do case ",$a," in *,infra,*) human_only "adding the 'infra' label, which lets a merge request skip the ticket requirement";; esac; done; return;;
+  esac
+  [ "$sub" = api ] || return 0
+  case "$all" in *labels=infra*|*labels=*,infra*|*add_labels=*infra*) human_only "adding the 'infra' label";; esac
+  for a in "$@"; do case "$a" in POST|PUT|PATCH|DELETE) method="$a";; esac; done
+  for a in "$@"; do
+    case "$a" in
+      */merge_requests/*/merge|*/merge_requests/*/merge\?*) gate dev; return;;
+      */repository/tags*) [ -n "$method" ] && { gate production; return; };;
+      branch=*) s="$(dst_stage "${a#branch=}")"; [ -n "$s" ] && { gate "$s"; return; };;
+    esac
+  done
+}
+check_host() { # args after scripts/pipeline/host.sh: merge and set-ref move the base branch, the staging branch or a tag
+  local s
+  case "${1:-}" in
+    merge) s="$(dst_stage "${3:-}")"; gate "${s:-dev}";;
+    set-ref) s="$(dst_stage "${2:-}")"; [ -n "$s" ] && gate "$s";;
+  esac
+  return 0
+}
 
 set -f
 while IFS= read -r seg; do
@@ -167,6 +198,8 @@ while IFS= read -r seg; do
       # ${a[@]+"${a[@]}"}: an empty array under set -u is an error in bash 3.2 (macOS)
       case "$sub" in push) check_push ${rest[@]+"${rest[@]}"};; merge) check_merge ${rest[@]+"${rest[@]}"};; esac;;
     gh) check_gh ${args[@]+"${args[@]}"};;
+    glab) check_glab ${args[@]+"${args[@]}"};;
+    host.sh) check_host ${args[@]+"${args[@]}"};;
   esac
 done <<<"$segments"
 set +f

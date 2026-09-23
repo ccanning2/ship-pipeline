@@ -2,6 +2,21 @@
 # Scaffold (or update) the pipeline in a project. Idempotent; never overwrites project-owned files.
 # Usage: init.sh [--project-dir DIR] [--name NAME] [--team-key KEY] [--profile NAME] [--force-tooling]
 #               [--base-branch NAME] [--staging-branch NAME] [--no-deploy-envs] [--no-marketing]
+#               [--git-host github|gitlab|bitbucket] [--git-url URL] [--tracker jira|linear|github|gitlab|connector]
+#               [--tracker-url URL] [--tracker-cloud-id ID] [--deploy-mode merge|explicit]
+#               [--dev-url URL] [--qa-url URL] [--staging-url URL] [--production-url URL] [--health-path PATH]
+#               [--create-branches]
+# Every question /pipeline-init asks has a flag here, so one run installs everything; nothing below prompts.
+#   --git-host        default: GIT_HOST from an existing pipeline.env, else the remote's URL (gitlab / bitbucket),
+#                     else github. Picks the CI files: .github/workflows/* (github), .gitlab/pipeline-*.yml plus an
+#                     include in .gitlab-ci.yml (gitlab), bitbucket-pipelines.yml (bitbucket)
+#   --git-url         a self-hosted code host's base URL (GitHub Enterprise, GitLab self-managed); empty = public service
+#   --tracker         default: TRACKER from an existing pipeline.env, else linear. Tickets are read and written through
+#                     scripts/pipeline/tracker.sh with the tracker's CLI; "connector" falls back to an MCP connector
+#   --deploy-mode     merge (default): pushes and tags deploy; explicit: nothing deploys on a push, promote.sh
+#                     dispatches every environment. CI template lines marked "#@on-merge" are dropped for explicit
+#   --create-branches push the base branch when the remote lacks it, and create the staging branch from the remote
+#                     base branch when it is missing. Never moves or forces an existing branch
 #   --base-branch     the trunk (merging here = dev). Default: BASE_BRANCH from an existing pipeline.env, else
 #                     origin's default branch (origin/HEAD), else the current branch. Written into pipeline.env,
 #                     the workflows and the docs; nothing assumes "master".
@@ -15,10 +30,12 @@
 #   that already declares PIPELINE_HAS_DEPLOY_ENVS="no" is scaffolded as if the flag had been passed.
 #   Neither flag ever deletes anything from an existing install; both default to "yes" (today's behaviour).
 #   Project-owned (created once, then yours): docs/pipeline/CONTEXT.md, RELEASE_CHECKLIST.md, scripts/pipeline/pipeline.env,
-#     .github/workflows/*.yml, scripts/deploy/*, .claude/settings.json
+#     the host's CI files (.github/workflows/*.yml | .gitlab/*.yml + .gitlab-ci.yml | bitbucket-pipelines.yml),
+#     scripts/deploy/*, .claude/settings.json
 #   Tooling (refreshed on every run): scripts/pipeline/{gate,promote,intake,status,next-version,check-signoff,cloud-setup,
-#     ticket-id,base-ref,enforcement,doctor}.sh, scripts/pipeline/tracker-schema.txt, scripts/pipeline/hooks/*, .claude/agents/*,
-#     docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md, docs/pipeline/_templates/*, tests/pipeline/*
+#     ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh, scripts/pipeline/tracker-schema.txt,
+#     scripts/pipeline/hooks/*, .claude/agents/*, docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md, docs/pipeline/_templates/*
+#   The plugin's test suite (tests/pipeline/*) is never installed; an older install's untouched copy is removed.
 #   scripts/pipeline/.install-manifest records a checksum of every tooling file as installed. A tooling file whose
 #   content no longer matches its record was edited by hand: it is kept, and the new version goes to <file>.new.
 #   .gitignore gains the pipeline's entries once, under "# ship-pipeline".
@@ -26,11 +43,18 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$(pwd)"; name=""; key=""; profile=""; force=0; deploy_envs=yes; marketing=yes; base=""; stg=""
+git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=merge; mkbranches=0
+dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""
 while [ $# -gt 0 ]; do case "$1" in
   --project-dir) dir="$2"; shift 2;; --name) name="$2"; shift 2;; --team-key) key="$2"; shift 2;;
   --profile) profile="$2"; shift 2;; --force-tooling) force=1; shift;;
   --base-branch) base="${2:-}"; shift 2;; --staging-branch) stg="${2:-}"; shift 2;;
   --no-deploy-envs) deploy_envs=no; shift;; --no-marketing) marketing=no; shift;;
+  --git-host) git_host="${2:-}"; shift 2;; --git-url) git_url="${2:-}"; shift 2;;
+  --tracker) tracker="${2:-}"; shift 2;; --tracker-url) tracker_url="${2:-}"; shift 2;; --tracker-cloud-id) cloud_id="${2:-}"; shift 2;;
+  --deploy-mode) deploy_mode="${2:-}"; shift 2;; --create-branches) mkbranches=1; shift;;
+  --dev-url) dev_url="${2:-}"; shift 2;; --qa-url) qa_url="${2:-}"; shift 2;; --staging-url) stg_url="${2:-}"; shift 2;;
+  --production-url) prod_url="${2:-}"; shift 2;; --health-path) health="${2:-}"; shift 2;;
   *) echo "unknown arg $1" >&2; exit 1;; esac; done
 # --- argument validation: everything that can reject a run happens BEFORE the first file is copied ---
 # (CONTEXT.md high-risk area / FR-15: an early exit must never leave a half-applied install behind)
@@ -95,6 +119,28 @@ for b in "$base" "$stg"; do
   git check-ref-format --branch "$b" >/dev/null 2>&1 || { echo "init: '$b' is not a valid branch name" >&2; exit 1; }
 done
 [ "$base" != "$stg" ] || { echo "init: the base and staging branches must differ (both '$base')" >&2; exit 1; }
+# code host: a flag wins, then pipeline.env, then the remote's URL
+unfilled() { case "$1" in *__*) ;; *) printf '%s' "$1";; esac; }
+[ -n "$git_host" ] || git_host="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env GIT_HOST)")"
+if [ -z "$git_host" ]; then
+  case "$(git remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')" in
+    *gitlab*) git_host=gitlab;; *bitbucket*) git_host=bitbucket;; *) git_host=github;; esac
+fi
+git_host="$(printf '%s' "$git_host" | tr '[:upper:]' '[:lower:]')"
+case "$git_host" in github|gitlab|bitbucket) ;; *) echo "init: --git-host must be github, gitlab or bitbucket (got '$git_host')" >&2; exit 1;; esac
+[ -n "$git_url" ] || git_url="$(unfilled "$(declared_value scripts/pipeline/pipeline.env GIT_HOST_URL)")"
+[ -n "$tracker" ] || tracker="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env TRACKER)")"
+[ -n "$tracker" ] || tracker=linear
+tracker="$(printf '%s' "$tracker" | tr '[:upper:]' '[:lower:]')"
+case "$tracker" in jira|linear|github|gitlab|connector) ;; *) echo "init: --tracker must be jira, linear, github, gitlab or connector (got '$tracker')" >&2; exit 1;; esac
+[ -n "$tracker_url" ] || tracker_url="$(unfilled "$(declared_value scripts/pipeline/pipeline.env TRACKER_URL)")"
+case "$deploy_mode" in merge|explicit) ;; *) echo "init: --deploy-mode must be merge or explicit (got '$deploy_mode')" >&2; exit 1;; esac
+for u in "$git_url" "$tracker_url" "$dev_url" "$qa_url" "$stg_url" "$prod_url"; do
+  case "$u" in ""|http://*|https://*) ;; *) echo "init: '$u' is not an http(s) URL" >&2; exit 1;; esac
+  case "$u" in *[[:space:]\"\'\#\\\|]*) echo "init: '$u' contains a character a URL cannot hold here" >&2; exit 1;; esac
+done
+case "$health" in ""|/*) ;; *) echo "init: --health-path must start with / (got '$health')" >&2; exit 1;; esac
+case "$cloud_id$health" in *[!A-Za-z0-9/._-]*) echo "init: --tracker-cloud-id and --health-path take letters, digits and / . _ - only" >&2; exit 1;; esac
 sed_esc() { printf '%s' "$1" | sed 's/[&\\]/\\&/g'; }
 base_esc="$(sed_esc "$base")"; stg_esc="$(sed_esc "$stg")"
 
@@ -106,64 +152,158 @@ fi
 
 created=(); updated=(); kept=(); customised=(); removed=()
 tmpd="$(mktemp -d)"; trap 'rm -rf "$tmpd"' EXIT
-render() { # src dst -> the file to install (echoes its path). Only docs, workflows, the checklist and pipeline.env
-  # get the branch placeholders filled; scripts, tests and agents are copied verbatim (they may name a placeholder)
+render() { # src dst [out] -> sets $rendered to the file to install (no subshell: init copies ~60 files).
+  # Only docs, CI files, the checklist and pipeline.env get the branch placeholders filled; scripts and agents are
+  # copied verbatim (they may name a placeholder).
+  local out="${3:-$tmpd/r}"
   case "$2" in
-    docs/*|.github/*|RELEASE_CHECKLIST.md|scripts/pipeline/pipeline.env)
-      sed -e "s:__BASE_BRANCH__:$base_esc:g" -e "s:__STAGING_BRANCH__:$stg_esc:g" "$1" > "$tmpd/r"; echo "$tmpd/r";;
-    *) echo "$1";;
+    .github/*|.gitlab/*|bitbucket-pipelines*.yml)
+      # "#@on-merge" marks CI lines that deploy on a push or tag: kept (marker removed) for merge, dropped for explicit
+      if [ "$deploy_mode" = explicit ]; then sed -e '/#@on-merge/d' "$1"; else sed -e 's/[[:space:]]*#@on-merge.*$//' "$1"; fi \
+        | sed -e "s:__BASE_BRANCH__:$base_esc:g" -e "s:__STAGING_BRANCH__:$stg_esc:g" > "$out"; rendered="$out";;
+    docs/*|RELEASE_CHECKLIST.md|scripts/pipeline/pipeline.env)
+      sed -e "s:__BASE_BRANCH__:$base_esc:g" -e "s:__STAGING_BRANCH__:$stg_esc:g" "$1" > "$out"; rendered="$out";;
+    *) rendered="$1";;
   esac
 }
 manifest=scripts/pipeline/.install-manifest; had_manifest=0; [ -f "$manifest" ] && had_manifest=1
-manifest_lines=()
+manifest_lines=()   # "<sum> <size> <path>" for every tooling file, as installed
 sum_of() { cksum < "$1" | awk '{print $1" "$2}'; }
+ensure_dir() { case "$1" in */*) [ -d "${1%/*}" ] || mkdir -p "${1%/*}";; esac; }
 recorded() { [ -f "$manifest" ] && awk -v p="$1" '$3==p {print $1" "$2}' "$manifest" || true; }
-copy_tooling() { # src dst
-  local r rec; r="$(render "$1" "$2")"; mkdir -p "$(dirname "$2")"
-  if [ -f "$2" ] && cmp -s "$r" "$2"; then
-    rm -f "$2.new"; manifest_lines+=("$(sum_of "$2") $2"); return
+# Tooling is planned first and applied in one pass: one cksum over every source, one over every existing copy, and
+# one cp per directory. Per-file cmp/cat/cksum made an install take ~20s on Windows, where each process is slow.
+plan_src=(); plan_dst=()
+copy_tooling() { plan_src+=("$1"); plan_dst+=("$2"); }
+apply_tooling() {
+  local n=${#plan_src[@]} i src dst rec a b rest want=() have=() ex=() inst=() queued=() d e srcs
+  [ "$n" -gt 0 ] || return 0
+  # docs only need the branch names filled: copy them into a mirror of their destination and fill them all with one sed
+  local docs=() mdirs=()
+  for ((i=0; i<n; i++)); do
+    have+=("")
+    case "${plan_dst[$i]}" in
+      docs/*) inst+=("$tmpd/m/${plan_dst[$i]}"); docs+=("$i"); mdirs+=("$tmpd/m/${plan_dst[$i]%/*}");;
+      *) render "${plan_src[$i]}" "${plan_dst[$i]}" "$tmpd/r$i"; inst+=("$rendered");;
+    esac
+  done
+  if [ ${#docs[@]} -gt 0 ]; then
+    mkdir -p $(printf '%s\n' "${mdirs[@]}" | sort -u)
+    for d in $(printf '%s\n' "${mdirs[@]}" | sort -u); do
+      srcs=(); for e in "${docs[@]}"; do [ "$tmpd/m/${plan_dst[$e]%/*}" = "$d" ] && srcs+=("${plan_src[$e]}"); done
+      cp "${srcs[@]}" "$d/"
+    done
+    sed -i.bak -e "s:__BASE_BRANCH__:$base_esc:g" -e "s:__STAGING_BRANCH__:$stg_esc:g" $(for e in "${docs[@]}"; do printf '%s\n' "${inst[$e]}"; done)
   fi
-  if [ -f "$2" ] && [ "$force" != 1 ]; then
-    rec="$(recorded "$2")"
-    if [ -n "$rec" ] && [ "$rec" != "$(sum_of "$2")" ]; then   # edited by hand since the last install: keep it
-      cat "$r" > "$2.new"; customised+=("$2"); manifest_lines+=("$rec $2"); return
+  while read -r a b rest; do want+=("$a $b"); done < <(cksum "${inst[@]}")
+  for ((i=0; i<n; i++)); do [ -f "${plan_dst[$i]}" ] && ex+=("$i"); done
+  if [ ${#ex[@]} -gt 0 ]; then
+    i=0; while read -r a b rest; do have[${ex[$i]}]="$a $b"; i=$((i+1)); done < <(for e in "${ex[@]}"; do printf '%s\n' "${plan_dst[$e]}"; done | tr '\n' '\0' | xargs -0 cksum)
+  fi
+  for ((i=0; i<n; i++)); do
+    src="${inst[$i]}"; dst="${plan_dst[$i]}"
+    if [ "${have[$i]}" = "${want[$i]}" ]; then   # already current
+      [ ! -e "$dst.new" ] || rm -f "$dst.new"; manifest_lines+=("${want[$i]} $dst"); continue
     fi
+    a=""
+    if [ -n "${have[$i]}" ]; then
+      # git's autocrlf rewrites line endings on checkout (Windows): a copy that differs only in CRs is not an edit
+      a="$(tr -d '\r' < "$dst" | cksum | awk '{print $1" "$2}')"
+      if [ "$a" = "$(tr -d '\r' < "$src" | cksum | awk '{print $1" "$2}')" ]; then
+        [ ! -e "$dst.new" ] || rm -f "$dst.new"; manifest_lines+=("${have[$i]} $dst"); continue
+      fi
+    fi
+    if [ -n "${have[$i]}" ] && [ "$force" != 1 ]; then
+      rec="$(recorded "$dst")"
+      if [ -n "$rec" ] && [ "$rec" != "${have[$i]}" ] && [ "$rec" != "$a" ]; then   # edited by hand since the last install: keep it
+        cat "$src" > "$dst.new"; customised+=("$dst"); manifest_lines+=("$rec $dst"); continue
+      fi
+    fi
+    if [ -n "${have[$i]}" ]; then updated+=("$dst"); else created+=("$dst"); fi
+    [ ! -e "$dst.new" ] || rm -f "$dst.new"; manifest_lines+=("${want[$i]} $dst"); ensure_dir "$dst"
+    if [ "${src##*/}" = "${dst##*/}" ]; then queued+=("$dst|$src"); else cat "$src" > "$dst"; fi
+  done
+  if [ ${#queued[@]} -gt 0 ]; then   # one cp per destination directory
+    for d in $(printf '%s\n' "${queued[@]}" | sed 's#/[^/|]*|.*##' | sort -u); do
+      srcs=(); for e in "${queued[@]}"; do [ "${e%/*|*}" = "$d" ] && srcs+=("${e#*|}"); done
+      cp "${srcs[@]}" "$d/"
+    done
   fi
-  if [ -f "$2" ]; then updated+=("$2"); else created+=("$2"); fi
-  cat "$r" > "$2"; rm -f "$2.new"; manifest_lines+=("$(sum_of "$2") $2")
+  plan_src=(); plan_dst=()
 }
 copy_owned() { # src dst
   if [ -f "$2" ]; then kept+=("$2"); return; fi
-  mkdir -p "$(dirname "$2")"; cat "$(render "$1" "$2")" > "$2"; created+=("$2")
+  ensure_dir "$2"; render "$1" "$2"; cat "$rendered" > "$2"; created+=("$2")
 }
 
 # --- tooling (always current) ---
-for f in gate promote intake status next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor; do
+for f in gate promote intake status next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor host tracker connect ci-gate ci-resolve; do
   copy_tooling "$here/scripts/pipeline/$f.sh" "scripts/pipeline/$f.sh"
 done
 copy_tooling "$here/scripts/pipeline/tracker-schema.txt" "scripts/pipeline/tracker-schema.txt"
 copy_tooling "$here/scripts/pipeline/hooks/allow-paths.sh" "scripts/pipeline/hooks/allow-paths.sh"
 copy_tooling "$here/scripts/pipeline/hooks/guard-merge.sh" "scripts/pipeline/hooks/guard-merge.sh"
-for f in "$here"/agents/*.md; do copy_tooling "$f" ".claude/agents/$(basename "$f")"; done
+copy_tooling "$here/scripts/pipeline/hooks/allow-commands.sh" "scripts/pipeline/hooks/allow-commands.sh"
+for f in "$here"/agents/*.md; do copy_tooling "$f" ".claude/agents/${f##*/}"; done
 for f in TICKETS BRANCHING CLOUD; do copy_tooling "$here/template/docs/pipeline/$f.md" "docs/pipeline/$f.md"; done
-for f in "$here"/template/docs/pipeline/_templates/*.md; do copy_tooling "$f" "docs/pipeline/_templates/$(basename "$f")"; done
-for f in "$here"/tests/pipeline/*.sh; do copy_tooling "$f" "tests/pipeline/$(basename "$f")"; done
+for f in "$here"/template/docs/pipeline/_templates/*.md; do copy_tooling "$f" "docs/pipeline/_templates/${f##*/}"; done
+apply_tooling
+# The plugin's own test suite stays in the plugin: it tests the tooling, not the project, and takes minutes.
+# An older install copied it in: remove each copy that is still exactly as installed; a changed one is the owner's.
+if [ "$(cd "$here" && pwd -P)" != "$(pwd -P)" ]; then
+  if [ -f "$manifest" ]; then
+    while read -r sum size path; do
+      case "$path" in tests/pipeline/*) ;; *) continue;; esac
+      [ -f "$path" ] || continue
+      if [ "$(sum_of "$path")" = "$sum $size" ]; then rm -f "$path"; removed+=("$path"); else kept+=("$path"); fi
+    done < "$manifest"
+    rmdir tests/pipeline 2>/dev/null && rmdir tests 2>/dev/null || true
+  fi
+fi
 
 # --- project-owned (created once) --- (src_ctx / src_chk were resolved during argument validation)
 copy_owned "$src_ctx" docs/pipeline/CONTEXT.md
 copy_owned "$src_chk" RELEASE_CHECKLIST.md
 copy_owned "$here/template/scripts/pipeline/pipeline.env" scripts/pipeline/pipeline.env
+ci_note=""
 if [ "$deploy_envs" = yes ]; then
   for f in deploy rollback smoke; do copy_owned "$here/scripts/deploy/$f.sh" "scripts/deploy/$f.sh"; done
-  copy_owned "$here/template/.github/workflows/deploy.yml" ".github/workflows/deploy.yml"
 else
   # No deployable environments: don't create the deploy machinery — and never remove what an earlier
   # install created (it is project-owned; the owner decides). Report it as kept instead.
-  for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh scripts/deploy/smoke.sh .github/workflows/deploy.yml; do
+  for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh scripts/deploy/smoke.sh .github/workflows/deploy.yml .gitlab/pipeline-deploy.yml; do
     if [ -f "$f" ]; then kept+=("$f"); fi
   done
 fi
-copy_owned "$here/template/.github/workflows/pipeline-gate.yml" ".github/workflows/pipeline-gate.yml"
+case "$git_host" in
+  github)
+    [ "$deploy_envs" = yes ] && copy_owned "$here/template/.github/workflows/deploy.yml" ".github/workflows/deploy.yml"
+    copy_owned "$here/template/.github/workflows/pipeline-gate.yml" ".github/workflows/pipeline-gate.yml";;
+  gitlab)
+    copy_owned "$here/template/.gitlab/pipeline-gate.yml" ".gitlab/pipeline-gate.yml"
+    [ "$deploy_envs" = yes ] && copy_owned "$here/template/.gitlab/pipeline-deploy.yml" ".gitlab/pipeline-deploy.yml"
+    inc=("/.gitlab/pipeline-gate.yml"); [ -f .gitlab/pipeline-deploy.yml ] && inc+=("/.gitlab/pipeline-deploy.yml")
+    if [ ! -f .gitlab-ci.yml ]; then
+      { echo "# GitLab CI entry point. The ship pipeline's jobs live in the included files."; echo "include:"
+        for i in "${inc[@]}"; do echo "  - local: '$i'"; done; } > .gitlab-ci.yml; created+=(.gitlab-ci.yml)
+    else
+      missing_inc=(); for i in "${inc[@]}"; do grep -qF "$i" .gitlab-ci.yml || missing_inc+=("$i"); done
+      if [ ${#missing_inc[@]} -eq 0 ]; then kept+=(.gitlab-ci.yml)
+      elif grep -qE '^include:' .gitlab-ci.yml; then
+        # a second top-level include: key would be invalid YAML, so this one merge is left to /pipeline-init
+        ci_note="add to the include: list in .gitlab-ci.yml:$(printf " - local: '%s'" "${missing_inc[@]}")"; kept+=(.gitlab-ci.yml)
+      else
+        { [ -z "$(tail -c1 .gitlab-ci.yml)" ] || echo; echo; echo "# ship-pipeline"; echo "include:"
+          for i in "${missing_inc[@]}"; do echo "  - local: '$i'"; done; } >> .gitlab-ci.yml; updated+=(.gitlab-ci.yml)
+      fi
+    fi;;
+  bitbucket)
+    bsrc="$here/template/bitbucket-pipelines.yml"; [ "$deploy_envs" = yes ] || bsrc="$here/template/bitbucket-pipelines.gate-only.yml"
+    if [ -f bitbucket-pipelines.yml ] && ! grep -q 'Pipeline Gate' bitbucket-pipelines.yml; then
+      copy_owned "$bsrc" bitbucket-pipelines.ship.yml
+      ci_note="bitbucket-pipelines.yml already exists: merge the steps from bitbucket-pipelines.ship.yml into it (Bitbucket reads one file only)"
+    else copy_owned "$bsrc" bitbucket-pipelines.yml; fi;;
+esac
 copy_owned "$here/template/.claude/settings.json" .claude/settings.json
 copy_owned "$here/template/docs/pipeline/README.md" docs/pipeline/README.md
 if [ "$force" = 1 ] && [ "$deploy_envs" = yes ]; then
@@ -172,15 +312,20 @@ fi
 
 # fill placeholders in freshly created files only
 # with no deployable environments the deploy keys are written present-but-empty (nothing points anywhere)
-dev_url="https://dev.$name.example"; qa_url="https://qa.$name.example"
-stg_url="https://staging.$name.example"; prod_url="https://$name.example"; health="/actuator/health"
+# URLs: the flags, else .invalid placeholders that never resolve (the doctor flags them)
+[ -n "$dev_url" ] || dev_url="https://dev.$name.example.invalid"; [ -n "$qa_url" ] || qa_url="https://qa.$name.example.invalid"
+[ -n "$stg_url" ] || stg_url="https://staging.$name.example.invalid"; [ -n "$prod_url" ] || prod_url="https://$name.example.invalid"
+[ -n "$health" ] || health="/actuator/health"
 if [ "$deploy_envs" = no ]; then dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""; fi
+urlesc() { printf '%s' "$1" | sed 's/[&#]/\\&/g'; }
 for f in scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md; do
   if printf '%s\n' "${created[@]}" | grep -qx "$f"; then
     sed -i.bak -e "s/__PROJECT_NAME__/$name/g" -e "s/__TEAM_KEY__/$key/g" \
-      -e "s#__DEV_URL__#$dev_url#g" -e "s#__QA_URL__#$qa_url#g" \
-      -e "s#__STAGING_URL__#$stg_url#g" -e "s#__PRODUCTION_URL__#$prod_url#g" \
-      -e "s#__HEALTH_PATH__#$health#g" "$f" && rm -f "$f.bak"
+      -e "s#__DEV_URL__#$(urlesc "$dev_url")#g" -e "s#__QA_URL__#$(urlesc "$qa_url")#g" \
+      -e "s#__STAGING_URL__#$(urlesc "$stg_url")#g" -e "s#__PRODUCTION_URL__#$(urlesc "$prod_url")#g" \
+      -e "s#__HEALTH_PATH__#$health#g" -e "s#__GIT_HOST__#$git_host#g" -e "s#__GIT_HOST_URL__#$(urlesc "$git_url")#g" \
+      -e "s#__TRACKER__#$tracker#g" -e "s#__TRACKER_URL__#$(urlesc "$tracker_url")#g" -e "s#__TRACKER_CLOUD_ID__#$cloud_id#g" \
+      -e "s#__DEPLOY_MODE__#$deploy_mode#g" "$f" && rm -f "$f.bak"
   fi
 done
 # record the declared capabilities in a freshly created pipeline.env (an existing one is project-owned)
@@ -202,7 +347,8 @@ if printf '%s\n' "${created[@]}" | grep -qx scripts/pipeline/pipeline.env; then
     /^PIPELINE_HAS_MARKETING=/   { print mk; next }
     { print }' "$e" > "$e.new" && mv "$e.new" "$e"
 fi
-chmod +x scripts/pipeline/*.sh scripts/pipeline/hooks/*.sh scripts/deploy/*.sh tests/pipeline/*.sh 2>/dev/null || true
+apply_tooling   # the --force-tooling deploy scripts above
+chmod +x scripts/pipeline/*.sh scripts/pipeline/hooks/*.sh scripts/deploy/*.sh 2>/dev/null || true
 # gitignore: each entry once, under one "# ship-pipeline" comment; nothing else from the data file
 gi_changed=0; gi_existed=0; [ -f .gitignore ] && gi_existed=1
 if [ -f .gitignore ] && grep -qx '# Append to .gitignore' .gitignore; then   # an older install copied its instruction line
@@ -228,9 +374,35 @@ fi
 
 printf '%s\n' "${manifest_lines[@]}" | sort -k3 > "$manifest.tmp" && mv "$manifest.tmp" "$manifest"
 
+# --- branches on the remote (only with --create-branches; never moves or forces an existing branch) ---
+branch_note=""
+if [ "$mkbranches" = 1 ]; then
+  r="$(declared_value scripts/pipeline/pipeline.env PIPELINE_REMOTE)"; r="${r:-origin}"
+  if ! git remote get-url "$r" >/dev/null 2>&1; then branch_note="no remote named '$r', so no branch was created"
+  else
+    if ! git ls-remote --exit-code --heads "$r" "$base" >/dev/null 2>&1; then
+      if git rev-parse -q --verify "refs/heads/$base" >/dev/null; then
+        git push -q "$r" "refs/heads/$base:refs/heads/$base" && branch_note="pushed $base to $r" || branch_note="could not push $base to $r"
+      else branch_note="there is no local $base to push"; fi
+    fi
+    if git ls-remote --exit-code --heads "$r" "$base" >/dev/null 2>&1 && ! git ls-remote --exit-code --heads "$r" "$stg" >/dev/null 2>&1; then
+      git fetch -q "$r" "$base" 2>/dev/null || true
+      bsha="$(git ls-remote --heads "$r" "$base" | awk '{print $1}')"
+      git push -q "$r" "$bsha:refs/heads/$stg" && branch_note="${branch_note:+$branch_note; }created $stg on $r from $base" \
+        || branch_note="${branch_note:+$branch_note; }could not create $stg on $r"
+    fi
+    [ -n "$branch_note" ] || branch_note="$base and $stg already exist on $r"
+  fi
+fi
+
 printf 'init: %s (team key %s)\n' "$name" "$key"
 printf '  branches: base=%s (from %s) staging=%s\n' "$base" "$base_from" "$stg"
-printf '  capabilities: deploy-envs=%s marketing=%s\n' "$deploy_envs" "$marketing"
+mk_shown="$marketing"   # report what pipeline.env says (the flag only shapes a new pipeline.env)
+[ "$marketing" = yes ] && [ "$(declared_capability scripts/pipeline/pipeline.env PIPELINE_HAS_MARKETING)" = no ] && mk_shown=no
+printf '  capabilities: deploy-envs=%s marketing=%s\n' "$deploy_envs" "$mk_shown"
+printf '  host: %s%s  tracker: %s  deploy-mode: %s\n' "$git_host" "${git_url:+ ($git_url)}" "$tracker" "$deploy_mode"
+[ -n "$branch_note" ] && printf '  branches on the remote: %s\n' "$branch_note"
+[ -n "$ci_note" ] && printf '  ACTION: %s\n' "$ci_note"
 [ ${#created[@]} -gt 0 ] && printf '  created %s\n' "${created[@]}"
 [ ${#updated[@]} -gt 0 ] && printf '  updated %s\n' "${updated[@]}"
 [ ${#kept[@]} -gt 0 ] && printf '  kept    %s\n' "${kept[@]}"
@@ -252,12 +424,11 @@ if [ "$marketing" = no ] && printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeli
   echo 'This project declared no marketing function. Set PIPELINE_HAS_MARKETING="no" in scripts/pipeline/pipeline.env yourself — an existing pipeline.env is yours and is never rewritten.'
 fi
 cat <<MSG
-Next:
-  1. Fill in docs/pipeline/CONTEXT.md (product, stack, test commands, rules, high-risk areas) and RELEASE_CHECKLIST.md.
-  2. Set the URLs and TRACKER_TEAM_KEY in scripts/pipeline/pipeline.env (ticket ids are <TEAM KEY>-<number>), and check
-     PIPELINE_HAS_DEPLOY_ENVS / PIPELINE_HAS_MARKETING describe this project.
-  3. Make sure branches $base + $stg exist on the code host, then the GitHub environments and the tracker labels and statuses
-     (docs/pipeline/TICKETS.md; the list is scripts/pipeline/tracker-schema.txt).
-  4. Run /pipeline-doctor (or: bash scripts/pipeline/doctor.sh) and work through anything it reports.
+Next (/pipeline-init runs these for you, after asking everything up front):
+  1. bash scripts/pipeline/connect.sh install     the $git_host and $tracker CLIs (and jq)
+     bash scripts/pipeline/connect.sh login       sign in, once, in your own terminal
+  2. bash scripts/pipeline/tracker.sh setup       the tracker's labels, fields and statuses (tracker-schema.txt)
+  3. Fill in docs/pipeline/CONTEXT.md and RELEASE_CHECKLIST.md
+  4. bash scripts/pipeline/doctor.sh              seconds; install is done when it reports no FAIL
   5. Commit, then run: /ship <TICKET>
 MSG

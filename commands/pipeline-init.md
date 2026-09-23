@@ -1,27 +1,103 @@
 ---
-description: Install or update the ship pipeline in the current project (scaffolds scripts, agents, workflows, templates; never overwrites your project-specific files).
-argument-hint: [--name NAME] [--team-key KEY] [--base-branch NAME] [--profile NAME] [--no-deploy-envs] [--no-marketing]
+description: Install or update the ship pipeline in the current project. Asks every question up front, then installs, connects the code host and tracker CLIs, sets up branches, tracker labels/fields/statuses and CI in one pass (never overwrites your project-specific files).
+argument-hint: [--git-host H] [--git-url URL] [--base-branch B] [--staging-branch B] [--tracker T] [--tracker-url URL] [--team-key KEY] [--no-marketing] [--no-deploy-envs] [--deploy-mode merge|explicit]
 ---
-1. Before running anything, ask the owner these questions and add the matching flags to the arguments (skip any the arguments already answer):
-   - **Base branch.** Detect the trunk with `git symbolic-ref --short refs/remotes/origin/HEAD`, else the current branch, and ask: "Is `<branch>` the trunk that merges deploy from?" Add `--base-branch <branch>`. Every workflow, doc and agent is written for that name.
-   - **Tracker team key.** "What is the tracker team key (ABC for tickets like ABC-12)?" Add `--team-key <KEY>`. Ticket ids are matched as `<KEY>-<number>` only, so runner labels and image tags such as `macos-14` are never mistaken for tickets.
-   - "Does this project have deployable environments — hosts, an image, a deploy workflow, a health endpoint?" If no, add `--no-deploy-envs`: no `scripts/deploy/*` and no `deploy.yml` are created, and the deploy/dispatch/smoke steps are skipped. The branch/tag promotion model is unchanged.
-   - "Does this project have a marketing function?" If no, add `--no-marketing`: the marketing persona is not invoked and the production gate does not ask for launch content.
-   Both capabilities default to yes, which is the original behaviour. Only an explicit `no` turns a capability off. On an **existing** install `scripts/pipeline/pipeline.env` is never rewritten, so tell the owner to set `PIPELINE_HAS_DEPLOY_ENVS` / `PIPELINE_HAS_MARKETING` there by hand; nothing is ever deleted. An existing `pipeline.env` that already says `PIPELINE_HAS_DEPLOY_ENVS="no"` is read, so a re-run does not recreate the deploy files even without the flag.
-2. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" $ARGUMENTS` from the repository root, with those flags appended.
-3. If the output lists files as **customised, kept**, those tooling files were edited by hand since the last install. Show the owner the difference between each file and its `.new` version. Move project-specific content into `docs/pipeline/CONTEXT.md` (the **Persona notes** section for agents) and take the new version, or keep theirs. Decide file by file with the owner; never pass `--force-tooling` without their say-so.
-4. **Upgrading an existing install.** Project-owned files are never rewritten, so an older install keeps its old `pipeline.env` and workflows. Run `bash scripts/pipeline/doctor.sh --offline` and take each finding marked `[upgrade: …]` in turn:
-   - For a workflow, show the owner the diff between their file and `${CLAUDE_PLUGIN_ROOT}/template/.github/workflows/<file>` with `__BASE_BRANCH__` / `__STAGING_BRANCH__` replaced by their branch names. Their file may carry deliberate changes (build steps, extra jobs), so propose only the hunks that fix the finding. Replace the whole file only when they have no changes of their own.
-   - For `pipeline.env`, propose the exact lines: `PIPELINE_REMOTE="origin"` next to the branch keys, and `PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+"` in place of the broad pattern. Before narrowing the regex, check `docs/pipeline/*/` and open branches for ticket ids with another prefix. If there are any, say so and let the owner choose.
-   - Apply each change only after the owner says yes to it, then re-run the doctor. Anything they decline stays as a warning; nothing breaks, the older behaviour simply continues.
-   `.gitignore` leftovers, stale agents and docs need no action: the install in step 2 already cleaned and refreshed them.
-5. If `docs/pipeline/CONTEXT.md` was just created, fill it in **now** by inspecting the repository (build files, README, existing architecture docs): product summary, stack, exact test/build commands, environments, architecture rules, high-risk areas, brand/audience (for marketing), competitors (for research), regulatory notes. Ask the owner only for things the repo cannot tell you. Record the capability answers there in prose, so the personas know the project's shape as well as the tooling does.
-6. If `RELEASE_CHECKLIST.md` was just created, tailor its sections to this project (keep the Tickets, Security, Data and Infrastructure sections).
-7. Set the URLs in `scripts/pipeline/pipeline.env` from what the owner tells you, and check `BASE_BRANCH`, `TRACKER_TEAM_KEY`, `PIPELINE_REMOTE`, `PIPELINE_HAS_DEPLOY_ENVS` and `PIPELINE_HAS_MARKETING` match the answers from step 1.
-8. Run `bash tests/pipeline/run-all.sh` and fix anything that fails.
-9. Run the readiness check: follow `/pipeline-doctor` (run `bash scripts/pipeline/doctor.sh`, then check the tracker workspace with the connector). Its findings are the owner's to-do list; install is not "done" while it reports a FAIL.
-10. Commit with message `chore: install ship pipeline`. The guard hook blocks an agent's push of that commit to the base branch, because it has no ticket. Push a branch and open a pull request for the owner to review, label `infra` and merge, or let the owner push it from their own terminal.
+The goal is that the owner answers questions once, at the start, and does nothing else except the one sign-in step
+that only they can do. Work fast: detect before asking, ask everything in one go, run nothing slow. The plugin's test
+suite is **not** run here; it tests the plugin, not this project.
+
+## 1. Detect (local and quick; no questions yet)
+Run these in one call and keep the results as the recommended answers:
+- `git remote get-url origin` → code host (`github.com` → GitHub, a host containing `gitlab` → GitLab, `bitbucket` → Bitbucket) and, when the host is not the public service, the self-hosted base URL (`https://<host>`).
+- `git symbolic-ref --short refs/remotes/origin/HEAD` (else the current branch) → trunk; `git ls-remote --heads origin` → which trunk and staging candidates (the options in step 2) already exist.
+- `scripts/pipeline/pipeline.env`, if present: every key it already sets is a recommended answer (an update, not a fresh install).
+- Ticket ids in recent branch names and commit subjects (`git log -200 --format=%s`, `git branch -a`) → the likely ticket prefix.
+
+## 2. Ask everything at once
+Use `AskUserQuestion` (up to four questions per call), in at most three calls, all asked before anything is installed. Put the detected answer first and mark it "(Recommended)". Skip any question that `$ARGUMENTS` already answers. "Other" always lets the owner type a value.
+
+**Call 1**
+1. **Git platform:** GitHub / GitLab / Bitbucket. If the remote is self-hosted, say so in the option description and use that URL. For a custom URL the owner picks Other and types it, e.g. `gitlab https://git.acme.com`.
+2. **Branching strategy (trunk):** `main` / `master`. Merging here deploys dev.
+3. **Branching strategy (staging branch):** `staging` / `stable`. Pushing here deploys qa.
+4. **Ticketing platform:** Jira / Linear / GitHub Issues / GitLab Issues. Other: name it. `/pipeline-init` then checks for a CLI or API for it; if none fits, it falls back to an MCP connector (`--tracker connector`).
+
+**Call 2**
+5. **Tracker location and ticket prefix.** One question whose options are the detected guesses, for example "Jira at https://acme.atlassian.net, prefix ABC". Other: the owner types `<url> <PREFIX>`. The URL is only needed for Jira (the site) and Linear (the workspace URL, for links); for GitHub or GitLab Issues it is the repository itself. The prefix is the searchString: `ABC` for tickets like `ABC-12`, which is the Jira project key, the Linear team key, or a prefix for issue numbers.
+6. **Marketing function:** Yes / No. With No, the marketing persona and the production marketing gate are skipped.
+7. **Deployment strategy:** three options:
+   - "Deploys on branch merges": merging the trunk deploys dev, pushing the staging branch deploys qa, and a tag deploys production.
+   - "Explicit deploys": nothing deploys on a push, and each environment is deployed by `promote.sh` after its gate.
+   - "No deployable environments".
+8. **Consent** (multiSelect, four options, the first three recommended): "Set up now":
+   - **Install CLIs:** install the missing ones (gh/glab/acli/jq).
+   - **Branches:** create the trunk and staging branches if the remote lacks them, and protect both so the Pipeline Gate is required.
+   - **Tracker:** create the labels, custom fields and statuses.
+   - **Deploys on:** only if the hosts and secrets already exist.
+
+This one answer is the owner's approval for every setup action below. Do only what they ticked, and ask nothing further.
+
+**Call 3** (only when the project has environments)
+9. **Environment URLs.** Offer the detected or guessed pattern (`https://dev.<app>…`). Other: the owner types dev, qa, staging and production URLs and the health path, space-separated.
+
+If a Jira URL was given, resolve its cloudId now: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pipeline/connect.sh" cloud-id <url>`.
+
+## 3. Install (one run, seconds)
+Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh"` from the repository root with every answer as a flag:
+- `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`
+- `--tracker`, `--tracker-url`, `--tracker-cloud-id`, `--team-key`
+- `--no-marketing`
+- `--no-deploy-envs` or `--deploy-mode merge|explicit`
+- `--dev-url --qa-url --staging-url --production-url --health-path`
+- `--create-branches` when "Branches" was ticked
+
+Then relay the output:
+- If it prints `ACTION:` (an existing `.gitlab-ci.yml` with its own `include:` list, or an existing `bitbucket-pipelines.yml`), make that merge yourself now: show the owner the resulting diff in your final message, not as a question.
+- Files listed as **customised, kept** are tooling files the owner edited by hand. Show the difference against each `.new` and keep theirs for now; list them in the final message. Never pass `--force-tooling` without their say-so.
+
+## 4. Connect the CLIs (CLIs, not MCP connectors)
+1. If "Install CLIs" was ticked: `bash scripts/pipeline/connect.sh install`. It uses winget, brew, apt or dnf, or the vendor download for acli. Report any `FAILED` line with its manual command.
+2. Run `bash scripts/pipeline/connect.sh status`. Exit 4 means a sign-in is missing.
+3. **The one owner step.** Every sign-in is a browser flow or a token that only the owner may type, so ask for it once, in one message:
+   > Run `bash scripts/pipeline/connect.sh login` in a terminal. It signs you in to <the tools listed> and stores any tokens in your user config directory (mode 600), outside the repo. Tell me when it's done.
+
+   If this session can open a terminal tab for the owner, open one in the project directory. Never ask for a token in the chat, and never type one yourself. Keep working on step 6 while you wait; step 5 needs the sign-in.
+4. When the owner is back, re-run `connect.sh status` until every tool reads ready.
+
+## 5. Set up the host and the tracker (only what was ticked)
+- Always `bash scripts/pipeline/tracker.sh check`; when "Tracker" was ticked, also `bash scripts/pipeline/tracker.sh setup` (else `setup --check`, to report what is missing).
+  - It creates the labels, label groups, custom fields and statuses in `scripts/pipeline/tracker-schema.txt`. It maps pipeline states onto the tracker's statuses, and writes `scripts/pipeline/tracker.map`.
+  - Relay each `CREATED`, `MAPPED` and `NOTE` line.
+  - A Jira status it creates still has to be added to the project's workflow before it is used. Until then it is mapped to the nearest existing status, so nothing blocks.
+  - With `TRACKER=connector`, do the same through the connector's tools instead.
+- Branch protection ("Branches"): `bash scripts/pipeline/host.sh protect <trunk>` and `… protect <staging>`. A refusal (for example HTTP 403 on a free private GitHub repository) is not a failure: report it with the enforcement mode from `bash scripts/pipeline/enforcement.sh`.
+- "Deploys on": `bash scripts/pipeline/host.sh var-set PIPELINE_DEPLOY_ENABLED true`.
+
+## 6. Fill in the project files (while waiting on the sign-in)
+- If `docs/pipeline/CONTEXT.md` was just created, fill it in by inspecting the repository (build files, README, architecture docs):
+  - product summary, stack, and the exact test and build commands;
+  - environments, architecture rules and high-risk areas;
+  - brand and audience (for marketing), competitors (for research), regulatory notes.
+
+  Record the answers from step 2 in prose (host, branches, tracker, capabilities, deploy strategy). Ask only what the repository cannot tell you, and do it in the step-2 questions if you can foresee it.
+- If `RELEASE_CHECKLIST.md` was just created, tailor it to this project (keep the Tickets, Security, Data and Infrastructure sections).
+
+## 7. Upgrading an existing install
+Project-owned files are never rewritten, so an older install keeps its old `pipeline.env` and CI files.
+1. Run `bash scripts/pipeline/doctor.sh --offline` and take each finding marked `[upgrade: …]`:
+   - **CI files:** show the diff between the owner's file and the plugin template, rendered with their branch names, and propose only the hunks that fix the finding. Their file may carry deliberate changes.
+   - **`pipeline.env`:** propose the exact lines, including any new keys (`GIT_HOST`, `GIT_HOST_URL`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `DEPLOY_MODE`) that match the step-2 answers.
+2. Apply each change only after the owner says yes, then re-run the doctor. Anything they decline stays as a warning.
+
+## 8. Check and commit
+1. Run `bash scripts/pipeline/doctor.sh`. It takes seconds and checks the files, `pipeline.env`, git, the host, CI and the tracker through its CLI. Install is not "done" while it reports a FAIL.
+2. Commit with the message `chore: install ship pipeline`. The guard hook blocks an agent's push of that commit to the trunk, because it has no ticket. Push a branch and open a pull request for the owner to mark as `infra` and merge (a label on GitHub and GitLab; on Bitbucket the owner pushes the branch as `infra/…`). Or let the owner push it from their own terminal.
 
 Reply with only:
-- What was done: <created/updated/kept/customised files, the base branch and team key used, what you filled in>
-- Impact: <the doctor's result: ready yes/no, and what the owner must still do (branches, protection, environments, tracker labels and statuses, hosts)>
+- **What was done:**
+  - the answers used (host, URL, branches, tracker, prefix, marketing, deploy strategy);
+  - files created, updated or kept;
+  - CLIs installed and signed in;
+  - tracker items created or mapped;
+  - branches created or protected.
+- **Impact:** the doctor's result (ready yes/no), the enforcement mode, and anything left that only the owner can do (hosts and deploy secrets, a Jira workflow edit, a declined item).

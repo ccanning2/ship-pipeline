@@ -1,0 +1,14 @@
+# Ship pipeline for Bitbucket Pipelines, for a project with no deployable environments: only the Pipeline Gate.
+# Pull requests into __BASE_BRANCH__ must pass the "dev" gate; into __STAGING_BRANCH__ the "qa" gate.
+# Infra pull requests (repository maintenance with no ticket): Bitbucket has no PR labels, so a source branch named
+# infra/<anything> skips the ticket gate. Only a human pushes such a branch (the guard hook refuses agents); the PR
+# still needs that human to merge it.
+image: atlassian/default-image:4
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: Pipeline Gate
+          script:
+            - infra=false; case "$BITBUCKET_BRANCH" in infra/*) infra=true;; esac
+            - bash scripts/pipeline/ci-gate.sh "$BITBUCKET_BRANCH" "" "$BITBUCKET_PR_DESTINATION_BRANCH" "$infra"

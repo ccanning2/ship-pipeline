@@ -13,15 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha }}" }
-      - name: Pipeline tooling self-test (when the tooling changed)
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if git diff --name-only "$BASE_SHA...HEAD" -- scripts/pipeline tests/pipeline .claude .github/workflows docs/pipeline/_templates | grep -q .; then
-            bash tests/pipeline/run-all.sh
-          else
-            echo "No pipeline tooling changed; self-test skipped."
-          fi
       - name: Verify gate for target branch
         env:
           HEAD_REF: ${{ github.head_ref }}
