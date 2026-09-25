@@ -27,7 +27,7 @@ Run it in the repository. It asks everything up front, in at most three rounds, 
 | Branching | trunk `main`/`master`, staging branch `staging`/`stable` |
 | Ticketing platform | Jira, Linear, GitHub Issues or GitLab issues, its URL (Jira: the cloudId is looked up), and the ticket prefix (`ABC` for `ABC-12`) |
 | Deployment strategy | deploy on branch merges, explicit deploys, or no environments; with environments, their URLs |
-| Start level | Analysis, Engineering, DevOps or Quality Assurance (see [Teams and start levels](#teams-and-start-levels)) |
+| Teams | any of Analysis, Engineering, DevOps, QA and Sign-off (see [Teams](#teams)) |
 | Set up now | install CLIs; create and protect branches; create the tracker's labels, fields and statuses; turn deploys on |
 
 Then it runs unattended:
@@ -38,7 +38,7 @@ Then it runs unattended:
 
 **Your one manual step** is signing in, once, in a terminal: `bash scripts/pipeline/connect.sh login`. It runs the browser flows or asks for the tokens, and keeps tokens outside the repository.
 
-Every answer is also an `init.sh` flag, so setup can be scripted: `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`, `--tracker`, `--tracker-url`, `--team-key`, `--deploy-mode`, `--no-deploy-envs`, `--*-url`, `--start-at`, `--create-branches`. A re-run refreshes the tooling and never overwrites your project files.
+Every answer is also an `init.sh` flag, so setup can be scripted: `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`, `--tracker`, `--tracker-url`, `--team-key`, `--deploy-mode`, `--no-deploy-envs`, `--*-url`, `--teams`, `--create-branches`. A re-run refreshes the tooling and never overwrites your project files.
 
 ## Use
 ```
@@ -78,15 +78,16 @@ The detail stays in `docs/pipeline/ABC-142/` and on the tracker ticket.
 
 ## How it works
 
-### Teams and start levels
-| Level | Personas | Mode | Produces |
+### Teams
+| Team | Personas | Mode | Produces |
 |---|---|---|---|
-| **Analysis** | `product-owner`, `business-analyst` | plan mode (read-only): they return a plan and `/ship` applies it | `product.md`, `requirements.md`, `story`/`eng` tickets |
+| **Analysis** | `product-owner`, `business-analyst` (always together) | plan mode (read-only): they return a plan and `/ship` applies it | `product.md`, `requirements.md`, `story`/`eng` tickets |
 | **Engineering** | `senior-engineer` | builds; never deploys | code, tests, `impl-notes.md`, then a handoff to devops |
 | **DevOps** | `devops` | promotes; never edits application code | merge to dev, `dev-check.md`, the qa/staging/production promotions, rollback, CI/CD and infra |
-| **Quality Assurance** | `qa-tester`, `app-specialist` | test and sign off | `qa-report.md`, `signoff.md`, `defect` tickets back to the engineer |
+| **QA** | `qa-tester` | tests on qa; needs DevOps | `qa-report.md`, `defect` tickets back to the engineer |
+| **Sign-off** | `app-specialist` | checks staging against the release checklist; needs DevOps | `signoff.md`, `defect` tickets back to the engineer |
 
-`PIPELINE_START_LEVEL` sets where a project picks tickets up. At `engineering`, tickets arrive analysed; at `devops`, built; at `qa`, already on qa. `scripts/pipeline/handover.sh` records the upstream teams' work at intake, so the gates stay just as strict. Every later stage always runs.
+`PIPELINE_TEAMS` selects the teams, for example `"engineering,devops,qa"` for an engineer, a QA tester and DevOps overseeing the promotions. Tickets arrive at the first selected team: at `engineering` analysed, at `devops` built. `scripts/pipeline/handover.sh` records the upstream work at intake, so the gates stay just as strict. A later team you leave out is yours: with DevOps selected, `/ship` hands you that stage (the build, the QA pass or the sign-off), waits, and records it; without DevOps, the run ends after the last selected team. `bash scripts/pipeline/teams.sh <TICKET> --stages` shows who runs each stage.
 
 ### Stages, gates and the release model
 One sha travels three refs, and every environment runs the image built once on the way into dev.
@@ -123,7 +124,7 @@ Protocol: `docs/pipeline/TICKETS.md`.
 | `GIT_HOST`, `GIT_HOST_URL` | `github` / `gitlab` / `bitbucket`; the base URL of a self-hosted host |
 | `BASE_BRANCH`, `STAGING_BRANCH`, `PIPELINE_REMOTE` | the trunk, the staging branch and the remote |
 | `TRACKER`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `TRACKER_TEAM_KEY` | tracker, site, Jira cloudId, ticket prefix |
-| `PIPELINE_START_LEVEL` | `analysis` / `engineering` / `devops` / `qa` |
+| `PIPELINE_TEAMS` | the teams that run `/ship`: `analysis`, `engineering`, `devops`, `qa`, `signoff` (installs before 3.1.0 have `PIPELINE_START_LEVEL` instead, read as that level and every team after it) |
 | `DEPLOY_MODE`, `PIPELINE_HAS_DEPLOY_ENVS` | `merge` / `explicit`; `no` when there is nothing to deploy |
 | `DEV_URL` … `PRODUCTION_URL`, `HEALTH_PATH` | the environments and their health check |
 

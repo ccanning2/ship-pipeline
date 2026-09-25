@@ -20,7 +20,7 @@ Then read `RELEASE_CHECKLIST.md`, `STAGING_URL` from `scripts/pipeline/pipeline.
 
 ## Outcome
 - **Problems:** a `defect` ticket per problem (`Found-in: staging`) plus `tickets.md` rows; `Decision: blocked`; hand off to the engineer (Stage: build).
-- **Clean:** `Decision: approved`; hand off to the owner (Stage: go-live).
+- **Clean:** `Decision: approved`; hand off to the owner (Stage: go-live, Owner: human).
 
 ## Rules
 - Bash is for read and verify commands only. Write `signoff.md` and `tickets.md` rows via heredocs or targeted `sed`; write no other files.

@@ -5,7 +5,7 @@
 #               [--git-host github|gitlab|bitbucket] [--git-url URL] [--tracker jira|linear|github|gitlab|connector]
 #               [--tracker-url URL] [--tracker-cloud-id ID] [--deploy-mode merge|explicit]
 #               [--dev-url URL] [--qa-url URL] [--staging-url URL] [--production-url URL] [--health-path PATH]
-#               [--create-branches] [--start-at analysis|engineering|devops|qa]
+#               [--create-branches] [--teams LIST] [--start-at analysis|engineering|devops|qa]
 # Every question /pipeline-init asks has a flag here, so one run installs everything; nothing below prompts.
 #   --git-host        default: GIT_HOST from an existing pipeline.env, else the remote's URL (gitlab / bitbucket),
 #                     else github. Picks the CI files: .github/workflows/* (github), .gitlab/pipeline-*.yml plus an
@@ -15,9 +15,12 @@
 #                     scripts/pipeline/tracker.sh with the tracker's CLI; "connector" falls back to an MCP connector
 #   --deploy-mode     merge (default): pushes and tags deploy; explicit: nothing deploys on a push, promote.sh
 #                     dispatches every environment. CI template lines marked "#@on-merge" are dropped for explicit
-#   --start-at        where /ship picks a ticket up (default analysis): analysis (product owner + business analyst),
-#                     engineering (tickets arrive ready for dev), devops (built, ready to promote), qa (already on qa).
-#                     The work upstream of the level is recorded by scripts/pipeline/handover.sh at intake
+#   --teams           who runs /ship (default: PIPELINE_TEAMS from an existing pipeline.env, else every team), any of
+#                     analysis (product owner + business analyst), engineering (senior engineer), devops (promotions),
+#                     qa (qa-tester) and signoff (app specialist), comma-separated or "all". qa and signoff bring devops
+#                     with them. Tickets arrive at the first team; the work before it is recorded by
+#                     scripts/pipeline/handover.sh at intake (scripts/pipeline/teams.sh has the rules)
+#   --start-at        before 3.1.0: that level and every team after it (analysis, engineering, devops or qa)
 #   --create-branches push the base branch when the remote lacks it, and create the staging branch from the remote
 #                     base branch when it is missing. Never moves or forces an existing branch
 #   --base-branch     the trunk (merging here = dev). Default: BASE_BRANCH from an existing pipeline.env, else
@@ -46,7 +49,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$(pwd)"; name=""; key=""; profile=""; force=0; deploy_envs=yes; base=""; stg=""
-git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=merge; mkbranches=0; start=""
+git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=merge; mkbranches=0; start=""; teams=""
 dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""
 while [ $# -gt 0 ]; do case "$1" in
   --project-dir) dir="$2"; shift 2;; --name) name="$2"; shift 2;; --team-key) key="$2"; shift 2;;
@@ -55,7 +58,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --no-deploy-envs) deploy_envs=no; shift;;
   --git-host) git_host="${2:-}"; shift 2;; --git-url) git_url="${2:-}"; shift 2;;
   --tracker) tracker="${2:-}"; shift 2;; --tracker-url) tracker_url="${2:-}"; shift 2;; --tracker-cloud-id) cloud_id="${2:-}"; shift 2;;
-  --deploy-mode) deploy_mode="${2:-}"; shift 2;; --create-branches) mkbranches=1; shift;; --start-at) start="${2:-}"; shift 2;;
+  --deploy-mode) deploy_mode="${2:-}"; shift 2;; --create-branches) mkbranches=1; shift;; --start-at) start="${2:-}"; shift 2;; --teams) teams="${2:-}"; shift 2;;
   --dev-url) dev_url="${2:-}"; shift 2;; --qa-url) qa_url="${2:-}"; shift 2;; --staging-url) stg_url="${2:-}"; shift 2;;
   --production-url) prod_url="${2:-}"; shift 2;; --health-path) health="${2:-}"; shift 2;;
   *) echo "unknown arg $1" >&2; exit 1;; esac; done
@@ -137,9 +140,18 @@ case "$git_host" in github|gitlab|bitbucket) ;; *) echo "init: --git-host must b
 tracker="$(printf '%s' "$tracker" | tr '[:upper:]' '[:lower:]')"
 case "$tracker" in jira|linear|github|gitlab|connector) ;; *) echo "init: --tracker must be jira, linear, github, gitlab or connector (got '$tracker')" >&2; exit 1;; esac
 [ -n "$tracker_url" ] || tracker_url="$(unfilled "$(declared_value scripts/pipeline/pipeline.env TRACKER_URL)")"
-[ -n "$start" ] || start="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env PIPELINE_START_LEVEL)")"
-start="$(printf '%s' "${start:-analysis}" | tr '[:upper:]' '[:lower:]')"
-case "$start" in analysis|engineering|devops|qa) ;; *) echo "init: --start-at must be analysis, engineering, devops or qa (got '$start')" >&2; exit 1;; esac
+# the teams: --teams wins, then --start-at (that level and every team after it), then pipeline.env (PIPELINE_TEAMS,
+# else its PIPELINE_START_LEVEL from before 3.1.0), else every team
+declared_teams="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env PIPELINE_TEAMS)")"
+[ -n "$teams" ] || [ -n "$start" ] || teams="$declared_teams"
+[ -n "$teams" ] || [ -n "$start" ] || start="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env PIPELINE_START_LEVEL)")"
+if [ -z "$teams" ]; then
+  case "$(printf '%s' "${start:-analysis}" | tr '[:upper:]' '[:lower:]')" in
+    analysis) teams=all;; engineering) teams=engineering,devops,qa,signoff;; devops|qa) teams=devops,qa,signoff;;
+    *) echo "init: --start-at must be analysis, engineering, devops or qa (got '$start')" >&2; exit 1;; esac
+fi
+teams_out="$(bash "$here/scripts/pipeline/teams.sh" --normalize "$teams" 2>&1)" || { echo "init: --teams: ${teams_out#teams: }" >&2; exit 1; }
+teams="${teams_out##*$'\n'}"; teams_note=""; [ "$teams" = "$teams_out" ] || teams_note="${teams_out%$'\n'*}"; teams_note="${teams_note#teams: }"
 case "$deploy_mode" in merge|explicit) ;; *) echo "init: --deploy-mode must be merge or explicit (got '$deploy_mode')" >&2; exit 1;; esac
 for u in "$git_url" "$tracker_url" "$dev_url" "$qa_url" "$stg_url" "$prod_url"; do
   case "$u" in ""|http://*|https://*) ;; *) echo "init: '$u' is not an http(s) URL" >&2; exit 1;; esac
@@ -150,10 +162,15 @@ case "$cloud_id$health" in *[!A-Za-z0-9/._-]*) echo "init: --tracker-cloud-id an
 # an existing pipeline.env is never rewritten: a flag that picks another platform installs that adapter, and says
 # which line of pipeline.env the owner (or /pipeline-init, with their yes) must change to match
 env_note=""
-for kv in "GIT_HOST:$git_host" "TRACKER:$tracker" "PIPELINE_START_LEVEL:$start"; do
+for kv in "GIT_HOST:$git_host" "TRACKER:$tracker"; do
   was="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env "${kv%%:*}")" | tr '[:upper:]' '[:lower:]')"
   [ -z "$was" ] || [ "$was" = "${kv#*:}" ] || env_note="${env_note:+$env_note; }set ${kv%%:*}=\"${kv#*:}\" in scripts/pipeline/pipeline.env (it says $was)"
 done
+if [ -f scripts/pipeline/pipeline.env ]; then
+  was="$(bash "$here/scripts/pipeline/teams.sh" --normalize "$declared_teams" 2>/dev/null || true)"
+  if [ -z "$declared_teams" ]; then env_note="${env_note:+$env_note; }add PIPELINE_TEAMS=\"$teams\" to scripts/pipeline/pipeline.env (it replaces PIPELINE_START_LEVEL)"
+  elif [ "$was" != "$teams" ]; then env_note="${env_note:+$env_note; }set PIPELINE_TEAMS=\"$teams\" in scripts/pipeline/pipeline.env (it says $declared_teams)"; fi
+fi
 sed_esc() { printf '%s' "$1" | sed 's/[&\\]/\\&/g'; }
 base_esc="$(sed_esc "$base")"; stg_esc="$(sed_esc "$stg")"
 
@@ -250,7 +267,7 @@ copy_owned() { # src dst
 }
 
 # --- tooling (always current) ---
-for f in gate promote intake handover status board next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor connect ci-gate ci-resolve; do
+for f in gate promote intake handover teams status board next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor connect ci-gate ci-resolve; do
   copy_tooling "$here/scripts/pipeline/$f.sh" "scripts/pipeline/$f.sh"
 done
 # the code host and the tracker: the one adapter for each platform chosen, installed under a fixed name
@@ -348,7 +365,7 @@ for f in scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md; do
       -e "s#__STAGING_URL__#$(urlesc "$stg_url")#g" -e "s#__PRODUCTION_URL__#$(urlesc "$prod_url")#g" \
       -e "s#__HEALTH_PATH__#$health#g" -e "s#__GIT_HOST__#$git_host#g" -e "s#__GIT_HOST_URL__#$(urlesc "$git_url")#g" \
       -e "s#__TRACKER__#$tracker#g" -e "s#__TRACKER_URL__#$(urlesc "$tracker_url")#g" -e "s#__TRACKER_CLOUD_ID__#$cloud_id#g" \
-      -e "s#__DEPLOY_MODE__#$deploy_mode#g" -e "s#__START_LEVEL__#$start#g" "$f" && rm -f "$f.bak"
+      -e "s#__DEPLOY_MODE__#$deploy_mode#g" -e "s#__TEAMS__#$teams#g" "$f" && rm -f "$f.bak"
   fi
 done
 # record the declared capabilities in a freshly created pipeline.env (an existing one is project-owned)
@@ -415,7 +432,8 @@ fi
 printf 'init: %s (team key %s)\n' "$name" "$key"
 printf '  branches: base=%s (from %s) staging=%s\n' "$base" "$base_from" "$stg"
 printf '  capabilities: deploy-envs=%s\n' "$deploy_envs"
-printf '  host: %s%s  tracker: %s  deploy-mode: %s  start-at: %s\n' "$git_host" "${git_url:+ ($git_url)}" "$tracker" "$deploy_mode" "$start"
+printf '  host: %s%s  tracker: %s  deploy-mode: %s  teams: %s\n' "$git_host" "${git_url:+ ($git_url)}" "$tracker" "$deploy_mode" "$teams"
+[ -n "$teams_note" ] && printf '  teams: %s\n' "$teams_note"
 [ -n "$branch_note" ] && printf '  branches on the remote: %s\n' "$branch_note"
 [ -n "$ci_note" ] && printf '  ACTION: %s\n' "$ci_note"
 [ -n "$env_note" ] && printf '  ACTION: %s\n' "$env_note"

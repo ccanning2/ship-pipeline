@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# Record the work a team upstream of this project's start level already did, so /ship can pick a ticket up at
-# that level and every gate still reads the same records. Run by /ship at intake; changes files, never commits.
-# Usage: handover.sh <TICKET> [--level analysis|engineering|devops|qa] [--type T] [--user-facing yes|no]
-#                    [--eng ID,ID...] [--sha SHA]
-#   --level       default: PIPELINE_START_LEVEL in pipeline.env, else analysis
+# Record work done outside the selected teams, so every gate still reads the same records. Changes files, never
+# commits. Two uses:
+#   upstream  at intake, the work before the ticket's arrival point (another team did it):
+#             handover.sh <TICKET> [--level analysis|engineering|devops|qa] [--type T] [--user-facing yes|no]
+#                         [--eng ID,ID...] [--sha SHA]
+#   owner     during a run, a stage whose team is not selected, done by the owner once they say it is done:
+#             handover.sh <TICKET> --by-owner build|qa|signoff [--who NAME]
+#               build    the eng rows are done and impl-notes.md is ready-for-dev (the code is on this branch)
+#               qa       qa-report.md passes the build on qa (releases.md QA)
+#               signoff  signoff.md approves the build on staging (releases.md Staging)
+#   --level       default: scripts/pipeline/teams.sh <TICKET> --entry (the first selected team)
 #   analysis      nothing to hand over: the product owner and business analyst run
 #   engineering   the ticket arrives analysed and ready for dev: product.md and requirements.md are recorded as
 #                 approved from the ticket, and the eng rows (--eng, default the ticket itself) go into tickets.md
@@ -14,17 +20,44 @@
 # A record that already exists is never overwritten, so a resumed /ship keeps what is there.
 set -euo pipefail
 ticket="$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')"; [ $# -gt 0 ] && shift
-level=""; type=feature; uf=yes; eng=""; sha=""
+level=""; type=feature; uf=yes; eng=""; sha=""; by=""; who="the owner"
 while [ $# -gt 0 ]; do case "$1" in
   --level) level="${2:-}"; shift 2;; --type) type="${2:-}"; shift 2;; --user-facing) uf="${2:-}"; shift 2;;
   --eng) eng="${2:-}"; shift 2;; --sha) sha="${2:-}"; shift 2;;
+  --by-owner) by="${2:-}"; shift 2;; --who) who="${2:-}"; shift 2;;
   *) echo "handover: unknown argument $1" >&2; exit 1;; esac; done
 root="$(git rev-parse --show-toplevel)"; cd "$root"
 # shellcheck disable=SC1091
 source scripts/pipeline/pipeline.env
-[ -n "$level" ] || level="$(printf '%s' "${PIPELINE_START_LEVEL:-analysis}" | tr '[:upper:]' '[:lower:]')"
-case "$level" in analysis|engineering|devops|qa) ;; *) echo "handover: level must be analysis, engineering, devops or qa (got '$level')" >&2; exit 1;; esac
 [ "$(bash scripts/pipeline/ticket-id.sh "$ticket" 2>/dev/null)" = "$ticket" ] || { echo "handover: '$ticket' is not a ticket id for this project" >&2; exit 1; }
+if [ -n "$by" ]; then # ---- a stage the owner did, mid-run ----
+  d="docs/pipeline/$ticket"; tpl=docs/pipeline/_templates; stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  [ -f "$d/tickets.md" ] || { echo "handover: $d/tickets.md is missing (run /ship $ticket from intake)" >&2; exit 1; }
+  env_sha() { awk -v k="$1:" '$1==k { print $2; exit }' "$d/releases.md" 2>/dev/null; }
+  note="Done by $who, not by a pipeline persona: the $by team is not selected for this ticket (scripts/pipeline/teams.sh)."
+  case "$by" in
+    build)
+      [ -e "$d/impl-notes.md" ] && grep -qiE '^Status: *ready-for-dev' "$d/impl-notes.md" && { echo "handover: kept $d/impl-notes.md"; exit 0; }
+      printf '# %s — Implementation notes\n\nStatus: ready-for-dev\n\n%s The code is on branch %s at %s.\n' \
+        "$ticket" "$note" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-parse --short HEAD)" > "$d/impl-notes.md"
+      # the owner's build covers the open eng rows
+      awk -F'|' 'BEGIN { OFS="|" } { k=$3; s=$6; gsub(/ /,"",k); gsub(/ /,"",s) }
+        k=="eng" && s!="done" && s!="wontfix" { $6=" done " } { print }' "$d/tickets.md" > "$d/tickets.md.tmp" && mv "$d/tickets.md.tmp" "$d/tickets.md"
+      echo "handover: $ticket build by $who (impl-notes.md ready-for-dev, eng rows done)";;
+    qa|signoff)
+      if [ "$by" = qa ]; then f=qa-report.md; lab=QA; env=qa; head="QA report"; res="Result: pass"
+      else f=signoff.md; lab=Staging; env=staging; head="Staging sign-off"; res="Decision: approved"; fi
+      s="$(env_sha "$lab")"; [ -n "$s" ] || { echo "handover: releases.md has no $lab line: promote the build to $env first" >&2; exit 1; }
+      if [ -e "$d/$f" ] && grep -qiE "^(Result: *pass|Decision: *approved)" "$d/$f" && grep -qiE "^Commit: *$s" "$d/$f"; then echo "handover: kept $d/$f"; exit 0; fi
+      printf '# %s — %s\n\n%s\nEnvironment: %s\nCommit: %s\nSigned: %s\n\n%s\n' "$ticket" "$head" "$res" "$env" "$s" "$stamp" "$note" > "$d/$f"
+      echo "handover: $ticket $by by $who ($f records $s)";;
+    *) echo "handover: --by-owner takes build, qa or signoff (got '$by')" >&2; exit 1;;
+  esac
+  exit 0
+fi
+[ -n "$level" ] || level="$(bash scripts/pipeline/teams.sh "$ticket" --entry)" || exit 1
+level="$(printf '%s' "$level" | tr '[:upper:]' '[:lower:]')"
+case "$level" in analysis|engineering|devops|qa) ;; *) echo "handover: level must be analysis, engineering, devops or qa (got '$level')" >&2; exit 1;; esac
 case "$type" in feature|bugfix|security|chore) ;; *) echo "handover: --type must be feature, bugfix, security or chore" >&2; exit 1;; esac
 case "$uf" in yes|no) ;; *) echo "handover: --user-facing must be yes or no" >&2; exit 1;; esac
 [ "$level" = analysis ] && { echo "handover: level analysis, nothing to hand over"; exit 0; }

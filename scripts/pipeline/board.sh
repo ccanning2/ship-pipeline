@@ -32,9 +32,12 @@ draw() { # <TICKET>: a handful of processes in all (each one is slow on Windows)
   local t="$1" d="docs/pipeline/$1" title level now="" kind stage owner doing icon col envs open h txt
   [ -d "$d" ] || { echo "board: no pipeline folder for $t (run /ship $t)"; return 1; }
   title="$(awk 'f && NF { sub(/^#+ */,""); print; exit } /^---$/ { f=1 }' "$d/brief.md" 2>/dev/null)"
-  level="$(awk -F'"' '/^PIPELINE_START_LEVEL=/ { v=$2 } END { print v }' scripts/pipeline/pipeline.env 2>/dev/null)"
+  # the teams: the ticket's own choice (STATUS.md), else the project's (PIPELINE_TEAMS, else the older start level)
+  level="$(awk -F'"' 'FNR==NR { if (/^Teams:/) { v=$0; sub(/^Teams: */,"",v); sub(/ *\(.*$/,"",v); if (v !~ /^(project|<.*)?$/) { t=v } } next }
+    /^PIPELINE_TEAMS=/ { p=$2 } /^PIPELINE_START_LEVEL=/ { l="from " $2 }
+    END { print (t ? t : (p ? p : l)) }' "$d/STATUS.md" scripts/pipeline/pipeline.env 2>/dev/null)"
   [ -f "$act_dir/$t.log" ] && now="$(awk -F'\t' '$2=="now" { l=$3 } END { print l }' "$act_dir/$t.log")"
-  printf '%s%s%s  %.46s%s\n' "$B" "$t" "$N" "${title:-}" "${level:+   ${D}start: $level$N}"
+  printf '%s%s%s  %.40s%s\n' "$B" "$t" "$N" "${title:-}" "${level:+   ${D}teams: $level$N}"
   line
   # one row per stage: kind <TAB> stage <TAB> owner <TAB> what is happening (only for the current or a stopped stage)
   while IFS=$'\t' read -r kind stage owner doing; do

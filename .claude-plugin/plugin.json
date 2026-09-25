@@ -1,7 +1,7 @@
 {
   "name": "ship-pipeline",
-  "version": "3.0.0",
-  "description": "Ticket-driven delivery pipeline: analysis (product owner, business analyst) → engineering → devops → QA → go-live → production, starting at the level you choose. Branch/tag release model; GitHub, GitLab or Bitbucket; Jira, Linear, GitHub or GitLab issues — all through CLIs, set up by one /pipeline-init interview.",
+  "version": "3.1.0",
+  "description": "Ticket-driven delivery pipeline: analysis (product owner, business analyst) → engineering → devops → QA → go-live → production, with the teams you choose. Branch/tag release model; GitHub, GitLab or Bitbucket; Jira, Linear, GitHub or GitLab issues — all through CLIs, set up by one /pipeline-init interview.",
   "author": {
     "name": "Chris"
   }

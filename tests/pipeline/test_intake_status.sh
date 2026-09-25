@@ -100,10 +100,10 @@ done
 
 # ---- handover.sh: a ticket picked up at a later start level passes the same gates ----
 ho() { (cd "$R" && bash scripts/pipeline/handover.sh "$@" 2>&1); }
-new_repo; set_capability PIPELINE_START_LEVEL '"engineering"'; commit_all level
+new_repo; set_capability PIPELINE_TEAMS '"engineering,devops,qa,signoff"'; commit_all level
 branch feature/REP-300-x; printf 'Analysed upstream: do X.\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-300 - https://t/REP-300 >/dev/null)
 out=$(ho REP-300 --type bugfix --user-facing no --eng REP-301,rep-302); assert_exit "handover: engineering" 0 $? "$out"
-assert_contains "handover: the level comes from pipeline.env" "$out" "at the engineering level"
+assert_contains "handover: the level is the first team in pipeline.env" "$out" "at the engineering level"
 assert_contains "handover: product.md is approved with the given type" "$(cat "$(tdir REP-300)/product.md")" "Type: bugfix"
 assert_eq "handover: both eng rows, open" "2" "$(grep -cE '^\| REP-30[12] \| eng \|.*\| open \|' "$(tdir REP-300)/tickets.md")"
 [ -e "$(tdir REP-300)/impl-notes.md" ] && bad "handover: engineering writes no impl-notes.md" || ok "handover: engineering writes no impl-notes.md"
@@ -133,7 +133,61 @@ qa_report REP-320 pass "$qa_sha"
 out=$(gate REP-320 staging); assert_exit "handover: after QA passes, the staging gate passes" 0 $? "$out"
 out=$(ho REP-320 --level nope); assert_exit "handover: an unknown level is refused" 1 $? "$out"
 out=$(ho REP-999 --level engineering); assert_exit "handover: needs intake first" 1 $? "$out"
-out=$(cd "$R" && bash scripts/pipeline/status.sh REP-320 2>&1); assert_contains "status: prints the start level" "$out" "Start level: analysis"
+out=$(cd "$R" && bash scripts/pipeline/status.sh REP-320 2>&1); assert_contains "status: prints the teams" "$out" "Teams: analysis,engineering,devops,qa,signoff (arrives at analysis)"
+
+# ---- teams.sh: which teams run, and what happens to the stages of the others (SHI-40) ----
+tm() { (cd "$R" && bash scripts/pipeline/teams.sh "$@" 2>&1); }
+stages() { tm "$@" --stages | awk -F'\t' '{ printf "%s=%s ", $1, $3 }' | sed 's/ $//'; }
+new_repo
+assert_eq "teams: every team by default" "analysis,engineering,devops,qa,signoff" "$(tm)"
+assert_eq "teams: persona names, any order and case" "engineering,devops,qa" "$(cd "$R" && bash scripts/pipeline/teams.sh --normalize 'QA-Tester, engineer, devops' 2>/dev/null)"
+out=$(tm --normalize 'engineer, qa-tester'); assert_contains "teams: qa brings devops" "$out" "engineering,devops,qa"
+assert_contains "teams: and says so" "$out" "added devops"
+assert_contains "teams: signoff brings devops" "$(tm --normalize 'sign-off' 2>/dev/null)" "devops,signoff"
+assert_eq "teams: po or ba is the analysis team" "analysis" "$(tm --normalize 'ba')"
+out=$(tm --normalize 'marketing'); assert_exit "teams: an unknown team is refused" 1 $? "$out"
+out=$(tm --normalize ''); assert_exit "teams: an empty selection is refused" 1 $? "$out"
+set_capability PIPELINE_TEAMS '"engineering,qa"'
+assert_eq "teams: pipeline.env is completed the same way" "engineering,devops,qa" "$(tm)"
+assert_eq "teams: tickets arrive at the first team" "engineering" "$(tm --entry)"
+assert_eq "teams: engineer + qa-tester + devops: the rest is upstream or the owner's" \
+  "product=upstream analysis=upstream build=run dev=run qa=run staging=owner go-live=run production=run" "$(stages)"
+(cd "$R" && bash scripts/pipeline/teams.sh --has qa-tester) && ok "teams: --has takes persona names" || bad "teams: --has takes persona names"
+(cd "$R" && bash scripts/pipeline/teams.sh --has analysis) && bad "teams: --has analysis is false here" || ok "teams: --has analysis is false here"
+set_capability PIPELINE_TEAMS '"analysis,engineering"'
+assert_eq "teams: without devops nothing after the last team runs" \
+  "product=run analysis=run build=run dev=off qa=off staging=off go-live=off production=off" "$(stages)"
+set_capability PIPELINE_TEAMS '"analysis,devops"'
+assert_eq "teams: a build between selected teams is the owner's" "build=owner" "$(stages | grep -o 'build=[a-z]*')"
+unset_capability PIPELINE_TEAMS; set_capability PIPELINE_START_LEVEL '"engineering"'
+assert_eq "teams: an install before 3.1.0 reads its start level" "engineering,devops,qa,signoff" "$(tm)"
+set_capability PIPELINE_START_LEVEL '"qa"'
+assert_eq "teams: and a qa start level still arrives on qa" "qa" "$(tm --entry)"
+assert_eq "teams: with dev and the qa promotion upstream" "dev=upstream qa=run" "$(stages | grep -oE '(dev|qa)=[a-z]*' | paste -sd' ' -)"
+set_capability PIPELINE_START_LEVEL '"marketing"'
+out=$(tm); assert_exit "teams: an unknown start level is refused" 1 $? "$out"
+unset_capability PIPELINE_START_LEVEL; set_capability PIPELINE_TEAMS '"engineering,devops,qa"'
+printf 'x\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-330 - >/dev/null)
+printf 'Teams: analysis, engineering, devops (this ticket)\nArrives at: <analysis|...>\n' > "$(tdir REP-330)/STATUS.md"
+assert_eq "teams: a ticket's own choice wins over pipeline.env" "analysis,engineering,devops" "$(tm REP-330)"
+assert_eq "teams: other tickets keep the project's" "engineering,devops,qa" "$(tm REP-331)"
+printf 'Teams: project (engineering,devops,qa)\nArrives at: qa\n' > "$(tdir REP-330)/STATUS.md"
+assert_eq "teams: 'project' follows pipeline.env" "engineering,devops,qa" "$(tm REP-330)"
+assert_eq "teams: and the ticket can arrive on qa" "qa" "$(tm REP-330 --entry)"
+
+# ---- handover.sh --by-owner: a stage whose team is not selected, done by the owner, passes the same gates ----
+new_repo; set_capability PIPELINE_TEAMS '"analysis,devops"'; commit_all teams
+branch feature/REP-340-x; ready_build REP-340 feature yes
+out=$(ho REP-340 --by-owner build --who Chris); assert_exit "by-owner: build" 0 $? "$out"
+assert_contains "by-owner: impl-notes names who built it" "$(cat "$(tdir REP-340)/impl-notes.md")" "Done by Chris"
+assert_contains "by-owner: the eng rows are done" "$(cat "$(tdir REP-340)/tickets.md")" "| REP-34001 | eng | - | - | done |"
+commit_all owner-build
+out=$(gate REP-340 dev); assert_exit "by-owner: the owner's build passes the dev gate" 0 $? "$out"
+out=$(ho REP-340 --by-owner qa); assert_exit "by-owner: qa before the build is on qa is refused" 1 $? "$out"
+printf 'QA: %s 2026-01-01T00:00:00Z\n' "$(g rev-parse HEAD)" >> "$(tdir REP-340)/releases.md"
+out=$(ho REP-340 --by-owner qa); assert_exit "by-owner: qa" 0 $? "$out"
+assert_contains "by-owner: qa-report passes the build on qa" "$(cat "$(tdir REP-340)/qa-report.md")" "Commit: $(g rev-parse HEAD)"
+out=$(ho REP-340 --by-owner marketing); assert_exit "by-owner: an unknown stage is refused" 1 $? "$out"
 # ---- board.sh: where the ticket is and who is busy, without the reasoning ----
 new_repo; branch feature/REP-400-x
 printf 'Add a health endpoint\nmore detail\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-400 - >/dev/null)

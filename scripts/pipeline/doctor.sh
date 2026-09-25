@@ -83,9 +83,12 @@ if [ "$de_on" != no ]; then
   [ -z "$ph" ] && pass "pipeline.env: every environment URL is set" \
     || warn "pipeline.env: ${ph}still a placeholder; /pipeline-init asks for the real URLs (or set PIPELINE_HAS_DEPLOY_ENVS=\"no\")"
 fi
-case "$(printf '%s' "${PIPELINE_START_LEVEL:-analysis}" | tr '[:upper:]' '[:lower:]')" in
-  analysis|engineering|devops|qa) pass "pipeline.env: PIPELINE_START_LEVEL=${PIPELINE_START_LEVEL:-analysis} (where /ship picks tickets up)";;
-  *) fail "pipeline.env: PIPELINE_START_LEVEL='${PIPELINE_START_LEVEL}' is not analysis, engineering, devops or qa";; esac
+if [ ! -f $P/teams.sh ]; then fail "files: $P/teams.sh is missing; refresh the tooling with /pipeline-init"
+elif teams="$(bash $P/teams.sh 2>&1)"; then
+  if [ -n "${PIPELINE_TEAMS:-}" ]; then pass "pipeline.env: PIPELINE_TEAMS=$teams (tickets arrive at $(bash $P/teams.sh --entry))"
+  else warn "pipeline.env: PIPELINE_TEAMS is not set, so the teams come from PIPELINE_START_LEVEL=${PIPELINE_START_LEVEL:-analysis} ($teams). Add PIPELINE_TEAMS=\"$teams\"$upg"; fi
+  case "${PIPELINE_TEAMS:-}" in ""|"$teams") ;; *) warn "pipeline.env: PIPELINE_TEAMS='${PIPELINE_TEAMS}' resolves to $teams; write it that way";; esac
+else fail "pipeline.env: ${teams#teams: }"; fi
 for k in PIPELINE_HAS_DEPLOY_ENVS; do
   v="$(printf '%s' "${!k:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   case "$v" in yes|no) ;; "") warn "pipeline.env: $k is not set (resolves to yes); state it explicitly";; *) warn "pipeline.env: $k='${!k}' is not yes or no (resolves to yes)";; esac

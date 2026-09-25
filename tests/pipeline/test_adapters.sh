@@ -81,8 +81,8 @@ assert_eq "github: fixed replaces in-progress" "state:fixed" "$(cat "$ST/labels.
 out=$(trk state REP-9 verified); assert_contains "github: verified closes the issue as completed" "$(cat "$ST/log")" "issue close 9 --reason completed"
 assert_eq "github: and drops the state label" "" "$(cat "$ST/labels.9")"
 out=$(trk state REP-9 shipped); assert_exit "github: an unknown state is refused" 1 $? "$out"
-out=$(trk handoff REP-7 qa qa --body 'Handoff: engineer → qa'); assert_exit "github: handoff" 0 $? "$out"
-assert_eq "github: handoff moves both groups" "owner:qa,stage:qa" "$(sort "$ST/labels.7" | paste -sd, -)"
+out=$(trk handoff REP-7 qa qa-tester --body 'Handoff: engineer → qa'); assert_exit "github: handoff" 0 $? "$out"
+assert_eq "github: handoff moves both groups" "owner:qa-tester,stage:qa" "$(sort "$ST/labels.7" | paste -sd, -)"
 assert_contains "github: and posts the comment" "$(cat "$ST/log")" "issue comment 7 --body Handoff: engineer → qa"
 # setup: --check reports and changes nothing; setup creates every label once and records the state map
 rm -f "$ST/repo-labels" "$R/scripts/pipeline/tracker.map"; : > "$ST/log"

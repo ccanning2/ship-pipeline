@@ -2,7 +2,8 @@
 
 Tracker: <ticket url>
 Branch: <branch>
-Start level: <analysis|engineering|devops|qa> (earlier stages: skipped (start level))
+Teams: project (<the teams: scripts/pipeline/teams.sh; "project" follows pipeline.env, a list is this ticket's own choice>)
+Arrives at: <analysis|engineering|devops|qa: the first selected team, or qa when the build is already on qa>
 Rework loops used: 0/3
 
 | # | Stage | Owner | State | Outcome |
