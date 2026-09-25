@@ -11,19 +11,33 @@ Run these in one call and keep the results as the recommended answers:
 - `git remote get-url origin` → code host (`github.com` → GitHub, a host containing `gitlab` → GitLab, `bitbucket` → Bitbucket) and, when the host is not the public service, the self-hosted base URL (`https://<host>`).
 - `git symbolic-ref --short refs/remotes/origin/HEAD` (else the current branch) → trunk; `git ls-remote --heads origin` → which trunk and staging candidates (the options in step 2) already exist.
 - `scripts/pipeline/pipeline.env`, if present: every key it already sets is a recommended answer (an update, not a fresh install).
-- Ticket ids in recent branch names and commit subjects (`git log -200 --format=%s`, `git branch -a`) → the likely ticket prefix.
+- Ticket ids in recent branch names and commit subjects (`git log -200 --format=%s`, `git branch -a`) → the likely ticket prefix. It is only a hint: for Linear and Jira the prefix is chosen from the real teams or projects after the sign-in (step 2b), never asked up front.
 
-## 2. Ask everything at once
-Use `AskUserQuestion` (up to four questions per call), in at most three calls, all asked before anything is installed. Put the detected answer first and mark it "(Recommended)". Skip any question that `$ARGUMENTS` already answers. "Other" always lets the owner type a value.
+## 2. Ask everything before installing
+Use `AskUserQuestion` (up to four questions per call), in at most three calls, all asked before anything is installed. The one pause is the sign-in (step 2b), between Call 1 and Call 2, so the tracker questions can offer what the account really sees. Put the detected answer first and mark it "(Recommended)". Skip any question that `$ARGUMENTS` already answers. "Other" always lets the owner type a value.
 
 **Call 1**
 1. **Git platform:** GitHub / GitLab / Bitbucket. If the remote is self-hosted, say so in the option description and use that URL. For a custom URL the owner picks Other and types it, e.g. `gitlab https://git.acme.com`.
 2. **Branching strategy (trunk):** `main` / `master`. Merging here deploys dev.
 3. **Branching strategy (staging branch):** `staging` / `stable`. Pushing here deploys qa.
-4. **Ticketing platform:** Jira / Linear / GitHub Issues / GitLab Issues. Other: name it. `/pipeline-init` then checks for a CLI or API for it; if none fits, it falls back to an MCP connector (`--tracker connector`).
+4. **Ticketing platform:** Jira / Linear / GitHub Issues / GitLab Issues. The Jira option names the site, detected (`TRACKER_URL`) or guessed from the remote's owner (`https://<owner>.atlassian.net`); a different site is Other: `jira https://<site>.atlassian.net`. Other: name another tracker. `/pipeline-init` then checks for a CLI or API for it; if none fits, it falls back to an MCP connector (`--tracker connector`).
+
+**2b. Sign in, then read the teams (Linear and Jira; the code host too)**
+Pass the Call 1 answers as flags, so `connect.sh` describes this project and not the plugin: `F="--git-host <host> [--git-url <url>] --tracker <tracker> [--tracker-url <jira site>]"`.
+1. `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pipeline/connect.sh" $F status`. Exit 4 means a sign-in is missing.
+2. **The one owner step**, now rather than after the install. Every sign-in is a browser flow or a token that only the owner may type, so ask for it once, in one message:
+   > Run `bash "<the plugin root, written out>/scripts/pipeline/connect.sh" <the flags> login` in a terminal. It signs you in to <the tools listed> and stores any tokens in your user config directory (mode 600), outside the repo. Tell me when it's done.
+
+   If this session can open a terminal tab for the owner, open one in the project directory. Never ask for a token in the chat, and never type one yourself. When they are back, re-run `status`.
+3. `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pipeline/connect.sh" $F teams --hint <the prefix detected in step 1, or the TRACKER_TEAM_KEY of an existing pipeline.env>`. It prints `SITE <url>` (the Linear workspace URL, used for `--tracker-url`, or the Jira site), one `TEAM <KEY> <name>` per team or project, and `RECOMMENDED <KEY> (<why>)` for the one matching the hint or, failing that, the only one.
+   - Exit 3 (GitHub or GitLab Issues, connector): there is no list; ask for the ticket prefix in question 5.
+   - Exit 4, 5 or 1 (still not signed in, curl or jq missing, the API failed): say why in one line and ask for the key in question 5 as typed text. Do not stop the install for it.
 
 **Call 2** (three questions)
-5. **Tracker location and ticket prefix.** One question whose options are the detected guesses, for example "Jira at https://acme.atlassian.net, prefix ABC". Other: the owner types `<url> <PREFIX>`. The URL is only needed for Jira (the site) and Linear (the workspace URL, for links); for GitHub or GitLab Issues it is the repository itself. The prefix is the searchString: `ABC` for tickets like `ABC-12`, which is the Jira project key, the Linear team key, or a prefix for issue numbers.
+5. **Tracker team or project, the ticket prefix.**
+   - Linear and Jira, with a list from 2b: "Linear team" / "Jira project", one option per `TEAM` line (`ABC: Web shop`), the `RECOMMENDED` one first and marked "(Recommended)". More than four: the recommended one, then the first others, and say in the question that Other takes any key from the list. With only one, the second option is "A different key" (Other).
+   - GitHub or GitLab Issues, or no list: "Ticket prefix", options the detected guesses. The prefix is the searchString: `ABC` for tickets like `ABC-12`, a prefix for issue numbers (the tracker location is the repository itself).
+   The answer is `--team-key`; the Linear workspace URL or the Jira site from `SITE` is `--tracker-url`.
 6. **Deployment strategy:** three options:
    - "Deploys on branch merges": merging the trunk deploys dev, pushing the staging branch deploys qa, and a tag deploys production.
    - "Explicit deploys": nothing deploys on a push, and each environment is deployed by `promote.sh` after its gate.
@@ -65,11 +79,8 @@ Then relay the output:
 
 ## 4. Connect the CLIs (CLIs, not MCP connectors)
 1. If "Install CLIs" was ticked: `bash scripts/pipeline/connect.sh install`. It uses winget, brew, apt or dnf, or the vendor download for acli. Report any `FAILED` line with its manual command.
-2. Run `bash scripts/pipeline/connect.sh status`. Exit 4 means a sign-in is missing.
-3. **The one owner step.** Every sign-in is a browser flow or a token that only the owner may type, so ask for it once, in one message:
-   > Run `bash scripts/pipeline/connect.sh login` in a terminal. It signs you in to <the tools listed> and stores any tokens in your user config directory (mode 600), outside the repo. Tell me when it's done.
-
-   If this session can open a terminal tab for the owner, open one in the project directory. Never ask for a token in the chat, and never type one yourself. Keep working on step 6 while you wait; step 5 needs the sign-in.
+2. Run `bash scripts/pipeline/connect.sh status`. The sign-ins from step 2b are kept outside the repo, so normally everything reads ready. Exit 4 means a sign-in is still missing, typically a CLI installed just now (for example `acli`, which `connect.sh login` signs in with the saved Jira token).
+3. Only then, ask the owner once more, in one message, to run `bash scripts/pipeline/connect.sh login` in a terminal, as in step 2b. Never ask for a token in the chat, and never type one yourself. Keep working on step 6 while you wait; step 5 needs the sign-in.
 4. When the owner is back, re-run `connect.sh status` until every tool reads ready.
 
 ## 5. Set up the host and the tracker (only what was ticked)

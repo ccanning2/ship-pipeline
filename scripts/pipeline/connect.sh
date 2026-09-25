@@ -8,11 +8,37 @@
 #                                   or the vendor's download; prints the manual command for anything it cannot
 #        connect.sh login           signs in to every tool that is not signed in (interactive: run it in a terminal)
 #        connect.sh cloud-id <URL>  prints a Jira site's cloudId
+#        connect.sh teams [--hint KEY]
+#                                   after the sign-in, lists the Linear teams or Jira projects the account can see:
+#                                   "SITE <url>" (the Linear workspace or the Jira site), one "TEAM <KEY> <name>" per
+#                                   team or project, then "RECOMMENDED <KEY> (<why>)" for the one matching --hint (the
+#                                   detected prefix, any case) or, failing that, the only one. Exits 3 for a tracker
+#                                   with no team list (GitHub/GitLab issues, connector), 4 when not signed in, 5 when
+#                                   curl or jq is missing, 1 when the API fails or shows nothing.
+# Options before the verb describe a project that is not installed yet (/pipeline-init signs in before it asks the
+# tracker questions): --git-host H --git-url URL --tracker T --tracker-url URL. When any is given, pipeline.env is
+# not read at all, so the settings of the directory the script sits in never leak into another project.
 # Tokens are stored in ~/.config/ship-pipeline/<name>.env (mode 600), never in the repository and never echoed.
+# Test doubles: PIPELINE_CURL_CMD, PIPELINE_TRACKER_CONFIG.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091
-[ -f "$here/pipeline.env" ] && source "$here/pipeline.env"
+flags=0; f_host=""; f_url=""; f_tracker=""; f_site=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --git-host|--git-url|--tracker|--tracker-url)
+      [ $# -ge 2 ] || { echo "connect.sh: $1 needs a value" >&2; exit 1; }
+      case "$1" in --git-host) f_host="$2";; --git-url) f_url="$2";; --tracker) f_tracker="$2";; --tracker-url) f_site="$2";; esac
+      flags=1; shift 2;;
+    *) break;;
+  esac
+done
+if [ $flags = 1 ]; then
+  GIT_HOST="${f_host:-github}"; GIT_HOST_URL="$f_url"; TRACKER="${f_tracker:-linear}"; TRACKER_URL="$f_site"
+elif [ -f "$here/pipeline.env" ]; then
+  # shellcheck disable=SC1091
+  source "$here/pipeline.env"
+fi
+curl_cmd="${PIPELINE_CURL_CMD:-curl}"
 host="$(printf '%s' "${GIT_HOST:-github}" | tr '[:upper:]' '[:lower:]')"
 tracker="$(printf '%s' "${TRACKER:-linear}" | tr '[:upper:]' '[:lower:]')"
 host_url="${GIT_HOST_URL:-}"; host_url="${host_url%/}"; hostname="$(printf '%s' "$host_url" | sed -E 's#^[a-z]+://##; s#/.*$##')"
@@ -136,6 +162,7 @@ login_all() {
           # shellcheck disable=SC1090
           source "$(token_file jira)"; printf '%s' "$JIRA_API_TOKEN" | acli jira auth login --site "$(printf '%s' "$site" | sed -E 's#^[a-z]+://##')" --email "$JIRA_EMAIL" --token >/dev/null && echo "acli signed in"; continue; }
         [ "$t" = jira ] || continue
+        [ -n "$site" ] || { echo "== Jira: no site known; re-run with --tracker jira --tracker-url https://<site>.atlassian.net"; continue; }
         echo "== Jira ($site). Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens"
         e="$(ask "Atlassian account email [$(git config user.email)]: ")"; e="${e:-$(git config user.email)}"
         k="$(ask_secret "API token (hidden): ")"
@@ -153,11 +180,53 @@ login_all() {
   echo; status
 }
 
+# the Linear teams or Jira projects this account can see, with the detected one recommended (see the usage above)
+teams() {
+  local hint="" out rows n rec="" why=""
+  [ "${1:-}" = --hint ] && hint="$(printf '%s' "${2:-}" | tr -cd 'A-Za-z0-9' | tr '[:lower:]' '[:upper:]')"
+  case "$tracker" in linear|jira) ;; *) echo "connect.sh teams: $tracker has no team list; ask for the ticket prefix" >&2; return 3;; esac
+  { have jq && have "${curl_cmd%% *}"; } || { echo "connect.sh teams: needs curl and jq (bash scripts/pipeline/connect.sh install)" >&2; return 5; }
+  if [ -f "$(token_file "$tracker")" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$(token_file "$tracker")"
+    set +a
+  fi
+  if [ "$tracker" = linear ]; then
+    [ -n "${LINEAR_API_KEY:-}" ] || { echo "connect.sh teams: not signed in to Linear (connect.sh login)" >&2; return 4; }
+    out="$($curl_cmd -fsS https://api.linear.app/graphql -H "Authorization: $LINEAR_API_KEY" -H 'Content-Type: application/json' \
+      --data '{"query":"query{organization{urlKey} teams(first:250){nodes{key name}}}"}')" \
+      || { echo "connect.sh teams: the Linear API did not answer" >&2; return 1; }
+    printf '%s' "$out" | jq -e '.errors | not' >/dev/null 2>&1 \
+      || { echo "connect.sh teams: Linear: $(printf '%s' "$out" | jq -r '.errors[0].message // "unreadable answer"' 2>/dev/null)" >&2; return 1; }
+    printf '%s' "$out" | jq -r '.data.organization.urlKey // empty | "SITE https://linear.app/\(.)"'
+    rows="$(printf '%s' "$out" | jq -r '.data.teams.nodes[]? | "\(.key)\t\(.name)"')"
+  else
+    [ -n "$site" ] || { echo "connect.sh teams: no Jira site (--tracker-url https://<site>.atlassian.net)" >&2; return 1; }
+    [ -n "${JIRA_API_TOKEN:-}" ] || { echo "connect.sh teams: not signed in to Jira (connect.sh login)" >&2; return 4; }
+    out="$($curl_cmd -fsS -u "${JIRA_EMAIL:-}:$JIRA_API_TOKEN" -H 'Accept: application/json' "$site/rest/api/3/project/search?maxResults=100&orderBy=key")" \
+      || { echo "connect.sh teams: Jira at $site did not answer (check the site and the API token)" >&2; return 1; }
+    echo "SITE $site"
+    rows="$(printf '%s' "$out" | jq -r '.values[]? | "\(.key)\t\(.name)"' 2>/dev/null)"
+  fi
+  rows="$(printf '%s\n' "$rows" | tr -d '\r' | grep -v '^[[:space:]]*$')"
+  [ -n "$rows" ] || { echo "connect.sh teams: this account sees no $( [ "$tracker" = jira ] && echo projects || echo teams)" >&2; return 1; }
+  printf '%s\n' "$rows" | awk -F'\t' '{print "TEAM " $1 " " $2}'
+  n="$(printf '%s\n' "$rows" | wc -l | tr -d ' ')"
+  if [ -n "$hint" ]; then
+    rec="$(printf '%s\n' "$rows" | awk -F'\t' -v h="$hint" 'toupper($1)==h {print $1; exit}')"; why="matches the detected prefix"
+  fi
+  if [ -z "$rec" ] && [ "$n" = 1 ]; then rec="$(printf '%s\n' "$rows" | cut -f1)"; why="the only one"; fi
+  [ -z "$rec" ] || echo "RECOMMENDED $rec ($why)"
+  return 0
+}
+
 case "${1:-status}" in
   status) status;;
   install) install_all;;
   login) login_all;;
   cloud-id) u="${2:-$site}"; [ -n "$u" ] || { echo "usage: connect.sh cloud-id <https://site.atlassian.net>" >&2; exit 1; }
     curl -fsS "${u%/}/_edge/tenant_info" | jq -r '.cloudId // empty';;
-  *) echo "usage: connect.sh <status|install|login|cloud-id URL>" >&2; exit 1;;
+  teams) shift; teams "$@";;
+  *) echo "usage: connect.sh [--git-host H] [--git-url URL] [--tracker T] [--tracker-url URL] <status|install|login|cloud-id URL|teams [--hint KEY]>" >&2; exit 1;;
 esac

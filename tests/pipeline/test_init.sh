@@ -118,6 +118,11 @@ for s in "--no-deploy-envs" "deployable environments" "CONTEXT.md" \
          "--git-host" "--git-url" "--tracker" "--tracker-url" "--deploy-mode" "--create-branches" "connect.sh login" "tracker.sh setup"; do
   grep -qF -e "$s" "$I" && ok "AC-28: /pipeline-init mentions $s" || bad "AC-28: /pipeline-init mentions $s"
 done
+# SHI-30: for Linear and Jira the sign-in comes before the tracker questions, which list the real teams
+grep -qF 'connect.sh" $F teams --hint' "$I" && ok "SHI-30: /pipeline-init lists the teams after the sign-in" || bad "SHI-30: /pipeline-init lists the teams after the sign-in"
+l_login=$(grep -n 'connect.sh" <the flags> login' "$I" | head -n1 | cut -d: -f1); l_call2=$(grep -n '^\*\*Call 2\*\*' "$I" | head -n1 | cut -d: -f1)
+[ -n "$l_login" ] && [ -n "$l_call2" ] && [ "$l_login" -lt "$l_call2" ] && ok "SHI-30: the sign-in is asked before Call 2" || bad "SHI-30: the sign-in is asked before Call 2" "login line $l_login, Call 2 line $l_call2"
+sed -n '/^\*\*Call 1\*\*/,/^\*\*2b\./p' "$I" | grep -qiE 'team key|project key|prefix' && bad "SHI-30: Call 1 no longer asks for the key" || ok "SHI-30: Call 1 no longer asks for the key"
 grep -qi 'marketing' "$I" && bad "3.0: /pipeline-init no longer asks about marketing" || ok "3.0: /pipeline-init no longer asks about marketing"
 grep -q 'run-all.sh' "$I" && bad "/pipeline-init never runs the plugin's test suite" || ok "/pipeline-init never runs the plugin's test suite"
 

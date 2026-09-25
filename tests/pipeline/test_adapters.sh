@@ -192,4 +192,66 @@ if ! (: </dev/tty) 2>/dev/null; then
   out=$(cd "$R" && PIPELINE_TRACKER_CONFIG="$CF" bash scripts/pipeline/connect.sh login </dev/null 2>&1); assert_exit "connect: login without a terminal stops" 4 $? "$out"
   assert_contains "connect: and says where to run it" "$out" "run it in your own terminal"
 fi
+
+# ---- connect.sh teams (SHI-30): after the sign-in, the real teams/projects, the detected one recommended ----
+# flags describe a project that is not installed yet: pipeline.env (here gitlab + jira) is not read
+out=$(cd "$R" && PIPELINE_TRACKER_CONFIG="$CF" bash scripts/pipeline/connect.sh --git-host github --tracker linear status 2>&1)
+assert_contains "connect: --tracker overrides pipeline.env" "$out" "TOOL linear installed=n/a signed-in=yes"
+case "$out" in *"TOOL acli"*|*"TOOL glab"*) bad "connect: with flags, pipeline.env is not read" "$out";; *) ok "connect: with flags, pipeline.env is not read";; esac
+out=$(cd "$R" && bash scripts/pipeline/connect.sh --tracker 2>&1); assert_exit "connect: a flag without its value is an error" 1 $? "$out"
+out=$(cd "$R" && PIPELINE_TRACKER_CONFIG="$CF" bash scripts/pipeline/connect.sh --tracker github teams 2>&1)
+assert_exit "teams: GitHub Issues has no team list (exit 3)" 3 $? "$out"
+if command -v jq >/dev/null 2>&1; then
+  TD="$(mktemp -d)"; export TD
+  cat > "$R/fake-curl.sh" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TD/log"
+[ -f "$TD/fail" ] && exit 22
+case "$*" in
+  *api.linear.app/graphql*) cat "$TD/linear.json";;
+  *"/rest/api/3/project/search"*) cat "$TD/jira.json";;
+  *) exit 22;;
+esac
+FAKE
+  chmod +x "$R/fake-curl.sh"; echo "fake-curl.sh" >> "$R/.git/info/exclude"
+  tm() { (cd "$R" && env -u LINEAR_API_KEY -u JIRA_API_TOKEN -u JIRA_EMAIL PIPELINE_CURL_CMD="$R/fake-curl.sh" PIPELINE_TRACKER_CONFIG="$1" bash scripts/pipeline/connect.sh "${@:2}" 2>&1); }
+  # Linear, one team: the sandbox case the ticket describes
+  printf '{"data":{"organization":{"urlKey":"acme"},"teams":{"nodes":[{"key":"SHI","name":"Ship pipeline"}]}}}' > "$TD/linear.json"
+  out=$(tm "$CF" --tracker linear teams); assert_exit "teams: linear lists the teams" 0 $? "$out"
+  assert_contains "teams: linear team line" "$out" "TEAM SHI Ship pipeline"
+  assert_contains "teams: the Linear workspace URL" "$out" "SITE https://linear.app/acme"
+  assert_contains "teams: the only team is recommended" "$out" "RECOMMENDED SHI (the only one)"
+  assert_contains "teams: linear is asked with the saved key" "$(cat "$TD/log")" "Authorization: x"
+  # Linear, several teams: the detected prefix (any case) is recommended; no match recommends none
+  printf '{"data":{"organization":{"urlKey":"acme"},"teams":{"nodes":[{"key":"ENG","name":"Engineering"},{"key":"OPS","name":"Operations"}]}}}' > "$TD/linear.json"
+  out=$(tm "$CF" --tracker linear teams --hint ops); assert_exit "teams: several teams" 0 $? "$out"
+  assert_contains "teams: every team is listed (1)" "$out" "TEAM ENG Engineering"
+  assert_contains "teams: every team is listed (2)" "$out" "TEAM OPS Operations"
+  assert_contains "teams: the detected prefix is recommended" "$out" "RECOMMENDED OPS (matches the detected prefix)"
+  out=$(tm "$CF" --tracker linear teams --hint XYZ)
+  case "$out" in *RECOMMENDED*) bad "teams: no match among several recommends none" "$out";; *) ok "teams: no match among several recommends none";; esac
+  # not signed in: exit 4 and no API call
+  : > "$TD/log"; out=$(tm "$(mktemp -d)" --tracker linear teams); assert_exit "teams: not signed in to Linear (exit 4)" 4 $? "$out"
+  assert_eq "teams: and the API is not called" "" "$(cat "$TD/log")"
+  # an API error is reported, not listed
+  printf '{"errors":[{"message":"Authentication required"}]}' > "$TD/linear.json"
+  out=$(tm "$CF" --tracker linear teams); assert_exit "teams: a Linear error is exit 1" 1 $? "$out"
+  assert_contains "teams: and names the error" "$out" "Authentication required"
+  printf '{"data":{"organization":{"urlKey":"acme"},"teams":{"nodes":[]}}}' > "$TD/linear.json"
+  out=$(tm "$CF" --tracker linear teams); assert_exit "teams: no teams is exit 1" 1 $? "$out"
+  # Jira: the projects of the site, with the saved email and token
+  JF="$(mktemp -d)"; printf 'JIRA_EMAIL=a@b.c\nJIRA_API_TOKEN=tok\n' > "$JF/jira.env"
+  printf '{"values":[{"key":"ABC","name":"Alpha"},{"key":"WEB","name":"Web shop"}]}' > "$TD/jira.json"
+  : > "$TD/log"; out=$(tm "$JF" --tracker jira --tracker-url https://acme.atlassian.net/ teams --hint web); assert_exit "teams: jira lists the projects" 0 $? "$out"
+  assert_contains "teams: jira project line" "$out" "TEAM WEB Web shop"
+  assert_contains "teams: jira site" "$out" "SITE https://acme.atlassian.net"
+  assert_contains "teams: jira detected project recommended" "$out" "RECOMMENDED WEB (matches the detected prefix)"
+  assert_contains "teams: jira asks the site's project search" "$(cat "$TD/log")" "https://acme.atlassian.net/rest/api/3/project/search"
+  assert_contains "teams: jira authenticates with the saved token" "$(cat "$TD/log")" "-u a@b.c:tok"
+  out=$(tm "$JF" --tracker jira teams); assert_exit "teams: jira without a site is exit 1" 1 $? "$out"
+  assert_contains "teams: and says to pass the site" "$out" "--tracker-url"
+  out=$(tm "$(mktemp -d)" --tracker jira --tracker-url https://acme.atlassian.net teams); assert_exit "teams: not signed in to Jira (exit 4)" 4 $? "$out"
+  touch "$TD/fail"; out=$(tm "$JF" --tracker jira --tracker-url https://acme.atlassian.net teams); assert_exit "teams: jira not answering is exit 1" 1 $? "$out"
+  rm -f "$TD/fail"
+fi
 summary
