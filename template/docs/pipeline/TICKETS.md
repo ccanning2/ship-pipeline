@@ -38,6 +38,8 @@ Put free text in single quotes; write a quote inside it as `'\''`. The product o
 
 At intake, `scripts/pipeline/handover.sh` records that upstream work in the ticket folder, as approved product and requirements records, `eng` rows, implementation notes, and the dev/qa records. A later stage whose team is not selected is the owner's (`Owner: human`): with `devops` selected, `/ship` waits for them and records their work with `handover.sh --by-owner build|qa|signoff`; without it, the run ends after the last selected team. The gates check the same records whoever did the work.
 
+The owner can choose other teams for one ticket when they run `/ship` ("with analysis", "no QA"). `teams.sh <TICKET> --set` records the choice as the `Teams:` line of that ticket's `STATUS.md`, which wins over `PIPELINE_TEAMS` for that ticket only.
+
 Two label groups track the parent. Each group allows one label at a time, so the labels always show where the ticket is and who holds it. They must be **single-select**: in Linear, create each as a label *group* (Settings → Labels → New group) and add its labels inside it; in Jira, use a single-select custom field. Plain labels would let a ticket carry two stages at once.
 
 The full list of labels, fields and workflow statuses the pipeline needs is `scripts/pipeline/tracker-schema.txt`. `/pipeline-init` creates them (`tracker.sh setup`) with the owner's one upfront yes, and records in `scripts/pipeline/tracker.map` how each pipeline state maps onto this tracker's statuses. `/pipeline-doctor` reports anything missing later.

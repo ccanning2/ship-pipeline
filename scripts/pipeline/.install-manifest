@@ -6,7 +6,7 @@
 4004881528 3365 .claude/agents/senior-engineer.md
 2308987265 5811 docs/pipeline/BRANCHING.md
 1200187595 7077 docs/pipeline/CLOUD.md
-2046952907 8508 docs/pipeline/TICKETS.md
+2078599505 8758 docs/pipeline/TICKETS.md
 2188176955 951 docs/pipeline/_templates/STATUS.md
 3471430242 186 docs/pipeline/_templates/clarifications.md
 3959809775 237 docs/pipeline/_templates/dev-check.md
@@ -38,7 +38,7 @@
 1285703670 939 scripts/pipeline/next-version.sh
 2317977370 7417 scripts/pipeline/promote.sh
 3790660274 1602 scripts/pipeline/status.sh
-1605690919 6419 scripts/pipeline/teams.sh
+365977877 8891 scripts/pipeline/teams.sh
 1604845317 1428 scripts/pipeline/ticket-id.sh
 3688134313 1164 scripts/pipeline/tracker-schema.txt
 858035463 7705 scripts/pipeline/tracker.sh
