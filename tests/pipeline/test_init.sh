@@ -114,7 +114,7 @@ assert_eq "AC-27: second run changes nothing" "$before6" "$after6"
 # AC-28: /pipeline-init asks the two capability questions
 I="$REPO_SRC/commands/pipeline-init.md"
 for s in "--no-deploy-envs" "deployable environments" "CONTEXT.md" \
-         "AskUserQuestion" "Teams: plan and build" "Teams: ship" "--teams" "teams.sh --normalize" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
+         "AskUserQuestion" "Teams: plan and build" "Teams: ship" "--teams" "--normalize" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
          "--git-host" "--git-url" "--tracker" "--tracker-url" "--deploy-mode" "--create-branches" "connect.sh login" "tracker.sh setup"; do
   grep -qF -e "$s" "$I" && ok "AC-28: /pipeline-init mentions $s" || bad "AC-28: /pipeline-init mentions $s"
 done
