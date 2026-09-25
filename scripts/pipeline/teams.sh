@@ -5,6 +5,10 @@
 #        teams.sh [TICKET] --entry         where a ticket arrives: analysis | engineering | devops | qa (the
 #                                          handover.sh level; the work before it was done upstream)
 #        teams.sh [TICKET] --stages        one line per stage: <stage> <TAB> <who> <TAB> <run|upstream|owner|off>
+#        teams.sh <TICKET> --set <teams|project> [--arrives analysis|engineering|devops|qa]
+#                                          the owner's choice for this ticket only (/ship, when they ask), into
+#                                          its STATUS.md; "project" goes back to pipeline.env's. Creates STATUS.md
+#                                          from the template when it is missing; a choice that fails leaves it as it was
 #        teams.sh --normalize <list>       check and complete a selection: prints it in pipeline order, and on
 #                                          stderr one line for each team it had to add
 # The teams, in order (a selection is any set of them):
@@ -61,10 +65,36 @@ if [ "${1:-}" = --normalize ]; then
   normalize "${2:-}"; [ -z "$added" ] || echo "teams: added $added" >&2; echo "$out"; exit 0
 fi
 case "${1:-}" in
-  -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+  -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0;;
   ""|--*) ticket="";; *) ticket="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; shift;;
 esac
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
+if [ "${1:-}" = --set ]; then # ---- the owner's choice for one ticket, into its STATUS.md ----
+  usage_set="usage: teams.sh <TICKET> --set <teams|project> [--arrives analysis|engineering|devops|qa]"
+  [ -n "$ticket" ] && [ -n "${2:-}" ] || die "$usage_set"
+  [ "$(bash "$root/scripts/pipeline/ticket-id.sh" "$ticket" 2>/dev/null)" = "$ticket" ] || die "'$ticket' is not a ticket id for this project"
+  arr=""; case "${3:-}" in "") ;; --arrives) arr="$(printf '%s' "${4:-}" | tr '[:upper:]' '[:lower:]')"; [ -n "$arr" ] || die "$usage_set";; *) die "$usage_set";; esac
+  if [ "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')" = project ]; then want=project
+  else normalize "$2"; want="$out"; [ -z "$added" ] || echo "teams: added $added" >&2; fi
+  d="$root/docs/pipeline/$ticket"; st="$d/STATUS.md"; mkdir -p "$d"
+  [ -f "$st" ] || sed "s/<TICKET>/$ticket/g" "$root/docs/pipeline/_templates/STATUS.md" > "$st" || die "cannot create $st"
+  put() { # <teams line> <arrives line>: replace both lines; they go under "Branch:", else under the title
+    awk -v t="$1" -v a="$2" -v b="$(grep -c '^Branch:' "$st")" '
+      /^Teams:/ || /^Arrives at:/ { next }
+      { print }
+      !done && ((b > 0 && /^Branch:/) || (b == 0 && FNR == 1)) { print t; print a; done = 1 }' "$st" > "$st.tmp" && mv "$st.tmp" "$st"
+  }
+  cp "$st" "$st.bak"
+  if [ "$want" = project ]; then put "Teams: project" "Arrives at: ${arr:-<first selected team>}"
+  else put "Teams: $want (this ticket)" "Arrives at: ${arr:-<first selected team>}"; fi
+  if ! res="$(bash "$0" "$ticket" 2>&1)" || ! ent="$(bash "$0" "$ticket" --entry 2>&1)"; then
+    mv "$st.bak" "$st"; die "${res#teams: }${ent:+ ${ent#teams: }}"
+  fi
+  rm -f "$st.bak"
+  if [ "$want" = project ]; then put "Teams: project ($res)" "Arrives at: $ent"; else put "Teams: $res (this ticket)" "Arrives at: $ent"; fi
+  echo "teams: $ticket runs with $res (arrives at $ent)$([ "$want" = project ] && echo ", the project's teams" || echo ", for this ticket only")"
+  exit 0
+fi
 # shellcheck disable=SC1091
 [ -f "$root/scripts/pipeline/pipeline.env" ] && source "$root/scripts/pipeline/pipeline.env"
 level="$(printf '%s' "${PIPELINE_START_LEVEL:-}" | tr '[:upper:]' '[:lower:]')"

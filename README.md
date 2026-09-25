@@ -42,16 +42,19 @@ Every answer is also an `init.sh` flag, so setup can be scripted: `--git-host`, 
 
 ## Use
 ```
-/ship ABC-142            # start or resume a ticket; stops whenever it needs you (questions, go-live)
-/pipeline-status ABC-142 # where it is, what it waits on
-/pipeline-doctor         # is this repository ready? (seconds, read-only)
+/ship ABC-142                 # start or resume a ticket; stops whenever it needs you (questions, go-live)
+/ship ABC-142 with analysis   # this ticket only: other teams than the project's, in your own words
+/pipeline-status ABC-142      # where it is, what it waits on
+/pipeline-doctor              # is this repository ready? (seconds, read-only)
 ```
 It runs from the terminal, the Desktop app, or the iOS app as a cloud session (`docs/pipeline/CLOUD.md`).
+
+**One ticket, other teams.** Say what you want after the ticket id: "with analysis" when a ticket needs the product owner and business analyst in a project that has them off, "no QA", "engineer and qa-tester only", or "it's already on qa". There are no flags to remember. `/ship` works out the teams, asks you once to confirm, and records them in the ticket's `STATUS.md` (`teams.sh <TICKET> --set`), so a resume keeps them. On a ticket already under way, the change applies from the current stage on. Another repository or tracker is the project's setup, not a ticket's, so `/ship` sends you to `/pipeline-init` for it.
 
 **While it runs you see a board, not the personas' reasoning.** After each stage `/ship` shows only this:
 
 ```
-ABC-142  Add a health endpoint                         start: analysis
+ABC-142  Add a health endpoint             teams: analysis,engineering,devops,qa,signoff
 ────────────────────────────────────────────────────────────────────────────────
  ✓ product     product-owner
  ✓ analysis    business-analyst/product-owner

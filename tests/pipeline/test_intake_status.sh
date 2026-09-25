@@ -175,6 +175,30 @@ printf 'Teams: project (engineering,devops,qa)\nArrives at: qa\n' > "$(tdir REP-
 assert_eq "teams: 'project' follows pipeline.env" "engineering,devops,qa" "$(tm REP-330)"
 assert_eq "teams: and the ticket can arrive on qa" "qa" "$(tm REP-330 --entry)"
 
+# ---- teams.sh --set: the owner's choice for one ticket, from /ship (SHI-39) ----
+new_repo; set_capability PIPELINE_TEAMS '"engineering,devops,qa,signoff"'
+out=$(tm REP-350 --set 'analysis, engineer'); assert_exit "set: a choice for one ticket" 0 $? "$out"
+st="$(tdir REP-350)/STATUS.md"
+[ -f "$st" ] && ok "set: creates STATUS.md from the template" || bad "set: creates STATUS.md from the template"
+assert_contains "set: the teams, for this ticket" "$(cat "$st")" "Teams: analysis,engineering (this ticket)"
+assert_contains "set: and the arrival point" "$(cat "$st")" "Arrives at: analysis"
+assert_eq "set: one Teams line, under Branch" "Branch: <branch>|Teams: analysis,engineering (this ticket)" "$(grep -A1 '^Branch:' "$st" | paste -sd'|' -)"
+assert_eq "set: teams.sh reads it back" "analysis,engineering" "$(tm REP-350)"
+assert_eq "set: other tickets keep the project's" "engineering,devops,qa,signoff" "$(tm REP-351)"
+before="$(cat "$st")"; out=$(tm REP-350 --set 'analysis' --arrives qa); assert_exit "set: arriving on qa without devops is refused" 1 $? "$out"
+assert_eq "set: and leaves STATUS.md as it was" "$before" "$(cat "$st")"
+out=$(tm REP-350 --set marketing); assert_exit "set: an unknown team is refused" 1 $? "$out"
+out=$(tm REP-350 --set 'qa-tester'); assert_contains "set: says which team it added" "$out" "added devops"
+out=$(tm REP-350 --set project --arrives qa); assert_exit "set: back to the project's teams, already on qa" 0 $? "$out"
+assert_contains "set: 'project' names what it resolves to" "$(cat "$st")" "Teams: project (engineering,devops,qa,signoff)"
+assert_eq "set: the arrival point is kept" "qa" "$(tm REP-350 --entry)"
+assert_eq "set: still one Teams line" "1" "$(grep -c '^Teams:' "$st")"
+out=$(tm REP-9999999 --set all); assert_exit "set: needs a ticket of this project" 0 $? "$out"
+out=$(tm ABC-1 --set all); assert_exit "set: refuses another project's id" 1 $? "$out"
+out=$(tm REP-350 --set); assert_exit "set: needs the teams" 1 $? "$out"
+printf 'x\n' | (cd "$R" && bash scripts/pipeline/intake.sh REP-350 - >/dev/null)
+assert_contains "set: intake keeps the recorded choice" "$(cat "$st")" "Teams: project (engineering,devops,qa,signoff)"
+
 # ---- handover.sh --by-owner: a stage whose team is not selected, done by the owner, passes the same gates ----
 new_repo; set_capability PIPELINE_TEAMS '"analysis,devops"'; commit_all teams
 branch feature/REP-340-x; ready_build REP-340 feature yes
