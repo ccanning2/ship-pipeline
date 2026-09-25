@@ -29,7 +29,7 @@ Also read `scripts/pipeline/pipeline.env` (URLs, `DEPLOY_MODE`, `PIPELINE_HAS_DE
 3. **Check it on `DEV_URL`**: it starts (health), and each endpoint or screen `impl-notes.md` names responds as described. This is a smoke check, not QA.
 4. Write `dev-check.md` (`Environment: dev`, `Commit:` = the `Dev:` sha, `Result: pass|fail`, what you checked).
    - fail → hand back to the engineer (Stage: build, Owner: engineer) with what failed;
-   - pass → `bash scripts/pipeline/promote.sh <TICKET> qa`, then hand off to qa (Stage: qa).
+   - pass → `bash scripts/pipeline/promote.sh <TICKET> qa`, then hand off to qa (Stage: qa, Owner: qa-tester).
 
 ## Mode: promote-staging
 `bash scripts/pipeline/promote.sh <TICKET> staging` dispatches the QA-tested sha to the staging environment; then hand off to the app-specialist (Stage: staging).

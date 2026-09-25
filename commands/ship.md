@@ -51,7 +51,7 @@ Later stages always run, whatever the start level: devops promotes to staging an
   4. Commit. Relay the `### For the owner` questions if there are any.
 - **Engineering builds, devops promotes.** The senior engineer never merges, pushes the staging branch or tags; devops does every promotion through `scripts/pipeline/promote.sh`. A failed dev check, a defect or an application-caused deploy failure goes back to the engineer.
 - **Cloud sessions** (`CLAUDE_CODE_REMOTE=true`): stay on the session branch; write the ticket id to `.claude/.pipeline-ticket`; open a draft PR to the base branch titled `<TICKET>: <ticket title>` right after intake.
-- **Rework limit.** A code change after the dev deploy always goes back through dev → qa → staging. After 3 rework loops, set Owner: owner, Stage: on-hold, and stop.
+- **Rework limit.** A code change after the dev deploy always goes back through dev → qa → staging. After 3 rework loops, set Owner: human, Stage: on-hold, and stop.
 - **No ticket, no promotion.** When the guard hook blocks a push or merge, follow the ways forward it prints. Never retry it in another form, force-push, or add the `infra` label yourself.
 - **Waiting on the owner.** Whenever a stage hands off to the human owner, stop and say exactly what's needed in one message. On resume, record the answer and continue.
 
@@ -93,7 +93,7 @@ Any defects → step 3 (a fix passes through dev and QA again). Continue only wh
 
 ## 7. Go-live — owner
 1. Propose the version: `bash scripts/pipeline/next-version.sh <TICKET>`.
-2. Set Stage: go-live, Owner: owner, and send ONE summary:
+2. Set Stage: go-live, Owner: human, and send ONE summary:
    - the ticket and its children, the sha and the proposed version;
    - test counts, defects found and verified, the sign-off;
    - the rollback plan (the previous version tag).

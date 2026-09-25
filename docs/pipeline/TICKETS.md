@@ -4,7 +4,7 @@
 - Every persona picks work up from a ticket and hands it on by updating that ticket.
 - The repo keeps a mirror (`docs/pipeline/<TICKET>/tickets.md`) so gates and CI can check state without calling the tracker.
 
-Config lives in `scripts/pipeline/pipeline.env`: `TRACKER` (`jira` | `linear` | `github` | `gitlab` | `connector`), `TRACKER_TEAM_KEY` (ticket ids are `<TEAM KEY>-<number>`, matched through `PIPELINE_TICKET_REGEX` by `scripts/pipeline/ticket-id.sh`, the one definition the hook, the gate and both workflows share), and the project capability `PIPELINE_HAS_DEPLOY_ENVS` (`yes` | `no`, defaulting to `yes`). The human product owner is referred to as **the owner** (Owner label `owner`).
+Config lives in `scripts/pipeline/pipeline.env`: `TRACKER` (`jira` | `linear` | `github` | `gitlab` | `connector`), `TRACKER_TEAM_KEY` (ticket ids are `<TEAM KEY>-<number>`, matched through `PIPELINE_TICKET_REGEX` by `scripts/pipeline/ticket-id.sh`, the one definition the hook, the gate and both workflows share), and the project capability `PIPELINE_HAS_DEPLOY_ENVS` (`yes` | `no`, defaulting to `yes`). The human product owner is referred to as **the owner** (Owner label `human`; an Owner label may not repeat a Stage label or a group name, since Linear keeps label names unique per team).
 
 ## Reading and changing tickets: `scripts/pipeline/tracker.sh`
 Every persona reaches the tracker through one CLI adapter, never through an MCP connector. `TRACKER` in `pipeline.env` picks the backend:
@@ -45,7 +45,7 @@ The full list of labels, fields and workflow statuses the pipeline needs is `scr
 | Label group | Labels |
 |---|---|
 | `Stage` | product, analysis, build, dev, qa, staging, go-live, production, done, on-hold |
-| `Owner` | product-owner, business-analyst, engineer, devops, qa, app-specialist, owner |
+| `Owner` | product-owner, business-analyst, engineer, devops, qa-tester, app-specialist, human |
 
 ## Handoff = one comment + label change
 Every handoff sets the parent's `Stage` and `Owner` labels and posts exactly one comment:

@@ -1,12 +1,12 @@
-2253469787 2635 .claude/agents/app-specialist.md
+882733550 2649 .claude/agents/app-specialist.md
 2935102432 4493 .claude/agents/business-analyst.md
-3674398396 5216 .claude/agents/devops.md
+2452055627 5234 .claude/agents/devops.md
 3305594461 4230 .claude/agents/product-owner.md
 954818845 2872 .claude/agents/qa-tester.md
 4004881528 3365 .claude/agents/senior-engineer.md
 2308987265 5811 docs/pipeline/BRANCHING.md
 1200187595 7077 docs/pipeline/CLOUD.md
-1235833654 7906 docs/pipeline/TICKETS.md
+2848347550 8022 docs/pipeline/TICKETS.md
 592984655 804 docs/pipeline/_templates/STATUS.md
 3471430242 186 docs/pipeline/_templates/clarifications.md
 3959809775 237 docs/pipeline/_templates/dev-check.md
@@ -39,5 +39,5 @@
 2317977370 7417 scripts/pipeline/promote.sh
 2540521653 1592 scripts/pipeline/status.sh
 1604845317 1428 scripts/pipeline/ticket-id.sh
-3224850920 1157 scripts/pipeline/tracker-schema.txt
+3688134313 1164 scripts/pipeline/tracker-schema.txt
 858035463 7705 scripts/pipeline/tracker.sh
