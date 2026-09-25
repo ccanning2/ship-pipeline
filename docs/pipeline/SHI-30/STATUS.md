@@ -11,7 +11,7 @@ Rework loops used: 0/3
 | 1 | intake | orchestrator | done | |
 | 2 | product | product-owner (plan) | skipped (upstream) | |
 | 3 | analysis | business-analyst ⇄ product-owner (plan) | skipped (upstream) | |
-| 4 | build | senior-engineer | in-progress | |
+| 4 | build | senior-engineer | done | 2118b36, 1256 tests pass |
 | 5 | dev | devops (merge → master, dev check) | skipped (team not selected) | |
 | 6 | qa | qa-tester | skipped (team not selected) | |
 | 7 | staging | app-specialist | skipped (team not selected) | |
@@ -19,10 +19,10 @@ Rework loops used: 0/3
 | 9 | production | devops (tag vX.Y.Z) | skipped (team not selected) | |
 
 ## Next action
-Build: senior-engineer works SHI-30 itself (engineering only, this ticket), then the build on the ticket branch goes to the owner.
+Finished: build done on feature/SHI-30-detect-tracker-team (2118b36). Dev onwards not selected; the build is with the owner.
 
 ## Waiting on the owner
-- nothing
+- the build on feature/SHI-30-detect-tracker-team (2118b36): review, verify, and merge or promote it yourself
 
 ## Open defect tickets
 - none
