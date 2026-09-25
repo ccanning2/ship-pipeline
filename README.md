@@ -19,13 +19,14 @@ Everything runs through CLIs (`gh`, `glab`, `acli`, the Linear API), not MCP con
 For a local checkout: `/plugin marketplace add /path/to/ship-pipeline`. To update: `/plugin update ship-pipeline`.
 
 ## Set up a project: `/pipeline-init`
-Run it in the repository. It asks everything up front, in at most three rounds, with detected answers already selected:
+Run it in the repository. It asks everything before installing, in at most three rounds (paused once for the sign-in), with detected answers already selected:
 
 | Question | Options |
 |---|---|
 | Git platform | GitHub, GitLab or Bitbucket, and a custom URL for a self-hosted host |
 | Branching | trunk `main`/`master`, staging branch `staging`/`stable` |
-| Ticketing platform | Jira, Linear, GitHub Issues or GitLab issues, its URL (Jira: the cloudId is looked up), and the ticket prefix (`ABC` for `ABC-12`) |
+| Ticketing platform | Jira (with its site; the cloudId is looked up), Linear, GitHub Issues or GitLab issues |
+| Team or project | for Linear and Jira, asked after the sign-in: the teams or projects your account can see, the detected one recommended. For GitHub or GitLab Issues, the ticket prefix (`ABC` for `ABC-12`) |
 | Deployment strategy | deploy on branch merges, explicit deploys, or no environments; with environments, their URLs |
 | Teams | any of Analysis, Engineering, DevOps, QA and Sign-off (see [Teams](#teams)) |
 | Set up now | install CLIs; create and protect branches; create the tracker's labels, fields and statuses; turn deploys on |
@@ -36,7 +37,7 @@ Then it runs unattended:
 3. Creates the branches and tracker workspace, and protects the branches.
 4. Fills in `docs/pipeline/CONTEXT.md`, and ends with the readiness check.
 
-**Your one manual step** is signing in, once, in a terminal: `bash scripts/pipeline/connect.sh login`. It runs the browser flows or asks for the tokens, and keeps tokens outside the repository.
+**Your one manual step** is signing in, once, in a terminal, right after the first round of questions: `/pipeline-init` gives you the exact `connect.sh ... login` command (later, `bash scripts/pipeline/connect.sh login`). It runs the browser flows or asks for the tokens, and keeps tokens outside the repository. For Linear and Jira the sign-in comes first so the next round can list your real teams or projects (`connect.sh teams`) instead of asking you for the key.
 
 Every answer is also an `init.sh` flag, so setup can be scripted: `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`, `--tracker`, `--tracker-url`, `--team-key`, `--deploy-mode`, `--no-deploy-envs`, `--*-url`, `--teams`, `--create-branches`. A re-run refreshes the tooling and never overwrites your project files.
 

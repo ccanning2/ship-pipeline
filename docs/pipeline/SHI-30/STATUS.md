@@ -11,7 +11,7 @@ Rework loops used: 0/3
 | 1 | intake | orchestrator | done | |
 | 2 | product | product-owner (plan) | skipped (upstream) | |
 | 3 | analysis | business-analyst ⇄ product-owner (plan) | skipped (upstream) | |
-| 4 | build | senior-engineer | pending | |
+| 4 | build | senior-engineer | in-progress | |
 | 5 | dev | devops (merge → master, dev check) | skipped (team not selected) | |
 | 6 | qa | qa-tester | skipped (team not selected) | |
 | 7 | staging | app-specialist | skipped (team not selected) | |
