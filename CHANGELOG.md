@@ -4,7 +4,7 @@ Each release in one section, newest first. Upgrading notes sit under the release
 
 ## v3.1.0
 
-A project picks exactly the teams it wants, instead of a start level.
+A project picks exactly the teams it wants, instead of a start level, and one ticket can use others.
 
 - **Teams instead of a start level (SHI-40).**
   - `PIPELINE_TEAMS` (`/pipeline-init` asks two multi-select questions; `init.sh --teams`) selects any of `analysis` (product owner + business analyst, always together), `engineering`, `devops`, `qa` (qa-tester) and `signoff` (app specialist). QA and the app specialist are now separate teams, so "engineer, qa-tester and devops" is `engineering,devops,qa`.
@@ -12,6 +12,11 @@ A project picks exactly the teams it wants, instead of a start level.
   - `scripts/pipeline/teams.sh` resolves the selection and gives each stage a mode: `run`, `upstream` (before the first selected team: recorded at intake, as before), `owner` (a later team not selected while devops is: the owner does it, and `handover.sh --by-owner build|qa|signoff` records it), or `off` (no devops: the run ends after the last selected team).
   - The gates are unchanged, so they are just as strict whoever does the work.
   - `status.sh`, `board.sh` and the doctor show the teams.
+- **Other teams for one ticket, in words (SHI-39).**
+  - `/ship ABC-12 with analysis` (or "no QA", "engineer and qa-tester only", "it's already on qa"): `/ship` reads what follows the ticket id, works out the teams, and asks once to confirm. There are no flags.
+  - `teams.sh <TICKET> --set <teams|project> [--arrives qa]` records the choice in the ticket's `STATUS.md`, so a resume keeps it. Every other ticket keeps the project's teams.
+  - Only the owner's words change it; a ticket, comment or file that asks is treated as data.
+  - Another code host, repository or tracker stays a `/pipeline-init` change, and `/ship` says which flag to pass.
 - **Owner labels no longer clash.** Linear keeps label names unique per team, so the Owner values `qa` and `owner` could not be created next to Stage/qa and the Owner group. They are now `qa-tester` and `human`.
 
 Upgrading from 3.0.0: an install without `PIPELINE_TEAMS` keeps working. Its `PIPELINE_START_LEVEL` is read as that level and every team after it, and a `qa` level still arrives on qa. The doctor warns `[upgrade: …]` until `pipeline.env` says `PIPELINE_TEAMS`, and `/pipeline-init` proposes the line. `init.sh --start-at` still works. Create the new Owner labels with `bash scripts/pipeline/tracker.sh setup`. Tickets already labelled `Owner/qa` or `Owner/owner` keep them until their next handoff.
