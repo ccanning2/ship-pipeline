@@ -56,7 +56,7 @@ Declared in `scripts/pipeline/pipeline.env`; both default to `yes` and are off o
   wait, no staging workflow dispatch and no smoke call. `.github/workflows/deploy.yml` and
   `scripts/deploy/*` stay in the repo as the templates consumers receive; this project does not use
   them to release itself.
-- `PIPELINE_START_LEVEL="analysis"` — tickets start with the product owner and business analyst.
+- `PIPELINE_TEAMS="analysis,engineering,devops,qa,signoff"` — every team runs; tickets start with the product owner and business analyst.
   Release notes live in `CHANGELOG.md` and on the version tag.
 
 ## Engineering rules

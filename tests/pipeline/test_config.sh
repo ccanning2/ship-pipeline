@@ -148,9 +148,9 @@ if [ "$A" = agents ]; then
   # release notes live in CHANGELOG.md, one section per release; plugin.json carries the newest
   CL=CHANGELOG.md
   grep -q 'behaves exactly as it did before' "$CL" && ok "AC-34: the changelog states existing installs are unaffected" || bad "AC-34: the changelog states existing installs are unaffected"
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="3.0.0" else 1)' \
-    && ok "plugin.json version is 3.0.0" || bad "plugin.json version is 3.0.0"
-  for v in v3.0.0 v2.0.0 v1.1.0 v1.0.0; do assert_eq "exactly one '## $v' changelog heading" "1" "$(grep -c "^## $v" "$CL" || true)"; done
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="3.1.0" else 1)' \
+    && ok "plugin.json version is 3.1.0" || bad "plugin.json version is 3.1.0"
+  for v in v3.1.0 v3.0.0 v2.0.0 v1.1.0 v1.0.0; do assert_eq "exactly one '## $v' changelog heading" "1" "$(grep -c "^## $v" "$CL" || true)"; done
   for u in "Upgrading from v2" "Upgrading from v1.1.0" "Upgrading from v1.0.0"; do grep -q "^### $u" "$CL" && ok "changelog: $u" || bad "changelog: $u"; done
   assert_eq "no 'Unreleased' changelog heading" "0" "$(grep -c '^## Unreleased' "$CL" || true)"
   grep -q '^## Release notes\|^### v[0-9]' README.md && bad "README carries no release notes (they are in CHANGELOG.md)" || ok "README carries no release notes (they are in CHANGELOG.md)"
@@ -167,7 +167,7 @@ if [ "$A" = agents ]; then
   assert_eq "AC-36: the SHI-5 open question is gone from CONTEXT.md" "0" "$(grep -c 'marketing-specialist persona should be opt-out' docs/pipeline/CONTEXT.md || true)"
   assert_eq "AC-36: no reference to the non-existent template/agents path" "0" "$(grep -rc 'template/agents' docs/pipeline/CONTEXT.md RELEASE_CHECKLIST.md | awk -F: '{s+=$2} END {print s+0}')"
 fi
-for f in scripts/pipeline/{gate,check-signoff,promote,intake,handover,board,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh scripts/pipeline/lib/*.sh $( [ "$A" = agents ] && echo scripts/pipeline/adapters/*.sh); do
+for f in scripts/pipeline/{gate,check-signoff,promote,intake,handover,teams,board,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh scripts/pipeline/lib/*.sh $( [ "$A" = agents ] && echo scripts/pipeline/adapters/*.sh); do
   case "$f" in */lib/*) bash -n "$f" && ok "$f syntax (sourced, not run)" || bad "$f syntax";; *) [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax";; esac
 done
 # one adapter per platform, each marked with what it is (the doctor matches it against pipeline.env)

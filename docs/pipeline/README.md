@@ -1,6 +1,6 @@
 # Delivery pipeline (installed by the ship-pipeline plugin)
 
-Run `/ship <TICKET>` on a tracker ticket that holds the requirement. It starts at this project's start level (`PIPELINE_START_LEVEL`: analysis, engineering, devops or qa). Personas hand off through the ticket (`TICKETS.md`); code promotes through branches and tags (`BRANCHING.md`); all project knowledge lives in `CONTEXT.md` and `RELEASE_CHECKLIST.md`.
+Run `/ship <TICKET>` on a tracker ticket that holds the requirement. It runs with this project's teams (`PIPELINE_TEAMS`: analysis, engineering, devops, qa, signoff; `scripts/pipeline/teams.sh` resolves them). Personas hand off through the ticket (`TICKETS.md`); code promotes through branches and tags (`BRANCHING.md`); all project knowledge lives in `CONTEXT.md` and `RELEASE_CHECKLIST.md`.
 
 | Persona | Model | Writes | Responsibility |
 |---|---|---|---|

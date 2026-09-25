@@ -31,12 +31,12 @@ Put free text in single quotes; write a quote inside it as `'\''`. The product o
 ## Parent ticket
 `/ship <TICKET>` takes only the ticket id. The parent ticket must already exist and contain the owner's requirement: title, description, and optionally attachments or links.
 
-**Start level** (`PIPELINE_START_LEVEL`). A project whose start level is `engineering`, `devops` or `qa` receives tickets that another team already took through the earlier stages:
+**Teams** (`PIPELINE_TEAMS`, resolved by `scripts/pipeline/teams.sh`). A project selects which teams run: `analysis` (product owner + business analyst), `engineering`, `devops`, `qa` (qa-tester) and `signoff` (app specialist); `qa` and `signoff` bring `devops`. A ticket arrives at the first selected team, already taken through the earlier stages by another team:
 - `engineering`: analysed; the description is the approved requirement, and the `eng` children (or the ticket itself) are the work.
 - `devops`: built, on the ticket's branch.
-- `qa`: already on qa.
+- `qa` (only when the owner says the build is already on qa): already on qa.
 
-At intake, `scripts/pipeline/handover.sh` records that upstream work in the ticket folder, as approved product and requirements records, `eng` rows, implementation notes, and the dev/qa records. The gates then check the same records at every level.
+At intake, `scripts/pipeline/handover.sh` records that upstream work in the ticket folder, as approved product and requirements records, `eng` rows, implementation notes, and the dev/qa records. A later stage whose team is not selected is the owner's (`Owner: human`): with `devops` selected, `/ship` waits for them and records their work with `handover.sh --by-owner build|qa|signoff`; without it, the run ends after the last selected team. The gates check the same records whoever did the work.
 
 Two label groups track the parent. Each group allows one label at a time, so the labels always show where the ticket is and who holds it. They must be **single-select**: in Linear, create each as a label *group* (Settings → Labels → New group) and add its labels inside it; in Jira, use a single-select custom field. Plain labels would let a ticket carry two stages at once.
 

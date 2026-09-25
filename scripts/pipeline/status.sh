@@ -18,7 +18,7 @@ capability_note() { # <raw value> <what turning it off disables>
   esac
 }
 echo "Pipeline gates for $ticket"
-printf 'Start level: %s\n' "$(printf '%s' "${PIPELINE_START_LEVEL:-analysis}" | tr '[:upper:]' '[:lower:]')"
+printf 'Teams: %s (arrives at %s)\n' "$(bash "$here/teams.sh" "$ticket")" "$(bash "$here/teams.sh" "$ticket" --entry)"
 printf 'Project capabilities: deploy-envs=%s\n' \
   "$(capability_note "${PIPELINE_HAS_DEPLOY_ENVS:-}" 'deploy, dispatch and smoke steps are skipped; promotion still runs')"
 next=""

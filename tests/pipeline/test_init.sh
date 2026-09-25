@@ -35,7 +35,7 @@ assert_contains "item 9: PIPELINE_REMOTE defaults to origin" "$(cat "$P/scripts/
 # the plugin's test suite stays in the plugin: an install is quick and ships no tests
 [ -e "$P/tests" ] && bad "no test suite is installed into the project" || ok "no test suite is installed into the project"
 grep -q 'tests/pipeline' "$P/scripts/pipeline/.install-manifest" && bad "the manifest records no test file" || ok "the manifest records no test file"
-assert_contains "the answers are reported" "$out" "host: github  tracker: linear  deploy-mode: merge  start-at: analysis"
+assert_contains "the answers are reported" "$out" "host: github  tracker: linear  deploy-mode: merge  teams: analysis,engineering,devops,qa,signoff"
 (cd "$P" && git add -A && git -c user.email=a@a -c user.name=a commit -qm install)
 
 # project-owned files are never overwritten; tooling is refreshed
@@ -114,7 +114,7 @@ assert_eq "AC-27: second run changes nothing" "$before6" "$after6"
 # AC-28: /pipeline-init asks the two capability questions
 I="$REPO_SRC/commands/pipeline-init.md"
 for s in "--no-deploy-envs" "deployable environments" "CONTEXT.md" \
-         "AskUserQuestion" "Start level" "--start-at" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
+         "AskUserQuestion" "Teams: plan and build" "Teams: ship" "--teams" "teams.sh --normalize" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
          "--git-host" "--git-url" "--tracker" "--tracker-url" "--deploy-mode" "--create-branches" "connect.sh login" "tracker.sh setup"; do
   grep -qF -e "$s" "$I" && ok "AC-28: /pipeline-init mentions $s" || bad "AC-28: /pipeline-init mentions $s"
 done
@@ -370,11 +370,24 @@ grep -q 'market-researcher' "$Pr/scripts/pipeline/.install-manifest" && bad "3.0
 out=$(bash "$INIT" --project-dir "$Pr" --no-marketing 2>&1); assert_exit "3.0: --no-marketing is no longer a flag" 1 $? "$out"
 [ -f "$Pr/.claude/agents/devops.md" ] && ok "3.0: installs the devops persona" || bad "3.0: installs the devops persona"
 [ -x "$Pr/scripts/pipeline/handover.sh" ] && ok "3.0: installs handover.sh" || bad "3.0: installs handover.sh"
-assert_contains "3.0: the start level defaults to analysis" "$(cat "$Pr/scripts/pipeline/pipeline.env")" 'PIPELINE_START_LEVEL="analysis"'
-Ps="$(mkp)"; out=$(bash "$INIT" --project-dir "$Ps" --start-at Engineering 2>&1); assert_exit "3.0: --start-at engineering" 0 $? "$out"
-assert_contains "3.0: the start level is recorded" "$(cat "$Ps/scripts/pipeline/pipeline.env")" 'PIPELINE_START_LEVEL="engineering"'
-Ps2="$(mkp)"; out=$(bash "$INIT" --project-dir "$Ps2" --start-at marketing 2>&1); assert_exit "3.0: an unknown start level is refused" 1 $? "$out"
-assert_eq "3.0: and creates nothing" "" "$(ls -A "$Ps2" | grep -v '^\.git$' || true)"
+assert_contains "3.1: every team by default" "$(cat "$Pr/scripts/pipeline/pipeline.env")" 'PIPELINE_TEAMS="analysis,engineering,devops,qa,signoff"'
+[ -x "$Pr/scripts/pipeline/teams.sh" ] && ok "3.1: installs teams.sh" || bad "3.1: installs teams.sh"
+Ps="$(mkp)"; out=$(bash "$INIT" --project-dir "$Ps" --start-at Engineering 2>&1); assert_exit "3.1: --start-at still works" 0 $? "$out"
+assert_contains "3.1: as that level and every team after it" "$(cat "$Ps/scripts/pipeline/pipeline.env")" 'PIPELINE_TEAMS="engineering,devops,qa,signoff"'
+Ps="$(mkp)"; out=$(bash "$INIT" --project-dir "$Ps" --teams 'engineer, qa-tester' 2>&1); assert_exit "3.1: --teams" 0 $? "$out"
+assert_contains "3.1: the teams are recorded, completed" "$(cat "$Ps/scripts/pipeline/pipeline.env")" 'PIPELINE_TEAMS="engineering,devops,qa"'
+assert_contains "3.1: and the added team is reported" "$out" "teams: added devops"
+out=$(bash "$INIT" --project-dir "$Ps" 2>&1); assert_exit "3.1: a re-run" 0 $? "$out"
+assert_contains "3.1: keeps the project's teams" "$out" "teams: engineering,devops,qa"
+out=$(bash "$INIT" --project-dir "$Ps" --teams all 2>&1)
+assert_contains "3.1: other teams on a re-run name the line to change" "$out" 'set PIPELINE_TEAMS="analysis,engineering,devops,qa,signoff" in scripts/pipeline/pipeline.env'
+Ps="$(mkp)"; bash "$INIT" --project-dir "$Ps" >/dev/null 2>&1; sed -i 's/^PIPELINE_TEAMS=.*$/PIPELINE_START_LEVEL="devops"/' "$Ps/scripts/pipeline/pipeline.env"
+out=$(bash "$INIT" --project-dir "$Ps" 2>&1); assert_contains "3.1: an install before 3.1.0 keeps its start level's teams" "$out" "teams: devops,qa,signoff"
+assert_contains "3.1: and is told to add PIPELINE_TEAMS" "$out" 'add PIPELINE_TEAMS="devops,qa,signoff"'
+for badt in "--start-at marketing" "--teams marketing" "--teams ,"; do
+  Ps2="$(mkp)"; out=$(bash "$INIT" --project-dir "$Ps2" $badt 2>&1); assert_exit "3.1: '$badt' is refused" 1 $? "$out"
+  assert_eq "3.1: '$badt' creates nothing" "" "$(ls -A "$Ps2" | grep -v '^\.git$' || true)"
+done
 
 # profile install
 P2="$(mktemp -d)"; git -C "$P2" init -q -b master; git -C "$P2" -c user.email=a@a -c user.name=a commit -q --allow-empty -m init

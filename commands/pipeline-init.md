@@ -1,6 +1,6 @@
 ---
 description: Install or update the ship pipeline in the current project. Asks every question up front, then installs, connects the code host and tracker CLIs, sets up branches, tracker labels/fields/statuses and CI in one pass (never overwrites your project-specific files).
-argument-hint: [--git-host H] [--git-url URL] [--base-branch B] [--staging-branch B] [--tracker T] [--tracker-url URL] [--team-key KEY] [--no-deploy-envs] [--deploy-mode merge|explicit] [--start-at analysis|engineering|devops|qa]
+argument-hint: [--git-host H] [--git-url URL] [--base-branch B] [--staging-branch B] [--tracker T] [--tracker-url URL] [--team-key KEY] [--no-deploy-envs] [--deploy-mode merge|explicit] [--teams analysis,engineering,devops,qa,signoff]
 ---
 The goal is that the owner answers questions once, at the start, and does nothing else except the one sign-in step
 that only they can do. Work fast: detect before asking, ask everything in one go, run nothing slow. The plugin's test
@@ -22,18 +22,13 @@ Use `AskUserQuestion` (up to four questions per call), in at most three calls, a
 3. **Branching strategy (staging branch):** `staging` / `stable`. Pushing here deploys qa.
 4. **Ticketing platform:** Jira / Linear / GitHub Issues / GitLab Issues. Other: name it. `/pipeline-init` then checks for a CLI or API for it; if none fits, it falls back to an MCP connector (`--tracker connector`).
 
-**Call 2** (four questions)
+**Call 2** (three questions)
 5. **Tracker location and ticket prefix.** One question whose options are the detected guesses, for example "Jira at https://acme.atlassian.net, prefix ABC". Other: the owner types `<url> <PREFIX>`. The URL is only needed for Jira (the site) and Linear (the workspace URL, for links); for GitHub or GitLab Issues it is the repository itself. The prefix is the searchString: `ABC` for tickets like `ABC-12`, which is the Jira project key, the Linear team key, or a prefix for issue numbers.
 6. **Deployment strategy:** three options:
    - "Deploys on branch merges": merging the trunk deploys dev, pushing the staging branch deploys qa, and a tag deploys production.
    - "Explicit deploys": nothing deploys on a push, and each environment is deployed by `promote.sh` after its gate.
    - "No deployable environments".
-7. **Start level:** where this project's personas start. The teams before it work upstream, and tickets arrive with their work done:
-   - **Analysis** (Product Owner & Business Analyst): tickets arrive as requirements.
-   - **Engineering** (Senior Engineer): tickets arrive analysed, ready for dev.
-   - **DevOps** (DevOps): tickets arrive built, ready to promote.
-   - **Quality Assurance** (QA & App Specialist): tickets arrive already deployed to qa.
-8. **Consent** (multiSelect, four options, the first three recommended): "Set up now":
+7. **Consent** (multiSelect, four options, the first three recommended): "Set up now":
    - **Install CLIs:** install the missing ones (gh/glab/acli/jq).
    - **Branches:** create the trunk and staging branches if the remote lacks them, and protect both so the Pipeline Gate is required.
    - **Tracker:** create the labels, custom fields and statuses.
@@ -41,8 +36,18 @@ Use `AskUserQuestion` (up to four questions per call), in at most three calls, a
 
 This one answer is the owner's approval for every setup action below. Do only what they ticked, and ask nothing further.
 
-**Call 3** (only when the project has environments)
-9. **Environment URLs.** Offer the detected or guessed pattern (`https://dev.<app>…`). Other: the owner types dev, qa, staging and production URLs and the health path, space-separated.
+**Call 3**
+The teams are which personas run `/ship` here. Tickets arrive at the first team ticked, with the earlier work done upstream. With DevOps ticked, a later team left out hands its stage to the owner and the run goes on; without DevOps, the run ends after the last team ticked and hands the ticket to the owner. Recommend the teams in an existing `pipeline.env` (`bash scripts/pipeline/teams.sh`), else all of them.
+8. **Teams: plan and build** (multiSelect):
+   - **Analysis** (Product Owner & Business Analyst, always together): tickets arrive as requirements.
+   - **Engineering** (Senior Engineer): builds the code and its tests.
+9. **Teams: ship** (multiSelect):
+   - **DevOps**: merges and promotes the build to dev, qa, staging and production.
+   - **QA** (QA Tester): tests the build on qa. Brings DevOps.
+   - **Sign-off** (App Specialist): checks it on staging against the release checklist. Brings DevOps.
+
+   Before installing, pass the ticked teams through `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pipeline/teams.sh" --normalize '<teams>'` and tell the owner in one line about any team it added (QA or Sign-off without DevOps). No team ticked in either question: ask 8 and 9 again.
+10. **Environment URLs** (only when the project has environments). Offer the detected or guessed pattern (`https://dev.<app>…`). Other: the owner types dev, qa, staging and production URLs and the health path, space-separated.
 
 If a Jira URL was given, resolve its cloudId now: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pipeline/connect.sh" cloud-id <url>`.
 
@@ -50,7 +55,7 @@ If a Jira URL was given, resolve its cloudId now: `bash "${CLAUDE_PLUGIN_ROOT}/s
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh"` from the repository root with every answer as a flag:
 - `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`
 - `--tracker`, `--tracker-url`, `--tracker-cloud-id`, `--team-key`
-- `--no-deploy-envs` or `--deploy-mode merge|explicit`, `--start-at <level>`
+- `--no-deploy-envs` or `--deploy-mode merge|explicit`, `--teams <the teams ticked in 8 and 9, comma-separated>`
 - `--dev-url --qa-url --staging-url --production-url --health-path`
 - `--create-branches` when "Branches" was ticked
 
@@ -82,14 +87,14 @@ Then relay the output:
   - environments, architecture rules and high-risk areas;
   - brand and audience, regulatory notes.
 
-  Record the answers from step 2 in prose (host, branches, tracker, deploy strategy, start level). Ask only what the repository cannot tell you, and do it in the step-2 questions if you can foresee it.
+  Record the answers from step 2 in prose (host, branches, tracker, deploy strategy, teams). Ask only what the repository cannot tell you, and do it in the step-2 questions if you can foresee it.
 - If `RELEASE_CHECKLIST.md` was just created, tailor it to this project (keep the Tickets, Security, Data and Infrastructure sections).
 
 ## 7. Upgrading an existing install
 Project-owned files are never rewritten, so an older install keeps its old `pipeline.env` and CI files.
 1. Run `bash scripts/pipeline/doctor.sh --offline` and take each finding marked `[upgrade: …]`:
    - **CI files:** show the diff between the owner's file and the plugin template, rendered with their branch names, and propose only the hunks that fix the finding. Their file may carry deliberate changes.
-   - **`pipeline.env`:** propose the exact lines, including any new keys (`GIT_HOST`, `GIT_HOST_URL`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `DEPLOY_MODE`) that match the step-2 answers.
+   - **`pipeline.env`:** propose the exact lines, including any new keys (`GIT_HOST`, `GIT_HOST_URL`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `DEPLOY_MODE`, `PIPELINE_TEAMS` in place of `PIPELINE_START_LEVEL`) that match the step-2 answers.
 2. Apply each change only after the owner says yes, then re-run the doctor. Anything they decline stays as a warning.
 
 ## 8. Check and commit
@@ -98,7 +103,7 @@ Project-owned files are never rewritten, so an older install keeps its old `pipe
 
 Reply with only:
 - **What was done:**
-  - the answers used (host, URL, branches, tracker, prefix, deploy strategy, start level);
+  - the answers used (host, URL, branches, tracker, prefix, deploy strategy, teams);
   - files created, updated or kept;
   - CLIs installed and signed in;
   - tracker items created or mapped;

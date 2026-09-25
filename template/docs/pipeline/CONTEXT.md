@@ -26,7 +26,7 @@ The personas are generic; THIS file is what makes them behave correctly for this
 `scripts/pipeline/pipeline.env` is what the tooling reads; this section is what the personas read.
 - Code host and tracker: <GitHub | GitLab | Bitbucket>, <Jira | Linear | GitHub Issues | GitLab issues>, ticket prefix <KEY>.
 - Deploy strategy: <deploys on branch merges | explicit deploys>.
-- Start level: <analysis | engineering | devops | qa>: where /ship picks tickets up; the teams before it work upstream.
+- Teams: <analysis, engineering, devops, qa, signoff: the ones selected>: who runs /ship here; tickets arrive at the first, and a later team left out is the owner's.
 - `PIPELINE_HAS_DEPLOY_ENVS`: <yes | no>. <yes = hosts, an image and a deploy workflow exist. no = there
   is nothing to deploy to: `promote.sh` skips the deploy wait, the staging dispatch and smoke, and an
   "environment" is the ref people install from. The branch/tag promotion model is unchanged either way.>
