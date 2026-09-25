@@ -5,7 +5,7 @@ ticket="$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')"
 [ -n "$ticket" ] || { echo "usage: status.sh <TICKET> [REF]" >&2; exit 1; }
 here="$(dirname "$0")"
 # Project capabilities come from pipeline.env only (never the environment), same rule as gate.sh.
-unset PIPELINE_HAS_DEPLOY_ENVS PIPELINE_HAS_MARKETING
+unset PIPELINE_HAS_DEPLOY_ENVS
 # shellcheck disable=SC1091
 [ -f "$here/pipeline.env" ] && source "$here/pipeline.env"
 capability_note() { # <raw value> <what turning it off disables>
@@ -18,9 +18,9 @@ capability_note() { # <raw value> <what turning it off disables>
   esac
 }
 echo "Pipeline gates for $ticket"
-printf 'Project capabilities: deploy-envs=%s marketing=%s\n' \
-  "$(capability_note "${PIPELINE_HAS_DEPLOY_ENVS:-}" 'deploy, dispatch and smoke steps are skipped; promotion still runs')" \
-  "$(capability_note "${PIPELINE_HAS_MARKETING:-}" 'marketing-specialist and the production marketing requirement are skipped')"
+printf 'Teams: %s (arrives at %s)\n' "$(bash "$here/teams.sh" "$ticket")" "$(bash "$here/teams.sh" "$ticket" --entry)"
+printf 'Project capabilities: deploy-envs=%s\n' \
+  "$(capability_note "${PIPELINE_HAS_DEPLOY_ENVS:-}" 'deploy, dispatch and smoke steps are skipped; promotion still runs')"
 next=""
 for s in build dev qa staging production; do
   if out="$(bash "$here/gate.sh" "$ticket" "$s" ${2:+"$2"} 2>&1)"; then

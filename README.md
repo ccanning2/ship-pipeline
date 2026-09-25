@@ -1,99 +1,155 @@
-# ship-pipeline — a Claude Code plugin
+# ship-pipeline
 
-One `/ship <TICKET>` command runs the same delivery workflow in every project you work on:
+A Claude Code plugin that runs one delivery process in every project: **`/ship <TICKET>`** takes a tracker ticket from requirement to a tagged production release. Personas do the work, tickets carry the handoffs, and scripts gate every promotion.
 
 ```
-Linear/Jira ticket ─► market-researcher ─► product-owner ─► business-analyst ─► senior-engineer
-   ─► merge to master = DEV (build image :sha, engineer self-check)
-   ─► push to staging branch = QA (qa-tester; defect tickets → engineer)
-   ─► dispatch same sha = STAGING (app-specialist + marketing; defect tickets → engineer)
-   ─► owner: go / no-go
-   ─► tag vX.Y.Z = PRODUCTION (image re-tagged :vX.Y.Z; rollback on failure)
+ticket ─► product owner ─► business analyst ─► senior engineer ─► devops: merge = DEV ─► qa-tester on QA
+       ─► devops: same sha = STAGING ─► app specialist sign-off ─► owner: go ─► devops: tag vX.Y.Z = PRODUCTION
 ```
 
-The seven personas are **generic**. Everything project-specific lives in two files in the project: `docs/pipeline/CONTEXT.md` (product, stack, test commands, rules, high-risk areas, brand, competitors) and `RELEASE_CHECKLIST.md`.
+**Supported hosts:** GitHub, GitLab (including self-managed) and Bitbucket Cloud, each with its own CI.
+**Trackers:** Jira, Linear, GitHub Issues and GitLab issues, or any tracker with an MCP connector as a fallback.
+Everything runs through CLIs (`gh`, `glab`, `acli`, the Linear API), not MCP connectors.
 
-## Install the plugin (once per machine)
-
-Push this folder to a git repo (e.g. `github.com/<you>/ship-pipeline`), then in Claude Code:
-
+## Install (once per machine)
 ```
 /plugin marketplace add <you>/ship-pipeline
 /plugin install ship-pipeline@chris-plugins
 ```
+For a local checkout: `/plugin marketplace add /path/to/ship-pipeline`. To update: `/plugin update ship-pipeline`.
 
-(For a local checkout: `/plugin marketplace add /path/to/ship-pipeline`.) Update later with `/plugin update ship-pipeline`.
+## Set up a project: `/pipeline-init`
+Run it in the repository. It asks everything up front, in at most three rounds, with detected answers already selected:
 
-## Set up a project (once per repo, new or old)
-
-```
-cd ~/code/<project> && claude
-/pipeline-init --name <project> --team-key <LINEAR-KEY>
-```
-Optional: `--profile reputabill` seeds CONTEXT.md and the checklist from a saved profile.
-Optional: `--no-deploy-envs` and `--no-marketing` declare the project's shape (see **Project capabilities** below).
-
-`/pipeline-init` scaffolds into the repo (and never overwrites your project-owned files on re-runs):
-
-| Project-owned (created once, yours) | Tooling (refreshed each `/pipeline-init`) |
+| Question | Options |
 |---|---|
-| `docs/pipeline/CONTEXT.md`, `RELEASE_CHECKLIST.md` | `scripts/pipeline/*.sh`, `scripts/pipeline/hooks/*` |
-| `scripts/pipeline/pipeline.env` (URLs, branches, tracker) | `.claude/agents/*` (the personas) |
-| `.github/workflows/deploy.yml` (unless `--no-deploy-envs`), `pipeline-gate.yml` | `docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md`, `_templates/` |
-| `scripts/deploy/{deploy,rollback,smoke}.sh` (unless `--no-deploy-envs`), `.claude/settings.json` | `tests/pipeline/*` |
+| Git platform | GitHub, GitLab or Bitbucket, and a custom URL for a self-hosted host |
+| Branching | trunk `main`/`master`, staging branch `staging`/`stable` |
+| Ticketing platform | Jira, Linear, GitHub Issues or GitLab issues, its URL (Jira: the cloudId is looked up), and the ticket prefix (`ABC` for `ABC-12`) |
+| Deployment strategy | deploy on branch merges, explicit deploys, or no environments; with environments, their URLs |
+| Teams | any of Analysis, Engineering, DevOps, QA and Sign-off (see [Teams](#teams)) |
+| Set up now | install CLIs; create and protect branches; create the tracker's labels, fields and statuses; turn deploys on |
 
-The command then fills in CONTEXT.md from what it can read in the repo and asks you for the rest. Commit the result.
+Then it runs unattended:
+1. Installs the tooling in one `scripts/init.sh` run. That takes seconds: only the adapters for your platforms, and no test suite.
+2. Installs the missing CLIs.
+3. Creates the branches and tracker workspace, and protects the branches.
+4. Fills in `docs/pipeline/CONTEXT.md`, and ends with the readiness check.
 
-### Project capabilities
+**Your one manual step** is signing in, once, in a terminal: `bash scripts/pipeline/connect.sh login`. It runs the browser flows or asks for the tokens, and keeps tokens outside the repository.
 
-Not every project has hosts, and not every project has a marketing function. Two optional keys in `scripts/pipeline/pipeline.env` say so:
-
-| Key | Default | `"no"` means |
-|---|---|---|
-| `PIPELINE_HAS_DEPLOY_ENVS` | `yes` | `/pipeline-init` creates no `scripts/deploy/*` and no `deploy.yml`; `promote.sh` performs no deploy wait, no staging workflow dispatch and no smoke call, and says so. The branch/tag promotion model, the gates, sign-off and go-live are unchanged. |
-| `PIPELINE_HAS_MARKETING` | `yes` | The `marketing-specialist` persona is never invoked and the production gate never asks for launch content. `User-facing: yes\|no` goes back to meaning only "does this change affect users". |
-
-A capability is off **only** when the value is exactly `no` (trimmed and lowercased). Absent, empty, `false`, `0` or a typo all resolve to `yes` — the stricter, original behaviour — so **an existing install that never adds these keys behaves exactly as it did before**. They are read from `pipeline.env` alone, never from the environment, so there is no per-ticket override. `bash scripts/pipeline/status.sh <TICKET>` prints the resolved values. `/pipeline-init` never deletes deploy files from an existing install: it reports them as kept and tells you to set the key by hand. Re-running it over a project whose `pipeline.env` already says `PIPELINE_HAS_DEPLOY_ENVS="no"` refreshes the tooling without recreating `scripts/deploy/*` or `deploy.yml` — the declared shape is read from the file, so the flag does not have to be repeated.
-
-Then, per project:
-1. Branches `master` (protected) and `staging`; make **Pipeline Gate** a required check on both.
-2. GitHub environments `dev`, `qa`, `staging`, `production` with secret `DEPLOY_SSH_KEY` and vars `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `APP_URL`.
-3. Linear (or Jira) label groups `Stage` and `Owner` as listed in `docs/pipeline/TICKETS.md`; enable the tracker connector in Claude (cloud) or `claude mcp add --scope project` (local).
-4. Hosts with a `docker-compose.yml` whose app service uses `image: ${IMAGE}` at `DEPLOY_PATH` (the engineer adapts `scripts/deploy/*` and `deploy.yml` on first use).
+Every answer is also an `init.sh` flag, so setup can be scripted: `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`, `--tracker`, `--tracker-url`, `--team-key`, `--deploy-mode`, `--no-deploy-envs`, `--*-url`, `--teams`, `--create-branches`. A re-run refreshes the tooling and never overwrites your project files.
 
 ## Use
+```
+/ship ABC-142                 # start or resume a ticket; stops whenever it needs you (questions, go-live)
+/ship ABC-142 with analysis   # this ticket only: other teams than the project's, in your own words
+/pipeline-status ABC-142      # where it is, what it waits on
+/pipeline-doctor              # is this repository ready? (seconds, read-only)
+```
+It runs from the terminal, the Desktop app, or the iOS app as a cloud session (`docs/pipeline/CLOUD.md`).
+
+**One ticket, other teams.** Say what you want after the ticket id: "with analysis" when a ticket needs the product owner and business analyst in a project that has them off, "no QA", "engineer and qa-tester only", or "it's already on qa". There are no flags to remember. `/ship` works out the teams, asks you once to confirm, and records them in the ticket's `STATUS.md` (`teams.sh <TICKET> --set`), so a resume keeps them. On a ticket already under way, the change applies from the current stage on. Another repository or tracker is the project's setup, not a ticket's, so `/ship` sends you to `/pipeline-init` for it.
+
+**While it runs you see a board, not the personas' reasoning.** After each stage `/ship` shows only this:
 
 ```
-/ship REP-142            # start or resume a ticket
-/pipeline-status REP-142 # where is it
+ABC-142  Add a health endpoint             teams: analysis,engineering,devops,qa,signoff
+────────────────────────────────────────────────────────────────────────────────
+ ✓ product     product-owner
+ ✓ analysis    business-analyst/product-owner
+ ▶ build       senior-engineer                 ABC-143: health route + test
+ · dev         devops
+ · qa          qa-tester
+ · staging     app-specialist
+ · go-live     the owner
+ · production  devops
+────────────────────────────────────────────────────────────────────────────────
+ dev -  qa -  staging -  prod -    open defects: 0
+ last handoffs
+   14:02  business-analyst → senior-engineer: 2 eng tickets ready
 ```
-Runs from the terminal, the Desktop app, or the iOS app as a cloud session (`docs/pipeline/CLOUD.md`). The run stops whenever a persona needs you (questions, a research "drop", go-live) — answer and run `/ship` again.
 
-## Layout of this repo
+To watch it live:
+- Run `/ship` inside **tmux** and the board opens in a side pane that redraws itself.
+- Anywhere else, run `bash scripts/pipeline/board.sh ABC-142 --watch` in a second terminal.
+- `board.sh --all` lists every ticket in flight.
+
+The detail stays in `docs/pipeline/ABC-142/` and on the tracker ticket.
+
+**Work without a ticket** (the install commit, a CI change, a dependency bump): open a PR/MR, and a human marks it infra so the Pipeline Gate skips the ticket requirement. On GitHub and GitLab that is the `infra` label; on Bitbucket it is a source branch named `infra/…`. Agents can never mark it infra themselves.
+
+## How it works
+
+### Teams
+| Team | Personas | Mode | Produces |
+|---|---|---|---|
+| **Analysis** | `product-owner`, `business-analyst` (always together) | plan mode (read-only): they return a plan and `/ship` applies it | `product.md`, `requirements.md`, `story`/`eng` tickets |
+| **Engineering** | `senior-engineer` | builds; never deploys | code, tests, `impl-notes.md`, then a handoff to devops |
+| **DevOps** | `devops` | promotes; never edits application code | merge to dev, `dev-check.md`, the qa/staging/production promotions, rollback, CI/CD and infra |
+| **QA** | `qa-tester` | tests on qa; needs DevOps | `qa-report.md`, `defect` tickets back to the engineer |
+| **Sign-off** | `app-specialist` | checks staging against the release checklist; needs DevOps | `signoff.md`, `defect` tickets back to the engineer |
+
+`PIPELINE_TEAMS` selects the teams, for example `"engineering,devops,qa"` for an engineer, a QA tester and DevOps overseeing the promotions. Tickets arrive at the first selected team: at `engineering` analysed, at `devops` built. `scripts/pipeline/handover.sh` records the upstream work at intake, so the gates stay just as strict. A later team you leave out is yours: with DevOps selected, `/ship` hands you that stage (the build, the QA pass or the sign-off), waits, and records it; without DevOps, the run ends after the last selected team. `bash scripts/pipeline/teams.sh <TICKET> --stages` shows who runs each stage.
+
+### Stages, gates and the release model
+One sha travels three refs, and every environment runs the image built once on the way into dev.
+
+| Stage | Who | Ref | Gate (`scripts/pipeline/gate.sh`) |
+|---|---|---|---|
+| build | engineer | ticket branch | product and requirements approved; `eng` tickets exist |
+| dev | devops | merge → trunk | `eng` tickets done, no open defects, branch up to date |
+| qa | devops | same sha → staging branch | dev check passed on that sha, no code change since |
+| staging | devops | same sha dispatched | QA passed on that sha, its defects verified |
+| production | devops, after the owner's go | tag `vX.Y.Z` | sign-off approved, every defect verified (no High wontfix), Go-live + Version recorded |
+
+- `promote.sh` runs each gate, moves the ref, waits for the deploy, smoke-tests and records the release in `docs/pipeline/<TICKET>/releases.md`.
+- `DEPLOY_MODE="explicit"` removes the push triggers, so `promote.sh` dispatches every environment itself.
+- `PIPELINE_HAS_DEPLOY_ENVS="no"` skips the deploys; the refs still move.
+- A code change after dev re-enters at dev. After three rework loops the ticket goes on hold.
+
+### Tickets
+The tracker is the source of truth; `docs/pipeline/<TICKET>/tickets.md` mirrors it for the gates and CI.
+- The parent ticket carries two single-select groups, `Stage` and `Owner`. Children carry one kind: `story`, `eng`, `defect` or `follow-up`.
+- Every handoff sets both groups and posts one comment.
+- The personas use `scripts/pipeline/tracker.sh` for everything (`view`, `children`, `create`, `comment`, `handoff`, `state`, `setup`).
+
+Protocol: `docs/pipeline/TICKETS.md`.
+
+### Enforcement
+- `hooks/guard-merge.sh` blocks an agent's push, merge or tag unless the ticket passes the gate for that ref. It covers `git`, `gh`, `glab` and `host.sh`. It also blocks force pushes and agents marking work infra.
+- `hooks/allow-paths.sh` and `hooks/allow-commands.sh` confine each persona to the files and commands of its role.
+- The CI Pipeline Gate re-checks pull requests. Branch protection makes it required where the plan allows; otherwise the pipeline says it runs in **local hook only** mode.
+
+### Configuration: `scripts/pipeline/pipeline.env`
+| Key | Meaning |
+|---|---|
+| `GIT_HOST`, `GIT_HOST_URL` | `github` / `gitlab` / `bitbucket`; the base URL of a self-hosted host |
+| `BASE_BRANCH`, `STAGING_BRANCH`, `PIPELINE_REMOTE` | the trunk, the staging branch and the remote |
+| `TRACKER`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `TRACKER_TEAM_KEY` | tracker, site, Jira cloudId, ticket prefix |
+| `PIPELINE_TEAMS` | the teams that run `/ship`: `analysis`, `engineering`, `devops`, `qa`, `signoff` (installs before 3.1.0 have `PIPELINE_START_LEVEL` instead, read as that level and every team after it) |
+| `DEPLOY_MODE`, `PIPELINE_HAS_DEPLOY_ENVS` | `merge` / `explicit`; `no` when there is nothing to deploy |
+| `DEV_URL` … `PRODUCTION_URL`, `HEALTH_PATH` | the environments and their health check |
+
+Project knowledge lives in `docs/pipeline/CONTEXT.md` and `RELEASE_CHECKLIST.md`. Put instructions for a persona under **Persona notes** in CONTEXT.md; the agent files are tooling and get refreshed.
+
+## Repository layout
 ```
-.claude-plugin/               plugin.json + marketplace.json (repo is both plugin and marketplace)
-
-commands/                    /ship, /pipeline-init, /pipeline-status
-agents/                      the 7 generic personas (copied into projects, hooks intact)
-scripts/pipeline/            gate, promote, next-version, intake, status, hooks
-scripts/deploy/              Hetzner docker-compose deploy/rollback/smoke templates
-template/                    files scaffolded into a project
-profiles/<name>/             saved CONTEXT.md + RELEASE_CHECKLIST.md per product
-tests/pipeline/              425 tests (bash); also installed into each project
+.claude-plugin/          plugin.json + marketplace.json
+commands/                /ship, /pipeline-init, /pipeline-status, /pipeline-doctor
+agents/                  the six personas (installed into .claude/agents/)
+scripts/init.sh          the installer
+scripts/pipeline/        gate, promote, intake, handover, board, status, next-version, doctor, connect, ci-gate, ci-resolve
+  adapters/              host-<github|gitlab|bitbucket>.sh, tracker-<jira|linear|github|gitlab|connector>.sh:
+                         init installs the chosen two as host.sh and tracker.sh
+  lib/                   the code the adapters share
+  hooks/                 guard-merge, allow-paths, allow-commands
+  tracker-schema.txt     the labels, fields and statuses the tracker needs
+scripts/deploy/          deploy / rollback / smoke templates (docker compose over SSH)
+template/                files scaffolded into a project (docs, CI for each host, pipeline.env, checklist)
+profiles/<name>/         saved CONTEXT.md + RELEASE_CHECKLIST.md per product
+tests/pipeline/          the plugin's test suite (never installed into projects)
 ```
-`bash tests/pipeline/run-all.sh` runs everything, including an end-to-end install test.
 
-## Release notes
-
-### v1.0.0
-
-**First release**
-- `/ship`, `/pipeline-init`, `/pipeline-status`, the seven personas, the branch/tag release model and the gate.
-
-**Added in this release — project capabilities**
-- New, optional `pipeline.env` keys **`PIPELINE_HAS_DEPLOY_ENVS`** and **`PIPELINE_HAS_MARKETING`** (`yes` | `no`). See **Project capabilities** above.
-- Both default to `yes`. A capability is off only when the value is exactly `no`; absent, empty or misspelt values keep the stricter, original behaviour. **No existing install changes behaviour until its owner adds a key** — `pipeline.env` is project-owned and is never rewritten by `/pipeline-init`.
-- `/pipeline-init` gains `--no-deploy-envs` and `--no-marketing`. On a *fresh* install they write the declared values and, for `--no-deploy-envs`, skip creating `scripts/deploy/*` and `.github/workflows/deploy.yml` and leave the deploy keys empty. On an *existing* install nothing is ever deleted: the files are reported as kept and you are told to set the key by hand. A re-run over a project whose `pipeline.env` already declares `PIPELINE_HAS_DEPLOY_ENVS="no"` reads that declaration and does not recreate the deploy machinery, with or without `--force-tooling`.
-- `promote.sh` skips the deploy wait, the staging workflow dispatch and the smoke call when there are no deployable environments, and says so. The branch/tag promotion model, the gates, sign-off and go-live are unchanged.
-- The production gate asks for launch content only when the project has a marketing function **and** the ticket is `User-facing: yes`. This is the only pass/fail condition that changed.
-- `gate.sh`'s PASS line and `status.sh` now report the resolved capabilities.
+## Developing the plugin
+`bash tests/pipeline/run-all.sh` runs every test file in parallel (`PIPELINE_TESTS_SERIAL=1` runs them one by one). Release notes and upgrade steps: [CHANGELOG.md](CHANGELOG.md).

@@ -1,6 +1,7 @@
 .DS_Store
 *.bak
 
-# Append to .gitignore
+# ship-pipeline
 .claude/.pipeline-ticket
 .claude/settings.local.json
+.claude/.pipeline-activity/

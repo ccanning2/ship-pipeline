@@ -9,7 +9,7 @@ You have two ways to start `/ship` from the Claude iOS app or the Windows Deskto
 | Your maintenance | None | A server, a systemd service, and Claude login on the box |
 | Start from phone | iOS app → **Code** tab → new session | iOS app → **Code** tab → your server's session |
 | Start from Windows | Desktop app → select **Cloud** → new session | Desktop app / claude.ai/code → your server's session |
-| Where the requirement lives | The Linear ticket (attach docs there) | The Linear ticket (attach docs there) |
+| Where the requirement lives | The tracker ticket (attach docs there) | The tracker ticket (attach docs there) |
 | Cost | Included in your plan's usage limits | A small Hetzner VM |
 
 The pipeline in this repo is already GitHub-based, so **A is the shortest path**. It means moving <project> from GitLab to GitHub.
@@ -24,6 +24,7 @@ The pipeline in this repo is already GitHub-based, so **A is the shortest path**
    gh repo create <you>/reputabill --private --source . --push
    git push --all origin && git push --tags origin
    ```
+   Run these yourself, in your own terminal: they move every branch and tag at once, so the guard hook refuses them from an agent. If GitHub created the repository with its own first commit (a README), the histories are unrelated; decide how to reconcile them before pushing. `/pipeline-doctor` checks this.
    Recreate any CI variables as GitHub environment secrets/vars (see README → One-time setup).
 2. **Connect GitHub to Claude:** open claude.ai/code (or the iOS **Code** tab), follow onboarding, and install the Claude GitHub App on the repo.
 3. **Create a cloud environment** called `<project>`. At claude.ai/code, open the environment selector, then choose **Add cloud environment**:
@@ -35,15 +36,20 @@ The pipeline in this repo is already GitHub-based, so **A is the shortest path**
      yourdomain
      ```
      These are needed for the dev/QA/staging checks and for Playwright/curl testing. GitHub itself always works through Claude's GitHub proxy.
-   - **Environment variables:** none needed. Leave `GH_TOKEN` unset so the GitHub proxy authenticates `gh`. Don't put secrets here: anyone using the environment can read them.
+   - **Environment variables:** only the tracker's token (step 5). Leave `GH_TOKEN` unset so the GitHub proxy authenticates `gh`. Anyone using the environment can read these, so keep them to scoped tokens.
    - **Setup script:** paste the contents of `scripts/pipeline/cloud-setup.sh`.
 4. **Commit everything under `.claude/`** (agents, commands, settings/hooks). Cloud sessions only see what's in the repo, not your laptop's `~/.claude`.
-5. **Required:** enable the **Linear** connector for your sessions. Tickets are how the personas hand off work.
+5. **Required: tracker access.** Tickets are how the personas hand off work, and they go through `scripts/pipeline/tracker.sh`. A cloud VM has none of your laptop's sign-ins, so give the environment what the tracker's CLI reads:
+   - Linear: `LINEAR_API_KEY`.
+   - Jira: `JIRA_EMAIL` and `JIRA_API_TOKEN`. The setup script also installs `acli` (see `connect.sh install`) and signs it in with the same token.
+   - GitHub Issues: nothing; the GitHub proxy authenticates `gh`.
+
+   Environment variables are readable by anyone who uses the environment, so use a token scoped to this project. If you would rather not store one, set `TRACKER="connector"` for cloud work and enable the tracker's connector for your sessions instead.
 
 ### Daily use
 From the iOS app (**Code** tab) or the Windows Desktop app (**Cloud**):
 1. Pick the repo, choose the `<project>` environment, and choose a permission mode that lets it run unattended. The repo hook and the CI/deploy gates still block unsafe merges and deploys.
-2. Make sure the requirement is written on the Linear ticket, then send:
+2. Make sure the requirement is written on the tracker ticket, then send:
    ```
    /ship REP-142
    ```
@@ -53,13 +59,13 @@ From the iOS app (**Code** tab) or the Windows Desktop app (**Cloud**):
 
 ### How the cloud differs (handled automatically)
 - **Branches.** Pushes only go to the session's branch. `/ship` stays on it and records the ticket in `.claude/.pipeline-ticket`.
-- **Merging.** `promote.sh dev` merges via the PR (GitHub REST API) rather than pushing to master directly. Pipeline Gate must pass as a required check.
+- **Merging.** `promote.sh dev` merges via the PR (GitHub REST API) rather than pushing to `master` directly. Pipeline Gate must pass as a required check.
 - **Deploys** run in GitHub Actions (`deploy.yml`), not in the session, so no SSH keys ever enter the VM. A project with `PIPELINE_HAS_DEPLOY_ENVS="no"` in `pipeline.env` has no `deploy.yml` at all: `promote.sh` skips the deploy wait, the staging dispatch and smoke, and only the branch/tag promotion runs. `PIPELINE_HAS_MARKETING="no"` likewise skips the marketing persona and the production marketing requirement. Both default to `yes`.
 - **Usage.** Cloud sessions share your plan's usage limits. `STATUS.md` makes every run resumable.
 - **Idle sessions** eventually release their VM. Reopening restores the conversation, and `/ship <TICKET>` resumes from STATUS.md.
 
 ### Optional: scheduled runs
-Create a routine (a scheduled cloud session) such as "Every weekday 07:00: list Linear REP tickets whose Owner label isn't chris and whose Stage isn't done or on-hold, and run `/ship` on each."
+Create a routine (a scheduled cloud session) such as "Every weekday 07:00: list REP tickets whose Owner label isn't chris and whose Stage isn't done or on-hold, and run `/ship` on each."
 
 ---
 

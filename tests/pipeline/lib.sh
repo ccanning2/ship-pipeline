@@ -11,10 +11,14 @@ fi
 # A bare `python3` on PATH can be a non-functional stub (Windows), so probe for a real one.
 PY=""; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { PY="$c"; break; }; done
 
+# Fixtures never inherit the hosting project's settings or the caller's environment.
+unset PIPELINE_TICKET_REGEX PIPELINE_TICKET PIPELINE_BYPASS PIPELINE_BASE_REF PIPELINE_DOCS_REF BASE_BRANCH STAGING_BRANCH PIPELINE_REMOTE TRACKER_TEAM_KEY
+
 PASS=0; FAIL=0
 
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [ -n "${2:-}" ] && printf '       %s\n' "$2"; }
+# bad returns 0, so `cond && bad "x" || ok "x"` never reports both
+bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [ -z "${2:-}" ] || printf '       %s\n' "$2"; }
 assert_exit()     { [ "$2" = "$3" ] && ok "$1" || bad "$1" "expected exit $2, got $3. ${4:-}"; }
 assert_contains() { case "$2" in *"$3"*) ok "$1";; *) bad "$1" "output missing '$3': $2";; esac; }
 assert_eq()       { [ "$2" = "$3" ] && ok "$1" || bad "$1" "expected '$2', got '$3'"; }
@@ -23,7 +27,9 @@ summary() { echo "  -- $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; }
 g() { git -C "$R" "$@"; }
 commit_all() { g add -A; g commit -qm "${1:-wip}"; }
 
-# new_repo: temp git repo (branch master) scaffolded with scripts/init.sh; sets R
+# new_repo: temp git repo (branch master) scaffolded with scripts/init.sh; sets R.
+# Every fixture is a master-trunk repo with team key REP, whatever the hosting project uses (its pipeline.env is
+# copied in copy mode, so the fixture's own values are written over it).
 new_repo() {
   R="$(mktemp -d)"
   git -C "$R" init -q -b master
@@ -31,7 +37,7 @@ new_repo() {
   mkdir -p "$R/src"; echo "class App {}" > "$R/src/App.java"
   git -C "$R" add -A; git -C "$R" commit -qm init
   if [ "$INIT_MODE" = init ]; then
-    bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name demo --team-key REP >/dev/null
+    bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name demo --team-key REP --base-branch master --staging-branch staging >/dev/null
   else
     mkdir -p "$R/scripts" "$R/docs/pipeline" "$R/.claude" "$R/tests"
     cp -r "$REPO_SRC/scripts/pipeline" "$R/scripts/"
@@ -40,7 +46,9 @@ new_repo() {
     cp -r "$REPO_SRC/.claude/agents" "$R/.claude/"; cp "$REPO_SRC/.claude/settings.json" "$R/.claude/"
   fi
   # Fixtures always start from the default (strict) shape, whatever the hosting project declares.
-  set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'; set_capability PIPELINE_HAS_MARKETING '"yes"'
+  set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'
+  set_capability BASE_BRANCH '"master"'; set_capability STAGING_BRANCH '"staging"'; set_capability PIPELINE_REMOTE '"origin"'
+  set_capability TRACKER_TEAM_KEY '"REP"'; set_capability PIPELINE_TICKET_REGEX '"REP-[0-9]+"'
   git -C "$R" add -A; git -C "$R" commit -qm "install pipeline"
 }
 
@@ -50,11 +58,15 @@ new_repo() {
 # Call them before ready_build when the fixture must carry the value into its commits.
 env_file() { echo "$R/scripts/pipeline/pipeline.env"; }
 drop_env_key() { local f; f="$(env_file)"; sed -i.bak -E "/^$1=/d" "$f" && rm -f "$f.bak"; }
-# set_capability <KEY> <verbatim RHS>   e.g. set_capability PIPELINE_HAS_MARKETING '"no"'
+# set_capability <KEY> <verbatim RHS>   e.g. set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
 set_capability() { drop_env_key "$1"; printf '%s=%s\n' "$1" "$2" >> "$(env_file)"; }
 # as a Windows editor would write it: the value line ends with CR
 set_capability_crlf() { drop_env_key "$1"; printf '%s="%s"\r\n' "$1" "$2" >> "$(env_file)"; }
 unset_capability() { drop_env_key "$1"; }
+# use_tracker <name> / use_host <name>: what /pipeline-init does for that platform: pipeline.env names it and the
+# matching adapter is installed as tracker.sh / host.sh (no commit)
+use_tracker() { cp "$REPO_SRC/scripts/pipeline/adapters/tracker-$1.sh" "$R/scripts/pipeline/tracker.sh"; set_capability TRACKER "\"$1\""; }
+use_host() { cp "$REPO_SRC/scripts/pipeline/adapters/host-$1.sh" "$R/scripts/pipeline/host.sh"; set_capability GIT_HOST "\"$1\""; }
 # blank_deploy_keys: the shape init.sh writes for a project with no deployable environments
 blank_deploy_keys() {
   local f k; f="$(env_file)"
@@ -98,13 +110,12 @@ tickets_header() {
   printf '| Ticket | Kind | Found-in | Severity | State | Owner | Title |\n|---|---|---|---|---|---|---|\n' > "$(tdir "$1")/tickets.md"
 }
 
-# ready_build <T> <type> <uf> [research_status] [req_status] [product_status]
+# ready_build <T> <type> <uf> [req_status] [product_status]
 ready_build() {
   local d n; d="$(tdir "$1")"; mkdir -p "$d"; n="${1#*-}"
   printf '# brief\nsomething\n' > "$d/brief.md"
-  printf 'Status: %s\nType: %s\nUser-facing: %s\n' "${6:-approved}" "$2" "$3" > "$d/product.md"
-  printf 'Status: %s\n' "${4:-complete}" > "$d/research.md"
-  printf 'Status: %s\n' "${5:-approved}" > "$d/requirements.md"
+  printf 'Status: %s\nType: %s\nUser-facing: %s\n' "${5:-approved}" "$2" "$3" > "$d/product.md"
+  printf 'Status: %s\n' "${4:-approved}" > "$d/requirements.md"
   cp "$R/docs/pipeline/_templates/releases.md" "$d/releases.md"; sed -i '/^Version:/d' "$d/releases.md"
   tickets_header "$1"; add_ticket "$1" "REP-${n}01" eng - - open "eng work"
   commit_all "requirements $1"
@@ -121,7 +132,6 @@ record() { set_field "$(tdir "$1")/releases.md" "$2" "$3 2026-09-17T00:00:00Z"; 
 dev_check() { printf 'Result: %s\nEnvironment: %s\nCommit: %s\n' "$2" "${4:-dev}" "$3" > "$(tdir "$1")/dev-check.md"; commit_all "devcheck $1"; }
 qa_report() { printf 'Result: %s\nEnvironment: %s\nCommit: %s\n' "$2" "${4:-qa}" "$3" > "$(tdir "$1")/qa-report.md"; commit_all "qa $1"; }
 signoff()   { printf 'Decision: %s\nEnvironment: %s\nCommit: %s\n' "$2" "${4:-staging}" "$3" > "$(tdir "$1")/signoff.md"; commit_all "signoff $1"; }
-marketing() { printf 'Status: %s\n' "$2" > "$(tdir "$1")/marketing.md"; commit_all "mkt $1"; }
 golive()    { set_field "$(tdir "$1")/releases.md" Go-live "${2:-approved by owner 2026-09-17T00:00:00Z}"; set_field "$(tdir "$1")/releases.md" Version "${3:-v1.0.0}"; commit_all "golive $1"; }
 
 # full_through <T> <type> <uf> <stage>: make the ticket ready for <stage>'s gate
@@ -133,8 +143,7 @@ full_through() {
   git -C "$R" merge-base --is-ancestor "$sha" master 2>/dev/null || git -C "$R" update-ref refs/heads/master "$sha"   # promote dev = merged to master
   [ "$stage" = qa ] && return
   record "$t" QA "$sha"; qa_report "$t" pass "$sha"; [ "$stage" = staging ] && return
-  record "$t" Staging "$sha"; signoff "$t" approved "$sha"; marketing "$t" ready
-  add_ticket "$t" "REP-${n}90" marketing - - done "launch"; commit_all mkt-ticket
+  record "$t" Staging "$sha"; signoff "$t" approved "$sha"
   golive "$t"; [ "$stage" = production ] && return
   record "$t" Production "$sha v1.0.0"
 }

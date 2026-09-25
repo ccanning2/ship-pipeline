@@ -11,35 +11,26 @@ Rework loops used: 2/3
 | 3 | product | product-owner | done | approved · feature · User-facing: yes · P2 · 9 stories → SHI-7/8/9, follow-ups SHI-10/11/12 |
 | 4 | analysis | business-analyst ⇄ product-owner | done | requirements.md approved · 34 FRs / 38 ACs · 8 eng tickets SHI-13..SHI-20 |
 | 5 | build | senior-engineer | done | all 8 eng tickets Done · 613 passed / 0 failed (master baseline 419 / 4) · gate.sh dev: PASS |
-| 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 1/3) | Dev = QA = 6a0cbbc · self-check pass on the promoted ref · test_config 162/0, test_init 120/0 |
-| 7 | qa | qa-tester | done — FAIL (round 2) | 711/711 on 6a0cbbc; SHI-21/22/23 verified, AC-35 met; one Low defect SHI-25 (init.sh parser vs gate.sh) → owner chose to fix, scoped re-test |
-| 8 | staging | app-specialist + marketing-specialist | pending | |
-| 9 | go-live | the owner | pending | |
-| 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
+| 6 | dev | senior-engineer (merge → master, self-check) | done (re-entered, loop 2/3) | Dev = QA = f9cc6af · self-check pass on the promoted ref · 49-form differential vs gate.sh |
+| 7 | qa | qa-tester | done — PASS (round 3, scoped) | f9cc6af: test_init 137/0, test_config 162/0, 213-form differential, SHI-25 verified; last full suite 711/711 on 6a0cbbc; 0 defects open |
+| 8 | staging | app-specialist (+ marketing skipped by configuration) | done — APPROVED | f9cc6af: full suite 728/728 (one run), all ACs walked as the three roles, RELEASE_CHECKLIST.md all blocking sections PASS, 0 defects |
+| 9 | go-live | the owner | done | owner: "go as v1.0.0" 2026-09-19T20:20:49Z (Q-4 override of next-version.sh's v0.1.0) |
+| 10 | production | senior-engineer (tag vX.Y.Z) | done | v1.0.0 on f9cc6af, remote tag verified, install from the tag verified; no deploy step (no host) |
 
 ## Next action
-Rework loop 2/3 (owner decision 2026-09-19: fix SHI-25, scoped re-test). senior-engineer fixes init.sh's
-declared_capability() so it agrees with gate.sh (exact line shape, comment starts only after whitespace, comments
-may contain quotes/apostrophes, never executes the file), turning QA's two QA-DEF assertions green. Then re-enter
-at dev: promote dev -> dev-check -> promote qa -> qa-tester re-tests SHI-25 with test_init.sh, test_config.sh and the
-82-form differential (not the full suite: only init.sh changes) -> promote-staging -> app-specialist -> go-live.
+None: SHI-5 is released (v1.0.0 on f9cc6af). Follow-ups for the owner to ticket or drop are listed below.
 
 ## Waiting on the owner
-- Nothing blocking. By go-live:
-  1. Version — **decided, Q-4 (2026-09-19): this build is released as v1.0.0.** At go-live the owner must
-     still answer "go as v1.0.0", because `next-version.sh` will keep proposing `v0.1.0` (0 tags, local and
-     remote). SHI-24 returns `plugin.json` to 1.0.0 and folds the README notes into one v1.0.0 section.
-     Owner clarification 2026-09-19: nobody is using the released 1.0.0 yet, so the version has no consumer
-     impact for now (the earlier worry that installed 1.0.0 users would not be offered this build is moot);
-     the version only needs to read 1.0.0 once all changes are done.
-  2. Follow-up candidates the QA report found outside SHI-5's scope (owner decides whether to ticket them):
-     - allow-paths.sh does not normalise `..`, so `tests/../src/x` matches `tests/*` (persona write boundary).
-     - This repo's deploy.yml fires on pushes/tags and builds an image this project lacks.
-     - tests/pipeline/lib.sh uses `sed -i -E` (fails on macOS BSD sed); empty `${kept[@]}` under set -u on bash < 4.4.
-     - Stale text: README says "425 tests"; init.sh's closing Next-step 3 still tells an opted-out project to
-       create GitHub environments; docs/pipeline/README.md mentions scripts/deploy/rollback.sh.
-  Resolved: the `plugin.json` missing `commands`/`agents` keys were removed by the owner's own commit c0102d3,
-  so test_config.sh's weakened assertion matches the manifest as committed.
+- Nothing blocking. Follow-up candidates (not ticketed except SHI-10/11/12):
+  - This repo's deploy.yml fails on every push to master/staging and on the tag (nothing to build): disable or delete it.
+  - plugin.json `description` still says "GitHub Actions + Hetzner"; README says "425 tests" (now 728); init.sh / README
+    next-steps still tell an opted-out project to create GitHub environments; ship.md step 9 and the senior-engineer
+    promote-production mode still mention waiting for a deploy.
+  - QA round-1 findings outside this ticket: allow-paths.sh does not normalise `..`; tests/pipeline/lib.sh uses `sed -i -E`
+    (fails on macOS); empty `${kept[@]}` under set -u on bash < 4.4.
+  - promote.sh creates an annotated tag locally but pushes the commit sha to the tag ref, so the remote tag is lightweight;
+    a later local `git fetch --tags` then reports "would clobber existing tag". Harmless; align by deleting the local tag.
+  - guard-merge.sh reads the word `master` anywhere in a Bash command (even inside a commit message) as a push to master.
 
 Closed:
 - Q-1 answered 2026-09-18 — SHI-5 runs under the new rules; this repo's marketing capability is

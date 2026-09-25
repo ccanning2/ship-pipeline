@@ -1,0 +1,8 @@
+# How the pipeline's states and label groups map onto this tracker (linear). Written by tracker.sh setup; edit to remap.
+state:open|Todo
+state:reopened|Todo
+state:in-progress|In Progress
+state:fixed|In Review
+state:verified|Done
+state:done|Done
+state:wontfix|Canceled

@@ -12,32 +12,26 @@ out=$(cd "$R" && bash scripts/pipeline/gate.sh 2>&1); assert_exit "no args fails
 new_repo; ready_build REP-2 feature yes
 out=$(gate REP-2 build); assert_exit "build: approved feature with eng ticket passes" 0 $? "$out"
 assert_contains "prints DEPLOY_SHA" "$out" "DEPLOY_SHA="
-assert_contains "AC-6: PASS line reports marketing capability" "$out" "marketing=on"
 assert_contains "AC-6: PASS line reports deploy-envs capability" "$out" "deploy-envs=on"
 assert_eq "AC-6: DEPLOY_SHA stays the parseable line promote.sh reads" "$(g rev-parse HEAD)" "$(echo "$out" | sed -n 's/^DEPLOY_SHA=//p')"
 assert_eq "AC-6/AC-33: nothing on stderr for a passing gate" "" "$(cd "$R" && bash scripts/pipeline/gate.sh REP-2 build 2>&1 >/dev/null)"
-set_capability PIPELINE_HAS_MARKETING '"no"'; set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
 out=$(gate REP-2 build); assert_exit "AC-11: build gate unaffected by capabilities" 0 $? "$out"
-assert_contains "AC-6: PASS line reports marketing=off" "$out" "marketing=off"
 assert_contains "AC-6: PASS line reports deploy-envs=off" "$out" "deploy-envs=off"
-set_capability PIPELINE_HAS_MARKETING '"yes"'; set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'
 out=$(gate rep-2 build); assert_exit "build: lowercase id normalised" 0 $? "$out"
 rm "$(tdir REP-2)/brief.md"; commit_all x
 out=$(gate REP-2 build); assert_exit "build: missing brief fails" 1 $? "$out"; assert_contains "names brief" "$out" "brief.md"
 
-new_repo; ready_build REP-3 feature no complete approved draft
+new_repo; ready_build REP-3 feature no approved draft
 out=$(gate REP-3 build); assert_exit "build: product draft fails" 1 $? "$out"
 new_repo; ready_build REP-4 improvement no
 out=$(gate REP-4 build); assert_exit "build: invalid Type fails" 1 $? "$out"
 new_repo; ready_build REP-5 chore maybe
 out=$(gate REP-5 build); assert_exit "build: invalid User-facing fails" 1 $? "$out"
-new_repo; ready_build REP-6 feature no draft
-out=$(gate REP-6 build); assert_exit "build: feature needs complete research" 1 $? "$out"
-rm "$(tdir REP-6)/research.md"; commit_all x
-out=$(gate REP-6 build); assert_exit "build: feature without research fails" 1 $? "$out"
-new_repo; ready_build REP-7 bugfix no; rm "$(tdir REP-7)/research.md"; commit_all x
-out=$(gate REP-7 build); assert_exit "build: bugfix needs no research" 0 $? "$out"
-new_repo; ready_build REP-8 chore no complete needs-input
+new_repo; ready_build REP-6 feature yes
+out=$(gate REP-6 build); assert_exit "build: a feature needs no research.md (the research stage is gone)" 0 $? "$out"
+new_repo; ready_build REP-8 chore no needs-input
 out=$(gate REP-8 build); assert_exit "build: requirements needs-input fails" 1 $? "$out"
 new_repo; ready_build REP-9 chore no; tickets_header REP-9; commit_all x
 out=$(gate REP-9 build); assert_exit "build: no eng tickets fails" 1 $? "$out"; assert_contains "explains BA tickets" "$out" "no eng tickets"
@@ -153,16 +147,6 @@ out=$(gate REP-50 production); assert_exit "prod: staging defect unverified fail
 set_ticket REP-50 REP-5002 verified; add_ticket REP-50 REP-5003 defect staging High wontfix; commit_all x
 out=$(gate REP-50 production); assert_exit "prod: High wontfix fails" 1 $? "$out"; assert_contains "explains High wontfix" "$out" "High-severity"
 set_ticket REP-50 REP-5003 verified; commit_all x
-out=$(gate REP-50 production); assert_exit "prod: user-facing without marketing fails" 1 $? "$out"
-assert_contains "AC-9: today's missing-file message" "$out" "missing marketing.md"
-marketing REP-50 changes-requested
-out=$(gate REP-50 production); assert_exit "prod: marketing changes-requested fails" 1 $? "$out"
-assert_contains "AC-9: today's status message" "$out" "marketing.md Status is not 'ready'"
-marketing REP-50 ready
-out=$(gate REP-50 production); assert_exit "prod: no launch ticket fails" 1 $? "$out"; assert_contains "explains launch ticket" "$out" "marketing launch ticket"
-add_ticket REP-50 REP-5090 marketing - - open; commit_all x
-out=$(gate REP-50 production); assert_exit "prod: launch ticket not done fails" 1 $? "$out"
-set_ticket REP-50 REP-5090 done; commit_all x
 out=$(gate REP-50 production); assert_exit "prod: no go-live fails" 1 $? "$out"; assert_contains "explains go-live" "$out" "Go-live"
 golive REP-50 "no-go (waiting)"
 out=$(gate REP-50 production); assert_exit "prod: no-go fails" 1 $? "$out"
@@ -187,60 +171,28 @@ out=$(gate REP-50 production); assert_exit "prod: other ticket merged to master 
 
 new_repo; full_through REP-51 bugfix no staging; sha=$(dev_sha_of REP-51)
 record REP-51 Staging "$sha"; signoff REP-51 approved "$sha"; golive REP-51
-out=$(gate REP-51 production); assert_exit "prod: non-user-facing needs no marketing" 0 $? "$out"
-assert_contains "AC-10: marketing=yes + non-user-facing passes (unchanged)" "$out" "marketing=on"
-set_capability PIPELINE_HAS_MARKETING '"no"'
-out=$(gate REP-51 production); assert_exit "AC-10: marketing=no + non-user-facing also passes" 0 $? "$out"
+out=$(gate REP-51 production); assert_exit "prod: a non-user-facing bugfix passes" 0 $? "$out"
 
 new_repo; full_through REP-52 feature yes production
 out=$(gate REP-52 production); assert_exit "prod: full_through fixture passes" 0 $? "$out"
 
-# ---- project capabilities: the production marketing condition ----
+# ---- the marketing persona is gone: a user-facing ticket needs no launch evidence, and an old key changes nothing ----
 new_repo; full_through REP-60 feature yes staging; sha=$(dev_sha_of REP-60)
-record REP-60 Staging "$sha"; signoff REP-60 approved "$sha"; golive REP-60   # no marketing.md, no marketing row
+record REP-60 Staging "$sha"; signoff REP-60 approved "$sha"; golive REP-60
+out=$(gate REP-60 production); assert_exit "3.0: a user-facing feature reaches production with no marketing evidence" 0 $? "$out"
+assert_contains "3.0: VERSION still printed" "$out" "VERSION=v1.0.0"
+case "$out" in *marketing*) bad "3.0: the PASS line no longer mentions marketing" "$out";; *) ok "3.0: the PASS line no longer mentions marketing";; esac
+set_capability PIPELINE_HAS_MARKETING '"yes"'
+out=$(gate REP-60 production); assert_exit "3.0: a leftover PIPELINE_HAS_MARKETING key is ignored" 0 $? "$out"
 unset_capability PIPELINE_HAS_MARKETING
-out=$(gate REP-60 production); assert_exit "cap: key absent keeps today's marketing requirement" 1 $? "$out"
-assert_contains "cap: key absent names marketing.md" "$out" "missing marketing.md"
-set_capability PIPELINE_HAS_MARKETING '"no"'
-out=$(gate REP-60 production); assert_exit "AC-1/AC-7: marketing=no + user-facing passes without marketing evidence" 0 $? "$out"
-assert_contains "AC-1: PASS line shows marketing=off" "$out" "marketing=off"
-assert_contains "AC-7: VERSION still printed" "$out" "VERSION=v1.0.0"
-for v in '""' '"false"' '"0"' '"maybe"' '"Y"' '"off"' '"NO!"'; do
-  set_capability PIPELINE_HAS_MARKETING "$v"
-  out=$(gate REP-60 production); assert_exit "AC-2/AC-3: PIPELINE_HAS_MARKETING=$v resolves strict" 1 $? "$out"
-  assert_contains "AC-2/AC-3: $v still demands marketing.md" "$out" "missing marketing.md"
-done
-set_capability PIPELINE_HAS_MARKETING '"  NO  "'
-out=$(gate REP-60 production); assert_exit "AC-4: '  NO  ' trims and lowercases to no" 0 $? "$out"
-set_capability_crlf PIPELINE_HAS_MARKETING no
-out=$(gate REP-60 production); assert_exit "AC-4: 'no' written with a trailing CR resolves off" 0 $? "$out"
-unset_capability PIPELINE_HAS_MARKETING
-out=$(cd "$R" && PIPELINE_HAS_MARKETING=no bash scripts/pipeline/gate.sh REP-60 production 2>&1)
-assert_exit "AC-5: the environment cannot relax a project that never set the key" 1 $? "$out"
-assert_contains "AC-5: still demands marketing.md" "$out" "missing marketing.md"
-
-# a project that declared no marketing function before it built: every other rule still applies (AC-8, AC-11)
-new_repo; set_capability PIPELINE_HAS_MARKETING '"no"'
-full_through REP-64 feature yes staging; sha=$(dev_sha_of REP-64)
-for s in build dev qa staging; do
-  out=$(gate REP-64 "$s"); assert_exit "AC-11: $s gate outcome unchanged with marketing off" 0 $? "$out"
-done
-record REP-64 Staging "$sha"; signoff REP-64 approved "$sha"; golive REP-64
-out=$(gate REP-64 production); assert_exit "AC-7: marketing off, everything else satisfied, passes" 0 $? "$out"
-add_ticket REP-64 REP-6402 defect staging Medium fixed; commit_all x
-out=$(gate REP-64 production); assert_exit "AC-8: unverified defect still blocks with marketing off" 1 $? "$out"
-set_ticket REP-64 REP-6402 verified; add_ticket REP-64 REP-6403 defect staging High wontfix; commit_all x
-out=$(gate REP-64 production); assert_exit "AC-8: High-severity wontfix still blocks with marketing off" 1 $? "$out"
-set_ticket REP-64 REP-6403 verified; commit_all x
-rm "$(tdir REP-64)/signoff.md"; commit_all x
-out=$(gate REP-64 production); assert_exit "AC-8: missing sign-off still blocks with marketing off" 1 $? "$out"
-signoff REP-64 approved "$sha"
-golive REP-64 "no-go (waiting)"
-out=$(gate REP-64 production); assert_exit "AC-8: unapproved go-live still blocks with marketing off" 1 $? "$out"
-golive REP-64 "approved by owner 2026-09-17" "1.2.3"
-out=$(gate REP-64 production); assert_exit "AC-8: malformed version still blocks with marketing off" 1 $? "$out"
-golive REP-64 "approved by owner 2026-09-17" "v1.2.3"
-out=$(gate REP-64 production); assert_exit "AC-8: with everything else satisfied, marketing off passes again" 0 $? "$out"
+add_ticket REP-60 REP-6090 marketing - - done "old launch ticket"; commit_all x
+out=$(gate REP-60 production); assert_exit "3.0: a marketing row from an older install is still a known kind" 0 $? "$out"
+# every other production rule still applies
+add_ticket REP-60 REP-6002 defect staging Medium fixed; commit_all x
+out=$(gate REP-60 production); assert_exit "3.0: an unverified defect still blocks" 1 $? "$out"
+set_ticket REP-60 REP-6002 verified; commit_all x
+rm "$(tdir REP-60)/signoff.md"; commit_all x
+out=$(gate REP-60 production); assert_exit "3.0: a missing sign-off still blocks" 1 $? "$out"
 
 # ---- backwards compatibility: a pipeline.env with none of the new keys (AC-12, release blocker) ----
 new_repo; legacy_env
@@ -250,14 +202,7 @@ for s in build dev qa staging; do
   out=$(gate REP-62 "$s"); assert_exit "AC-12: legacy env, user-facing, $s gate passes" 0 $? "$out"
 done
 record REP-62 Staging "$sha"; signoff REP-62 approved "$sha"; golive REP-62
-out=$(gate REP-62 production); assert_exit "AC-12 anchor: legacy + user-facing + no marketing.md fails" 1 $? "$out"
-assert_contains "AC-12 anchor: today's missing-file message" "$out" "missing marketing.md"
-marketing REP-62 ready
-out=$(gate REP-62 production); assert_exit "AC-12 anchor: legacy + ready marketing.md + no done row fails" 1 $? "$out"
-assert_contains "AC-12 anchor: today's launch-ticket message" "$out" "no completed marketing launch ticket"
-add_ticket REP-62 REP-6290 marketing - - done; commit_all x
-out=$(gate REP-62 production); assert_exit "AC-12 anchor: legacy + full marketing evidence passes" 0 $? "$out"
-assert_contains "AC-12: legacy resolves marketing on" "$out" "marketing=on"
+out=$(gate REP-62 production); assert_exit "AC-12: legacy env, user-facing, production passes" 0 $? "$out"
 assert_contains "AC-12: legacy resolves deploy-envs on" "$out" "deploy-envs=on"
 
 new_repo; legacy_env; full_through REP-63 bugfix no staging; sha=$(dev_sha_of REP-63)
@@ -265,50 +210,36 @@ for s in build dev qa staging; do
   out=$(gate REP-63 "$s"); assert_exit "AC-12: legacy env, non-user-facing, $s gate passes" 0 $? "$out"
 done
 record REP-63 Staging "$sha"; signoff REP-63 approved "$sha"; golive REP-63
-out=$(gate REP-63 production); assert_exit "AC-12 anchor: legacy + non-user-facing + no marketing evidence passes" 0 $? "$out"
+out=$(gate REP-63 production); assert_exit "AC-12: legacy env, non-user-facing, production passes" 0 $? "$out"
 
-# ---- QA (SHI-5): capability value edge cases; only an explicit `no` relaxes anything ----
-new_repo; full_through REP-65 feature yes staging; sha=$(dev_sha_of REP-65)
-record REP-65 Staging "$sha"; signoff REP-65 approved "$sha"; golive REP-65   # user-facing, no marketing evidence
-# cap_case <label> <off|strict> <verbatim pipeline.env line(s) that replace any PIPELINE_HAS_MARKETING line>
+# ---- capability value edge cases: only an explicit `no` turns PIPELINE_HAS_DEPLOY_ENVS off ----
+new_repo; full_through REP-65 feature yes staging
+# cap_case <label> <off|on> <verbatim pipeline.env line(s) that replace any PIPELINE_HAS_DEPLOY_ENVS line>
 cap_case() {
-  drop_env_key PIPELINE_HAS_MARKETING; printf '%s\n' "$3" >> "$(env_file)"
-  out=$(gate REP-65 production); rc=$?
-  if [ "$2" = off ]; then assert_exit "QA cap: $1 resolves off" 0 "$rc" "$out"
-  else assert_exit "QA cap: $1 stays strict" 1 "$rc" "$out"; assert_contains "QA cap: $1 still demands marketing.md" "$out" "missing marketing.md"; fi
+  drop_env_key PIPELINE_HAS_DEPLOY_ENVS; printf '%s\n' "$3" >> "$(env_file)"
+  out=$(gate REP-65 staging); assert_exit "cap: $1 (gate passes either way)" 0 $? "$out"
+  assert_contains "cap: $1 resolves $2" "$out" "deploy-envs=$2"
 }
-cap_case "'no' single-quoted"                 off    "PIPELINE_HAS_MARKETING='no'"
-cap_case "No unquoted"                        off    "PIPELINE_HAS_MARKETING=No"
-cap_case "no with a trailing comment"         off    "PIPELINE_HAS_MARKETING=no # not for this project"
-cap_case "tab-padded no"                      off    $'PIPELINE_HAS_MARKETING="\tno\t"'
-cap_case "unquoted no with a CR"              off    $'PIPELINE_HAS_MARKETING=no\r'
-cap_case "duplicate key, last (no) wins"      off    $'PIPELINE_HAS_MARKETING=yes\nPIPELINE_HAS_MARKETING=no'
-cap_case "duplicate key, last (yes) wins"     strict $'PIPELINE_HAS_MARKETING=no\nPIPELINE_HAS_MARKETING=yes'
-cap_case "no inside a quoted comment"         strict 'PIPELINE_HAS_MARKETING="no # comment"'
-cap_case "n"                                  strict "PIPELINE_HAS_MARKETING=n"
-cap_case "nope"                               strict "PIPELINE_HAS_MARKETING=nope"
-cap_case "0"                                  strict "PIPELINE_HAS_MARKETING=0"
-cap_case "off"                                strict "PIPELINE_HAS_MARKETING=off"
-cap_case "false"                              strict "PIPELINE_HAS_MARKETING=false"
-cap_case "'no no'"                            strict 'PIPELINE_HAS_MARKETING="no no"'
-cap_case "'n o'"                              strict 'PIPELINE_HAS_MARKETING="n o"'
-cap_case "no, newline, yes in one value"      strict 'PIPELINE_HAS_MARKETING="$(printf "no\nyes")"'
-cap_case "yes, newline, no in one value"      strict 'PIPELINE_HAS_MARKETING="$(printf "yes\nno")"'
-# the two capabilities are independent (BR-1): deploy-envs=no relaxes nothing in the gate (FR-7)
-drop_env_key PIPELINE_HAS_MARKETING; set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
-out=$(gate REP-65 production); assert_exit "QA cap: deploy-envs=no does not relax the marketing requirement" 1 $? "$out"
-assert_contains "QA cap: deploy-envs=no still demands marketing.md" "$out" "missing marketing.md"
-# pipeline.env is the only source: the environment cannot flip a capability in either direction
-set_capability PIPELINE_HAS_MARKETING '"yes"'
-out=$(cd "$R" && PIPELINE_HAS_MARKETING=no bash scripts/pipeline/gate.sh REP-65 production 2>&1); assert_exit "QA cap: env no cannot override a file yes" 1 $? "$out"
-set_capability PIPELINE_HAS_MARKETING '"no"'
-out=$(cd "$R" && PIPELINE_HAS_MARKETING=yes bash scripts/pipeline/gate.sh REP-65 production 2>&1); assert_exit "QA cap: env yes cannot override a file no" 0 $? "$out"
-# AC-37: the plugin repo's own pipeline.env (as committed) lets a user-facing ticket through without marketing evidence
-if [ "$INIT_MODE" = init ] && grep -q '^PIPELINE_HAS_MARKETING="no"' "$REPO_SRC/scripts/pipeline/pipeline.env"; then
-  cp "$REPO_SRC/scripts/pipeline/pipeline.env" "$(env_file)"
-  out=$(gate REP-65 production); assert_exit "AC-37: this repo's own pipeline.env passes a user-facing ticket with no marketing evidence" 0 $? "$out"
-  assert_contains "AC-37: and reports marketing=off" "$out" "marketing=off"
-fi
+cap_case "key absent"                         on     ""
+cap_case "'no' single-quoted"                 off    "PIPELINE_HAS_DEPLOY_ENVS='no'"
+cap_case "No unquoted"                        off    "PIPELINE_HAS_DEPLOY_ENVS=No"
+cap_case "no with a trailing comment"         off    "PIPELINE_HAS_DEPLOY_ENVS=no # not for this project"
+cap_case "tab-padded no"                      off    $'PIPELINE_HAS_DEPLOY_ENVS="\tno\t"'
+cap_case "'  NO  '"                           off    'PIPELINE_HAS_DEPLOY_ENVS="  NO  "'
+cap_case "unquoted no with a CR"              off    $'PIPELINE_HAS_DEPLOY_ENVS=no\r'
+cap_case "duplicate key, last (no) wins"      off    $'PIPELINE_HAS_DEPLOY_ENVS=yes\nPIPELINE_HAS_DEPLOY_ENVS=no'
+cap_case "duplicate key, last (yes) wins"     on     $'PIPELINE_HAS_DEPLOY_ENVS=no\nPIPELINE_HAS_DEPLOY_ENVS=yes'
+cap_case "no inside a quoted comment"         on     'PIPELINE_HAS_DEPLOY_ENVS="no # comment"'
+for v in '""' '"false"' '"0"' '"maybe"' '"Y"' '"off"' '"NO!"' '"n"' '"nope"' '"no no"' '"n o"'; do
+  cap_case "$v"                               on     "PIPELINE_HAS_DEPLOY_ENVS=$v"
+done
+cap_case "no, newline, yes in one value"      on     'PIPELINE_HAS_DEPLOY_ENVS="$(printf "no\nyes")"'
+cap_case "yes, newline, no in one value"      on     'PIPELINE_HAS_DEPLOY_ENVS="$(printf "yes\nno")"'
+# pipeline.env is the only source: the environment cannot flip the capability in either direction
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"yes"'
+out=$(cd "$R" && PIPELINE_HAS_DEPLOY_ENVS=no bash scripts/pipeline/gate.sh REP-65 staging 2>&1); assert_contains "cap: env no cannot override a file yes" "$out" "deploy-envs=on"
+set_capability PIPELINE_HAS_DEPLOY_ENVS '"no"'
+out=$(cd "$R" && PIPELINE_HAS_DEPLOY_ENVS=yes bash scripts/pipeline/gate.sh REP-65 staging 2>&1); assert_contains "cap: env yes cannot override a file no" "$out" "deploy-envs=off"
 
 # ---- ref mode ----
 new_repo; m0=$(g rev-parse master); branch feature/REP-70-x; full_through REP-70 chore no production; g checkout -q "$m0" 2>/dev/null

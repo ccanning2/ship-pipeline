@@ -13,7 +13,7 @@ The personas are generic; THIS file is what makes them behave correctly here. Th
   or that any persona can approve its own work. Go-live is always the owner's decision.
 - User segments: **plugin author** (this repo), **installing developer** (runs `/pipeline-init`),
   **pipeline operator** (runs `/ship` day to day).
-- Marketing channels: README, release notes on the version tag, GitHub repo description.
+- Release channels: README, CHANGELOG.md, the version tag, the GitHub repo description.
 
 ## Market
 - Competitors to track: Claude Code plugins/skills doing release orchestration, GitHub Actions
@@ -29,7 +29,7 @@ The personas are generic; THIS file is what makes them behave correctly here. Th
   `template/` holds the copies scaffolded into a consuming project.
 - Tests: `bash tests/pipeline/run-all.sh`, which runs `test_config.sh test_init.sh test_gate.sh
   test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh
-  test_deploy_scripts.sh` in turn. This is the only test command; there is no separate
+  test_doctor.sh test_deploy_scripts.sh` in turn. This is the only test command; there is no separate
   frontend/backend suite. `python-docx`, `pandoc` and `poppler-utils` are **optional**: the
   `intake.sh` document tests skip themselves when they are absent, they do not fail.
 - Lint/build: none. Syntax is checked in-suite (`bash -n`); keep every `scripts/**/*.sh` executable.
@@ -56,12 +56,11 @@ Declared in `scripts/pipeline/pipeline.env`; both default to `yes` and are off o
   wait, no staging workflow dispatch and no smoke call. `.github/workflows/deploy.yml` and
   `scripts/deploy/*` stay in the repo as the templates consumers receive; this project does not use
   them to release itself.
-- `PIPELINE_HAS_MARKETING="no"` — this project has no marketing function, so the marketing-specialist
-  never runs and the production gate never asks for launch content. Release notes live in `README.md`
-  and on the version tag. `User-facing: yes|no` on a ticket still means only "does this affect users".
+- `PIPELINE_TEAMS="analysis,engineering,devops,qa,signoff"` — every team runs; tickets start with the product owner and business analyst.
+  Release notes live in `CHANGELOG.md` and on the version tag.
 
 ## Engineering rules
-- The seven personas stay **project-agnostic**. No product, person, vendor or project-type names in
+- The six personas stay **project-agnostic**. No product, person, vendor or project-type names in
   `agents/*.md` or `commands/*.md` — the test suite enforces this. The persona files live at
   `agents/*.md` (the `template/` tree holds no personas), mirrored at `.claude/agents/*.md` for this
   repo's own use; **edit both copies together**.

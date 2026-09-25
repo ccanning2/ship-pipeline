@@ -1,3 +1,4 @@
-# Append to .gitignore
+# Entries scripts/init.sh adds to the project's .gitignore, under a "# ship-pipeline" comment. Not copied into the project.
 .claude/.pipeline-ticket
 .claude/settings.local.json
+.claude/.pipeline-activity/

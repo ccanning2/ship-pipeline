@@ -2,20 +2,21 @@
 
 Tracker: <ticket url>
 Branch: <branch>
+Teams: project (<the teams: scripts/pipeline/teams.sh; "project" follows pipeline.env, a list is this ticket's own choice>)
+Arrives at: <analysis|engineering|devops|qa: the first selected team, or qa when the build is already on qa>
 Rework loops used: 0/3
 
 | # | Stage | Owner | State | Outcome |
 |---|---|---|---|---|
 | 1 | intake | orchestrator | pending | |
-| 2 | research | market-researcher | pending | |
-| 3 | product | product-owner | pending | |
-| 4 | analysis | business-analyst ⇄ product-owner | pending | |
-| 5 | build | senior-engineer | pending | |
-| 6 | dev | senior-engineer (merge → master, self-check) | pending | |
-| 7 | qa | qa-tester | pending | |
-| 8 | staging | app-specialist (+ marketing-specialist when the project has a marketing function and the ticket is user-facing; otherwise skipped by configuration) | pending | |
-| 9 | go-live | the owner | pending | |
-| 10 | production | senior-engineer (tag vX.Y.Z) | pending | |
+| 2 | product | product-owner (plan) | pending | |
+| 3 | analysis | business-analyst ⇄ product-owner (plan) | pending | |
+| 4 | build | senior-engineer | pending | |
+| 5 | dev | devops (merge → __BASE_BRANCH__, dev check) | pending | |
+| 6 | qa | qa-tester | pending | |
+| 7 | staging | app-specialist | pending | |
+| 8 | go-live | the owner | pending | |
+| 9 | production | devops (tag vX.Y.Z) | pending | |
 
 ## Next action
 <exact next step to resume from>

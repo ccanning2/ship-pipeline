@@ -7,6 +7,9 @@ set -euo pipefail
 ticket="$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')"; src="${2:-}"; origin_label="${3:-}"
 [ -n "$ticket" ] && [ -n "$src" ] || { echo "usage: intake.sh <TICKET> <file|->" >&2; exit 1; }
 root="$(git rev-parse --show-toplevel)"; cd "$root"
+# the id must be a ticket id for this project (scripts/pipeline/ticket-id.sh is the one definition)
+[ "$(bash scripts/pipeline/ticket-id.sh "$ticket" 2>/dev/null)" = "$ticket" ] \
+  || { echo "intake: '$ticket' is not a ticket id for this project (ids match $(bash scripts/pipeline/ticket-id.sh --regex))" >&2; exit 1; }
 dir="docs/pipeline/$ticket"; mkdir -p "$dir/source"
 tpl="docs/pipeline/_templates"
 

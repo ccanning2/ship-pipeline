@@ -1,0 +1,17 @@
+# Ship pipeline: the Pipeline Gate (included from .gitlab-ci.yml).
+# Merge requests into __BASE_BRANCH__ must pass the "dev" gate; into __STAGING_BRANCH__ the "qa" gate. With the project
+# setting "Pipelines must succeed" (/pipeline-init sets it through scripts/pipeline/host.sh protect), a failing gate
+# blocks the merge. A merge request labelled `infra` is repository maintenance with no ticket (CI, dependencies,
+# tooling): it skips the ticket gate but still needs a human to review and merge it. Only a human adds that label.
+pipeline-gate:
+  stage: .pre
+  image: alpine:3.20
+  variables: { GIT_DEPTH: "0" }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "__BASE_BRANCH__" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "__STAGING_BRANCH__")
+  before_script:
+    - apk add --no-cache bash git >/dev/null
+  script:
+    - |
+      infra=false; case ",$CI_MERGE_REQUEST_LABELS," in *,infra,*) infra=true;; esac
+      bash scripts/pipeline/ci-gate.sh "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" "$CI_MERGE_REQUEST_TITLE" "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" "$infra"

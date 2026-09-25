@@ -1,19 +1,22 @@
 name: Deploy
 
 # Branch/tag release model (see docs/pipeline/BRANCHING.md):
-#   push to master            -> gate "dev"        -> build image :<sha>, deploy to dev
-#   push to staging           -> gate "qa"         -> deploy :<sha> to qa
+#   push to __BASE_BRANCH__            -> gate "dev"        -> build image :<sha>, deploy to dev
+#   push to __STAGING_BRANCH__           -> gate "qa"         -> deploy :<sha> to qa
 #   workflow_dispatch staging -> gate "staging"    -> deploy :<sha> to staging
 #   push tag vX.Y.Z           -> gate "production" -> re-tag image :<version> + :latest, deploy to production
+# With DEPLOY_MODE="explicit" there are no push triggers: scripts/pipeline/promote.sh dispatches every environment.
 # Configure GitHub environments dev, qa, staging, production with:
 #   secret DEPLOY_SSH_KEY; vars DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, APP_URL
 # Adapt the "Backend tests" / "Frontend tests" / Dockerfile steps to this project (the engineer does this on first build).
+# OFF until the environments exist: every job is skipped unless the repository variable PIPELINE_DEPLOY_ENABLED is
+# 'true' (Settings -> Secrets and variables -> Actions -> Variables), so CI is not red from day one.
 
 on:
-  push:
-    branches: [master, staging]
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
-    paths-ignore: ['docs/pipeline/**']
+  push:                                        #@on-merge
+    branches: [__BASE_BRANCH__, __STAGING_BRANCH__]   #@on-merge
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']              #@on-merge
+    paths-ignore: ['docs/pipeline/**']         #@on-merge
   workflow_dispatch:
     inputs:
       env:
@@ -39,7 +42,8 @@ env:
 
 jobs:
   resolve:
-    name: resolve ${{ github.event_name == 'workflow_dispatch' && inputs.env || (startsWith(github.ref, 'refs/tags/') && 'production' || (github.ref_name == 'staging' && 'qa' || 'dev')) }}
+    name: resolve ${{ github.event_name == 'workflow_dispatch' && inputs.env || (startsWith(github.ref, 'refs/tags/') && 'production' || (github.ref_name == '__STAGING_BRANCH__' && 'qa' || 'dev')) }}
+    if: vars.PIPELINE_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     outputs:
       env: ${{ steps.r.outputs.env }}
@@ -63,17 +67,17 @@ jobs:
             env="$IN_ENV"; sha="$(git rev-parse "$IN_SHA")"; ticket="$(printf '%s' "$IN_TICKET" | tr a-z A-Z)"
           elif [[ "$REF" == refs/tags/* ]]; then
             env=production; sha="$(git rev-parse "$REF^{commit}")"
-            ticket="$(git tag -l --format='%(contents:subject)' "$REF_NAME" | grep -oiE '[A-Z][A-Z0-9]+-[0-9]+' | head -1 | tr a-z A-Z || true)"
+            ticket="$(git tag -l --format='%(contents:subject)' "$REF_NAME" | bash scripts/pipeline/ticket-id.sh || true)"
           else
-            [ "$REF_NAME" = staging ] && env=qa || env=dev
+            [ "$REF_NAME" = "$(bash scripts/pipeline/base-ref.sh --staging)" ] && env=qa || env=dev
             sha="$(git rev-parse HEAD)"; ticket=""
           fi
           # ticket id: from input/tag, else from the recent commit messages (merge commits carry the branch name)
-          [ -n "$ticket" ] || ticket="$(git log -20 --format=%s%n%b "$sha" | grep -oiE '[A-Z][A-Z0-9]+-[0-9]+' | head -1 | tr a-z A-Z || true)"
+          [ -n "$ticket" ] || ticket="$(git log -20 --format=%s%n%b "$sha" | bash scripts/pipeline/ticket-id.sh || true)"
           [ -n "$ticket" ] || { echo "::error::no ticket id found for $sha"; exit 1; }
           stage="$env"
-          # records (Dev/QA/Staging/Go-live) are synced to master by promote.sh; the pushed sha predates them
-          out="$(PIPELINE_DOCS_REF=origin/master bash scripts/pipeline/gate.sh "$ticket" "$stage" "$sha")"; echo "$out"
+          # records (Dev/QA/Staging/Go-live) are synced to the base branch by promote.sh; the pushed sha predates them
+          out="$(PIPELINE_DOCS_REF="$(bash scripts/pipeline/base-ref.sh)" bash scripts/pipeline/gate.sh "$ticket" "$stage" "$sha")"; echo "$out"
           expected="$(echo "$out" | sed -n 's/^DEPLOY_SHA=//p')"
           [ "$expected" = "$sha" ] || { echo "::error::gate expects $expected for $env, got $sha"; exit 1; }
           version="$(echo "$out" | sed -n 's/^VERSION=//p')"
