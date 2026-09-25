@@ -9,8 +9,8 @@ Rework loops used: 0/3
 | # | Stage | Owner | State | Outcome |
 |---|---|---|---|---|
 | 1 | intake | orchestrator | done | |
-| 2 | product | product-owner (plan) | in-progress | |
-| 3 | analysis | business-analyst ⇄ product-owner (plan) | pending | |
+| 2 | product | product-owner (plan) | done | approved (feature, user-facing); follow-up SHI-46 |
+| 3 | analysis | business-analyst ⇄ product-owner (plan) | in-progress | |
 | 4 | build | senior-engineer | pending | |
 | 5 | dev | devops (merge → master, dev check) | pending | |
 | 6 | qa | qa-tester | pending | |
@@ -19,7 +19,7 @@ Rework loops used: 0/3
 | 9 | production | devops (tag vX.Y.Z) | pending | |
 
 ## Next action
-Run product-owner (mode A) on SHI-45.
+Run business-analyst on SHI-45.
 
 ## Waiting on the owner
 - nothing
