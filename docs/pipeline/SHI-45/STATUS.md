@@ -13,8 +13,8 @@ Rework loops used: 1/3
 | 3 | analysis | business-analyst ⇄ product-owner (plan) | done (amended for SHI-55 and R1c-2) | 19 FRs, 76 ACs; fix criteria on SHI-55; FR-19 + AC-64..AC-76 for R1c-2 (SHI-57); follow-up SHI-56; Q-1 answered (a) |
 | 4 | build | senior-engineer | done (rework 1) | 1930 pass; d50b581 |
 | 5 | dev | devops (merge → master, dev check) | done (rework 1) | 1930 pass; dev+qa 6a619f7 |
-| 6 | qa | qa-tester | in-progress (rework 1) | previous: pass, 0 defects; AC-52 + fallback not run live |
-| 7 | staging | app-specialist | blocked | SHI-55 (High) raised; back to build |
+| 6 | qa | qa-tester | done (rework 1) | pass on 6a619f7; SHI-55 verified; AC-52 + fallback not run live (owner-accepted) |
+| 7 | staging | app-specialist | in-progress (rework 1) | previous: blocked by SHI-55 (now verified) |
 | 8 | go-live | the owner | pending | waits for SHI-55 and SHI-57 (Q-1 (a)) |
 | 9 | production | devops (tag vX.Y.Z) | pending | |
 
@@ -31,4 +31,4 @@ The engineer fixes SHI-55 and builds SHI-57 against the amended requirements.md,
 - nothing (Q-1 answered: (a) narrow pipeline.env fix before go-live; PO confirmed it as R1c-2)
 
 ## Open defect tickets
-- SHI-55 (High, staging): install route trusts the local origin/master ref
+- none (SHI-55 verified)
