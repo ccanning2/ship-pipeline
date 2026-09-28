@@ -14,8 +14,8 @@ Rework loops used: 1/3
 | 4 | build | senior-engineer | done (rework 1) | 1930 pass; d50b581 |
 | 5 | dev | devops (merge → master, dev check) | done (rework 1) | 1930 pass; dev+qa 6a619f7 |
 | 6 | qa | qa-tester | done (rework 1) | pass on 6a619f7; SHI-55 verified; AC-52 + fallback not run live (owner-accepted) |
-| 7 | staging | app-specialist | in-progress (rework 1) | previous: blocked by SHI-55 (now verified) |
-| 8 | go-live | the owner | pending | waits for SHI-55 and SHI-57 (Q-1 (a)) |
+| 7 | staging | app-specialist | done (rework 1) | approved on 6a619f7; SHI-55 re-verified |
+| 8 | go-live | the owner | waiting on the owner | waits for SHI-55 and SHI-57 (Q-1 (a)) |
 | 9 | production | devops (tag vX.Y.Z) | pending | |
 
 ## Next action
@@ -28,7 +28,7 @@ The engineer fixes SHI-55 and builds SHI-57 against the amended requirements.md,
 - **Then.** Move both tickets to fixed with the commit, and hand to devops to re-promote for re-test.
 
 ## Waiting on the owner
-- nothing (Q-1 answered: (a) narrow pipeline.env fix before go-live; PO confirmed it as R1c-2)
+- Go-live decision: release v3.2.0 (sha 6a619f7) to production?
 
 ## Open defect tickets
 - none (SHI-55 verified)
