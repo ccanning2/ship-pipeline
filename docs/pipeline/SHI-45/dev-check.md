@@ -2,7 +2,7 @@
 
 Result: pass
 Environment: dev
-Commit: e1e294dd0fa8509da80896ba9bc8fe2a29ee0920
+Commit: 0991b4ff2f1a6f85bc1a48b673e7b895c8f011e9
 
 Dev is the `master` ref (PIPELINE_HAS_DEPLOY_ENVS=no: no deploy, health or smoke step). Checked in a clean worktree at the Dev sha.
 
@@ -15,3 +15,5 @@ Dev is the `master` ref (PIPELINE_HAS_DEPLOY_ENVS=no: no deploy, health or smoke
 | CI / deploy / infra changes from impl-notes (For devops) | n/a | none listed |
 
 Not checked here (QA, per impl-notes): the manual AC-52 install on a throwaway GitHub repo, the protected-trunk fallback, and the guard-by-hand cases.
+
+Re-entry at dev: the first push of e1e294d to `staging` was rejected (non-fast-forward) because `staging` held a GitHub merge commit (268c754, PR #8, whose content equals master 6065077). `origin/staging` was merged into the ticket branch (no content change) and re-promoted; the new Dev sha 0991b4f differs from the tested e1e294d only in docs/pipeline/SHI-45 records (releases.md, deploy-history.md, dev-check.md), so the results above stand for it.
