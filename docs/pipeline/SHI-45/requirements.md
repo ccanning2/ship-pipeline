@@ -1,9 +1,11 @@
 # SHI-45 — Requirements (engineer-ready)
 
 Status: approved
-Traces to: product.md (US-1..US-6, R1..R8)
+Traces to: product.md (US-1..US-7, R1..R8, R1c-2)
 Amended: 2026-09-28 for defect SHI-55 (owner decision: the route checks against the real trunk; the guard stays
 network-free). Amended items are marked "(amended, SHI-55)"; FR-17, FR-18 and AC-53..AC-63 are new.
+Amended: 2026-09-28 for Q-1 (owner decision (a): go-live waits for a narrow pipeline.env fix; PO rule R1c-2, US-7).
+Amended items are marked "(amended, Q-1)"; FR-19 and AC-64..AC-76 are new.
 
 `/pipeline-init` opens the install pull request and merges it into the trunk itself. It does this through one
 dedicated route, `scripts/pipeline/install-merge.sh`. The guard hook (`scripts/pipeline/hooks/guard-merge.sh`) lets that
@@ -40,6 +42,8 @@ Terms used below:
   their blob contents at the install commit. A rename counts as a delete plus an add.
 - **reference**: the ship pipeline plugin as installed in Claude Code for this user. It is the plugin root that
   `/pipeline-init` runs from as `${CLAUDE_PLUGIN_ROOT}`. See FR-4 for how it is found.
+- **pipeline.env template** (new, Q-1): the reference's `template/scripts/pipeline/pipeline.env`, the file `init.sh`
+  scaffolds `scripts/pipeline/pipeline.env` from.
 - **declared configuration**: `GIT_HOST`, `TRACKER`, `BASE_BRANCH`, `STAGING_BRANCH`, `DEPLOY_MODE`, `PIPELINE_HAS_DEPLOY_ENVS`
   as written in `scripts/pipeline/pipeline.env` at the install commit. Missing keys get the defaults
   `scripts/init.sh` uses: DEPLOY_MODE=merge; PIPELINE_HAS_DEPLOY_ENVS is on unless exactly `no`.
@@ -68,15 +72,16 @@ Terms used below:
   2. (amended, SHI-55) `BASE_BRANCH`, `GIT_HOST`, `GIT_HOST_URL` and `PIPELINE_REMOTE` in the committed `pipeline.env`
      equal the same keys in the working-tree `pipeline.env`, compared after defaults (`PIPELINE_REMOTE` defaults to
      `origin`, `GIT_HOST_URL` to empty). So the route acts only with the configuration it is merging.
-  3. Every added or modified path belongs to the **install set** for the declared configuration, and its content
-     meets its class:
+  3. (amended, Q-1) Every added or modified path belongs to the **install set** for the declared configuration, and its
+     content meets its class:
 
      | Class | Paths (only those `init.sh` installs for the declared configuration) | Content rule |
      |---|---|---|
      | T: tooling | every tooling destination in `init.sh`. Includes `scripts/pipeline/*.sh` in its tooling loop (with `install-merge.sh`), `host.sh` (= `adapters/host-<GIT_HOST>.sh`), `tracker.sh` (= `adapters/tracker-<TRACKER>.sh`), `lib/host-common.sh`, `lib/tracker-common.sh` (not for connector), `tracker-schema.txt`, `hooks/*.sh`, `.claude/agents/<each agents/*.md>`, `docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md`, `docs/pipeline/_templates/<each template>` | identical to the reference copy, rendered |
      | S: safety-bearing project files | `.claude/settings.json`; the host's CI files (`.github/workflows/pipeline-gate.yml`, `deploy.yml` when deploy envs are on; `.gitlab/pipeline-gate.yml`, `.gitlab/pipeline-deploy.yml`; `bitbucket-pipelines.yml` or `bitbucket-pipelines.ship.yml` from the matching template); `scripts/deploy/{deploy,rollback,smoke}.sh` when deploy envs are on; any `<T or S path>.new` | identical to the reference template or file, rendered. A `.new` file matches the reference copy of the file it sits beside |
      | G: `.gitlab-ci.yml` (GitLab only) | `.gitlab-ci.yml` | either a new file that is exactly what `init.sh` generates when none exists, or T's version followed by exactly the `# ship-pipeline` include block `init.sh` appends. Any other change, including an edit to an existing `include:` list, fails |
-     | F: free project files | `docs/pipeline/CONTEXT.md`, `RELEASE_CHECKLIST.md`, `docs/pipeline/README.md`, `scripts/pipeline/pipeline.env`, `scripts/pipeline/tracker.map`, `.gitignore`, `scripts/pipeline/.install-manifest` | any content (see follow-up SHI-56 for `pipeline.env`) |
+     | E: pipeline configuration (new, Q-1) | `scripts/pipeline/pipeline.env` | FR-19: only comments, blank lines and plain settings of the pipeline.env template's keys |
+     | F: free project files (amended, Q-1) | `docs/pipeline/CONTEXT.md`, `RELEASE_CHECKLIST.md`, `docs/pipeline/README.md`, `scripts/pipeline/tracker.map`, `.gitignore`, `scripts/pipeline/.install-manifest` | any content |
 
   4. Every deleted path is one `init.sh` retires. That means a path under `scripts/pipeline/`, `.claude/agents/`,
      `docs/pipeline/_templates/`, `docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md` or `tests/pipeline/` that is **not** in
@@ -177,7 +182,10 @@ Terms used below:
   back to the owner when the host or the guard refuses, and that a team that wants a review leaves "Branches" unticked
   or keeps a required review on the trunk. (amended, SHI-55) They also say, in one sentence each in `BRANCHING.md` (both
   copies) and the CHANGELOG `v3.2.0` section, that the route checks the install against the trunk as the host reports
-  it, before the push and again before the merge, and falls back to the owner when the host cannot be reached. The docs
+  it, before the push and again before the merge, and falls back to the owner when the host cannot be reached.
+  (amended, Q-1) The same two places also carry this sentence: `When the install adds or changes
+  scripts/pipeline/pipeline.env, init merges it only if the file holds nothing but comments and plain settings from
+  the plugin's template; anything else falls back to the owner.` (Code formatting of the path is allowed.) The docs
   covered are:
   - `docs/pipeline/BRANCHING.md` and `template/docs/pipeline/BRANCHING.md` ("Repository maintenance without a ticket");
   - `commands/pipeline-init.md` step 8;
@@ -226,16 +234,67 @@ Terms used below:
   credentials come from where they come from today (the CLIs' own sign-in, the environment,
   `~/.config/ship-pipeline/bitbucket.env`). Every other script, and the guard for every other command, reads
   `pipeline.env` as today (follow-up SHI-56).
+- FR-19 (new, Q-1; R1c-2, US-7): **pipeline.env content rule (class E).** It applies when the install diff adds
+  `scripts/pipeline/pipeline.env`, or modifies its content. A mode-only change is not examined (FR-3.5). The rule is
+  checked by the one verifier, so the guard's pre-check (FR-5d) and the route's proof (FR-17.3) apply the same rule.
+  1. *Where it looks.* The whole blob at the install commit is read as text, line by line. CR characters are removed
+     first, and a last line without a newline counts as a line. The working-tree `pipeline.env` is not examined by
+     this rule: only FR-3.2 and FR-18 concern it. A `pipeline.env` that the install diff leaves unchanged is not
+     examined at all, so an existing install's hand-edited file does not block an upgrade that does not touch it.
+  2. *Allowed keys, defined once.* The allowed keys are the names assigned at the start of a line
+     (`^[A-Za-z_][A-Za-z0-9_]*=`) in the **pipeline.env template** of the reference. The verifier reads them there at
+     check time, next to the install set (`init.sh --list` / `--verify-install`). No second copy of the list exists in
+     the guard, the route or the tests. If the template cannot be read, the check fails closed. For information only,
+     the v3.2.0 template's keys are: `PROJECT_NAME`, `GIT_HOST`, `GIT_HOST_URL`, `PIPELINE_REMOTE`, `BASE_BRANCH`,
+     `STAGING_BRANCH`, `TRACKER`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `TRACKER_TEAM_KEY`, `PIPELINE_TICKET_REGEX`,
+     `PIPELINE_TEAMS`, `PIPELINE_HAS_DEPLOY_ENVS`, `DEPLOY_MODE`, `DEPLOY_WORKFLOW`, `DEV_URL`, `QA_URL`,
+     `STAGING_URL`, `PRODUCTION_URL`, `HEALTH_PATH`. `PIPELINE_START_LEVEL` is not among them.
+  3. *Allowed lines.* Every line is exactly one of:
+     - a. **blank**: nothing, or only spaces and tabs;
+     - b. **comment**: optional spaces or tabs, then `#`, then anything;
+     - c. **plain setting**: at the start of the line, `KEY=VALUE`, where KEY is an allowed key and VALUE is one of:
+       - `"…"` holding none of `"`, `$`, a backtick or `\`;
+       - `'…'` holding no `'`;
+       - empty;
+       - a bare run of the characters `A-Z a-z 0-9 _ . / : @ % + , -` (so no `~`, `$`, space, quote or other shell
+         character).
+
+       After the value there may be spaces or tabs. It may be followed, after at least one space or tab, by a `#`
+       comment. Nothing else may follow the value;
+     - d. **the shipped regex line**: the pipeline.env template's `PIPELINE_TICKET_REGEX` line, byte for byte as the
+       reference has it (CR aside), with nothing after it. Today that is
+       `PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+"`. `PIPELINE_TICKET_REGEX` written as a plain setting (c)
+       also passes.
+  4. *Each key at most once.* No allowed key may be set on two lines, whether the lines use form c, form d or both,
+     even when the values agree.
+  5. *No required keys.* The rule does not require any key to be present. FR-3.2 still compares its four keys after
+     defaults.
+  6. *Failure.* The first line that breaks the rule fails the proof. The route exits 4 with
+     `NOT-INSTALL scripts/pipeline/pipeline.env: scripts/pipeline/pipeline.env line <n>: <why>`. The guard blocks
+     (exit 2) with the same reason. The `<why>` texts are in the reasons table below. They may name the key but never
+     print the value or the line's text (NFR-5). When a line breaks more than one part of the rule, the reason is chosen
+     in this order:
+     1. `export` (the line begins with `export`);
+     2. an unknown key;
+     3. a value that is not plain;
+     4. a duplicate key;
+     5. any other shape.
+     Init then falls back to the owner step as today (FR-10, FR-16): `--open-only` is still allowed (AC-7), and nothing
+     reaches the trunk.
+  7. *Scope.* This rule limits only what an unreviewed install may carry. It does not change how `init.sh`, the
+     pipeline scripts, the guard for other commands, or CI read `pipeline.env`, and it does not change which branches
+     the guard trusts. Those are follow-up SHI-56.
 
 ## Non-functional requirements
 - NFR-1 (safety, high-risk area): Fail closed. Any error, missing tool, missing ref or commit, unreadable blob, host
-  read that failed or was ambiguous, or unreachable network, during the FR-3 / FR-5 / FR-17 checks blocks the route.
-  It never allows it. Refused runs change nothing on the host except what was already done (at most the pushed
+  read that failed or was ambiguous, or unreachable network, during the FR-3 / FR-5 / FR-17 / FR-19 checks blocks the
+  route. It never allows it. Refused runs change nothing on the host except what was already done (at most the pushed
   install branch and an open request).
 - NFR-2 (performance and network) (amended, SHI-55):
   - *Guard.* The guard never uses the network, for any command, including the route. Its cost for every command other
     than `install-merge.sh` stays as today: no extra process per call beyond today's. Its route pre-check (FR-5d)
-    stays local and finishes within a few seconds on Windows Git Bash for a full install diff (~70 files).
+    stays local and finishes within a few seconds on Windows Git Bash for a full install diff (~70 files). The FR-19
+    check reads two small files and is included in that bound.
   - *Route.* The merge form uses the network for these calls only:
     - one host read of T and, only when commit T is missing locally, one fetch of the trunk (FR-17.1–2);
     - the push and the request calls, as today;
@@ -248,10 +307,13 @@ Terms used below:
 - NFR-4 (idempotency): Re-running the route after a successful merge makes no change and exits 1 with "nothing to
   merge". Re-running it with an open request reuses that request. A run refused by FR-17 can be re-run as-is once the
   cause is gone.
-- NFR-5 (no secrets): The route prints URLs, shas and reasons only, never tokens or API payloads.
+- NFR-5 (no secrets): The route prints URLs, shas and reasons only, never tokens or API payloads. (amended, Q-1) The
+  FR-19 reasons name the file, the line number and at most the key, never a value or the line's text.
 - NFR-6 (tests): Fixtures only, under `mktemp -d`. The "remote" is a local bare repository. The host is the existing
   test doubles (`PIPELINE_GH_CMD`, `PIPELINE_GLAB_CMD`, `PIPELINE_CURL_CMD`), passed in the process environment and
-  extended to answer the FR-17 reads from the bare repository. No network.
+  extended to answer the FR-17 reads from the bare repository. No network. (amended, Q-1) FR-19 cases put the
+  offending lines in the **committed** `pipeline.env` only. The working-tree copy stays as `init.sh` rendered it, with
+  FR-3.2's keys equal, because the guard still sources the working-tree file for every command (SHI-56).
 
 ## Data model changes
 | Entity/table | Change | Constraints/indexes | Migration notes |
@@ -259,11 +321,12 @@ Terms used below:
 | (files) `scripts/pipeline/install-merge.sh` | new tooling file | executable; in `.install-manifest` | installed on the next `/pipeline-init` re-run; not destructive |
 | (git) branch `ship-pipeline/install` | reserved name | never force-pushed; deleted after merge | none |
 | (host verbs) read of a branch head, and the request's target branch, if the engineer adds them (SHI-55) | new read-only `host.sh` output | all three adapters; no write, label, protection or admin call | none |
+| (install set) class of `scripts/pipeline/pipeline.env` (Q-1) | F → E (FR-19) in the verifier's install set | the allowed keys come from the reference's pipeline.env template | none: `init.sh` still never writes an existing `pipeline.env`; an unchanged file is not examined |
 
 ## CLI contract
 | Command | Who | Request | Output / exit | Errors | Breaking? |
 |---|---|---|---|---|---|
-| `bash scripts/pipeline/install-merge.sh` | `/pipeline-init` only (agent, through the guard), or the owner's terminal | no args; current branch = install branch | `MERGED <url>` then optional `NOTE <text>` lines; exit 0 | 1 usage / nothing to merge / no remote; 3 `REFUSED <url> <reason>` (host refusal, or a FR-17 host read failed or disagreed); 4 `NOT-INSTALL <path>: <reason>` (proof against T, before any push) | no (new) |
+| `bash scripts/pipeline/install-merge.sh` | `/pipeline-init` only (agent, through the guard), or the owner's terminal | no args; current branch = install branch | `MERGED <url>` then optional `NOTE <text>` lines; exit 0 | 1 usage / nothing to merge / no remote; 3 `REFUSED <url> <reason>` (host refusal, or a FR-17 host read failed or disagreed); 4 `NOT-INSTALL <path>: <reason>` (proof against T, including FR-19, before any push) | no (new) |
 | `bash scripts/pipeline/install-merge.sh --open-only` | `/pipeline-init` fallback | as above | `OPENED <url>`; exit 0 | 1; 3 `REFUSED <url> <reason>` | no |
 | guard, route segment | hook | the Bash tool call | exit 0 allow; exit 2 block with message; never a network call | n/a | no |
 | guard, every other segment | hook | as today | unchanged decisions | unchanged | no |
@@ -277,6 +340,7 @@ Terms used below:
 | `/pipeline-init` Impact, not opened (new, SHI-55) | new line | `--open-only` also refused (e.g. network or host down) | `Install pull request not opened (<reason>). The install is committed on the local branch <install branch>: push it, open a request into <trunk>, mark it infra and merge it (on Bitbucket, push the branch as infra/<name>).` |
 | guard block, route refused | new message | block | `PIPELINE GATE: blocked '<segment>' (install route): <reason>. This route merges only the pipeline's own install: every changed file must be one that scripts/init.sh installs, and each tooling file must match the plugin's copy. Way forward: run 'bash scripts/pipeline/install-merge.sh --open-only' and leave the request for the owner to mark infra and merge. Do not try to get around this hook.` |
 | guard block and `NOT-INSTALL`, reasons (`<reason>`) | new | block | `<path> is not part of the install` · `<path> differs from the plugin's copy` · `<path> is deleted but is not retired tooling` · `the current branch is '<b>', not 'ship-pipeline/install'` · `<remote>/<trunk> is missing or not an ancestor of HEAD` (guard pre-check) · `the host's <trunk> (<T>) is not an ancestor of HEAD` (route) · `nothing to merge` · `the plugin's installed copy could not be found` · `the route must be run as scripts/pipeline/install-merge.sh` · `unexpected argument '<a>'` · `<file> (used by the route) differs from the plugin's copy` · `the route must run on its own: no variable assignment and no other command in the same call` · `scripts/pipeline/pipeline.env at HEAD says <KEY>="<v>", but the working tree says "<w>"` |
+| guard block and `NOT-INSTALL`, pipeline.env reasons (new, Q-1; FR-19) | new | block / exit 4 | Each is `scripts/pipeline/pipeline.env line <n>: <why>`, where `<why>` is one of: `'export' is not allowed` · `'<KEY>' is not a setting in the plugin's pipeline.env template` · `the value of '<KEY>' is not a plain value (no variable, command, substitution or escape)` · `'<KEY>' is set more than once (first on line <m>)` · `this line is not a comment, a blank line or a plain KEY="value" setting`. Also, with no line number: `scripts/pipeline/pipeline.env: the plugin's pipeline.env template could not be read`. The full route line is `NOT-INSTALL scripts/pipeline/pipeline.env: scripts/pipeline/pipeline.env line <n>: <why>` |
 | route `REFUSED` reasons (new, SHI-55) | new | exit 3 | `the trunk tip could not be read from the host (<reason>)` · `the host's trunk tip <T> could not be fetched` · `the trunk moved since the check (host: <sha>, checked: <T>)` · `the request targets '<b>', not '<trunk>'` · `the request could not be read (<reason>)` |
 | guard `no_ticket` message | one line added under "Ways forward" | block | `  - The pipeline's own install or upgrade: /pipeline-init merges it through scripts/pipeline/install-merge.sh, which accepts nothing but the plugin's own files.` |
 | PR/MR body | new | on open | `Ship pipeline install, opened and merged by /pipeline-init without a human review. Every file matches the plugin's copy or is a project file init.sh scaffolds (docs/pipeline/BRANCHING.md).` |
@@ -285,6 +349,7 @@ Terms used below:
 | Action | Agent via `install-merge.sh` | Agent via any other route | `/ship` / personas | Owner's own terminal | `PIPELINE_BYPASS=1` (Claude Code env) |
 |---|---|---|---|---|---|
 | Ticketless merge of a verified install (against the host's trunk) into the trunk | allowed | blocked (as today) | never used | allowed (the route's own FR-17 check still runs) | allowed, announced |
+| Ticketless merge of an install whose changed `pipeline.env` breaks FR-19 | blocked (falls back to the owner) | blocked | blocked | blocked by the route's own check; the owner may merge it by hand as today | allowed, announced |
 | Ticketless merge of anything else into the trunk | blocked | blocked | blocked | not gated (as today) | allowed, announced |
 | Staging branch / tag / force / delete / bulk push | never (route cannot) | as today | as today | not gated | allowed, announced |
 | Add `infra` label / push Bitbucket `infra/` | never | blocked | blocked | owner's decision | allowed, announced |
@@ -360,15 +425,47 @@ Route, host-anchored proof (new, SHI-55; each on the GitHub, GitLab and Bitbucke
 - AC-56 (FR-17.4): Given a valid install where the host reports a trunk head other than T at the pre-merge re-read (the trunk moved, or the head comes from a different repository), then the route exits 3 `REFUSED <url> the trunk moved since the check (host: <sha>, checked: <T>)` and makes no merge call.
 - AC-57 (FR-17.4): Given a reused open request from the install branch whose target branch, as the host reports it, is `staging` (or any branch other than the trunk), then the route exits 3 `REFUSED <url> the request targets 'staging', not 'master'` and makes no merge call.
 - AC-58 (FR-17.1–2, NFR-1): Given the trunk-head read fails (the fake CLI exits non-zero, `curl` fails as if the network were down, the branch is unknown, or the answer is not a full sha), then the route exits 3 `REFUSED <web url> the trunk tip could not be read from the host (<reason>)`, before any push or request call. Given the host reports a sha that the remote does not have, then the route exits 3 `REFUSED <web url> the host's trunk tip <sha> could not be fetched`, before any push.
-- AC-59 (FR-18): Given the working-tree and committed `pipeline.env` also hold a line setting `PIPELINE_GH_CMD` (on GitLab `PIPELINE_GLAB_CMD`, on Bitbucket `PIPELINE_CURL_CMD`) to a liar fake that reports `evil` as the trunk head, and a line `touch <marker>`. The process environment holds the honest fake. When the route runs directly on the AC-53 fixture, then:
+- AC-59 (FR-18) (amended, Q-1): On the AC-53 fixture, the **working-tree** `pipeline.env` also holds a line setting `PIPELINE_GH_CMD` (on GitLab `PIPELINE_GLAB_CMD`, on Bitbucket `PIPELINE_CURL_CMD`) to a liar fake that reports `evil` as the trunk head, and a line `touch <marker>`. The committed `pipeline.env` is as `init.sh` rendered it. The process environment holds the honest fake. When the route runs directly, then:
   - only the honest fake is called;
   - the route exits 4 naming `src/Backdoor.java`;
   - `<marker>` does not exist afterwards.
+
+  A second case commits the same two lines as well. Then the route exits 4 with a `NOT-INSTALL` line naming either `scripts/pipeline/pipeline.env` (FR-19) or `src/Backdoor.java`, only the honest fake is called, there is no push, and `<marker>` does not exist.
 - AC-60 (FR-17.3, real history): Given an install commit whose real history does not contain T, but a replace ref, or a `.git/info/grafts` entry, makes T look like an ancestor, then the route exits 4 (T is not an ancestor of HEAD) with no push. Given a shallow repo where the ancestry cannot be decided, then the route refuses with exit 3 or 4, with no push. GitHub fake only.
 - AC-61 (FR-17.5, positive): Given a valid install built on A, with the host reporting A, and the local `origin/master` deleted, or pointing at an older trunk commit, then the route run directly merges (`MERGED <url>`, exit 0). The proof does not depend on the local ref.
 
 Guard, network (new, SHI-55; in `test_guard_merge.sh`, added lines only)
 - AC-62 (NFR-2): Given `PIPELINE_GH_CMD`, `PIPELINE_GLAB_CMD` and `PIPELINE_CURL_CMD` in the hook's environment pointing at a fake that logs and fails, and the remote's URL pointing at a path that does not exist, when the guard runs the AC-1, AC-8 and AC-53 route cases and one ordinary ticketless push, then its decisions are the same as without them and the fake log is empty.
+
+pipeline.env content rule (new, Q-1; FR-19. Guard cases in `test_guard_merge.sh` (added lines only), route cases in `test_install_merge.sh` on the GitHub fake unless stated. Each case starts from the AC-1 install and changes only the **committed** `pipeline.env`. The working tree stays as rendered (NFR-6). "Fails" means: the guard blocks (exit 2) and names `scripts/pipeline/pipeline.env line <n>` with the stated `<why>`, **and** the route run directly exits 4 with `NOT-INSTALL scripts/pipeline/pipeline.env: scripts/pipeline/pipeline.env line <n>: …`, the trunk-head read is its only host call, and the bare origin has no `ship-pipeline/install` branch)
+- AC-64 (FR-19, positive): Given the AC-1 and AC-2 fixture installs (github; gitlab without `.gitlab-ci.yml`; bitbucket; `--no-deploy-envs`; `--deploy-mode explicit`), each committing `pipeline.env` exactly as `init.sh` rendered it, including the shipped `PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+"` line, then the guard allows the route (exit 0). The route run directly then prints `MERGED <url>` and exits 0 on the matching fake (github, gitlab, bitbucket).
+- AC-65 (FR-19, positive): Given the AC-1 install whose committed `pipeline.env` differs from the rendered file only in the ways listed here, one case each, then the guard allows the route and the route merges:
+  - a value changed to another plain value (`DEV_URL="https://dev.example.com/#/x"`);
+  - a single-quoted value;
+  - a bare value (`DEPLOY_MODE=explicit`);
+  - an empty value (`HEALTH_PATH=`);
+  - a trailing `# comment` added after a value;
+  - comment and blank lines added;
+  - a key removed;
+  - CRLF line endings;
+  - `PIPELINE_TICKET_REGEX="RAD-[0-9]+"` in place of the shipped line;
+  - this repository's own `scripts/pipeline/pipeline.env` (its keys are a subset of the template's).
+
+  The existing case "the free project files take any content", which appends `# x` to `pipeline.env`, still passes.
+- AC-66 (FR-19.2, unknown key): Given a line `FOO="x"`, or a line `PIPELINE_GH_CMD="/tmp/fake"`, then it fails with `'FOO' is not a setting in the plugin's pipeline.env template` (or `'PIPELINE_GH_CMD' …`).
+- AC-67 (FR-19.3, command line): Given, one case each, a line `touch <marker>`, `source /tmp/x`, `eval "x"`, `BASE_BRANCH="master" touch <marker>`, `BASE_BRANCH="master"; touch <marker>`, `f() { :; }`, or `if true; then :; fi`, then it fails, and `<marker>` does not exist after the route run.
+- AC-68 (FR-19.3, substitution): Given, one case each, `PROJECT_NAME="$(touch <marker>)"`, ``PROJECT_NAME="`touch <marker>`"``, `PROJECT_NAME="${TRACKER_TEAM_KEY}"`, `PROJECT_NAME="$HOME"`, `PROJECT_NAME=$HOME`, `PROJECT_NAME=~/x`, a double-quoted value holding `\`, or a quote left open onto the next line, then it fails with `the value of 'PROJECT_NAME' is not a plain value …` (for the open quote, any line-numbered FR-19 reason). The shipped `PIPELINE_TICKET_REGEX` line passes (AC-64). Given that same line with a trailing comment, or with `$(id)` appended inside the quotes, then it fails. `<marker>` never exists.
+- AC-69 (FR-19.3, export): Given `export BASE_BRANCH="master"` in place of the plain line, or a line `export PROJECT_NAME`, then it fails with `'export' is not allowed`.
+- AC-70 (FR-19.4, duplicate): Given `BASE_BRANCH="master"` on two lines (same value), or the shipped `PIPELINE_TICKET_REGEX` line plus `PIPELINE_TICKET_REGEX="RAD-[0-9]+"`, then it fails on the second line with `'<KEY>' is set more than once (first on line <m>)`.
+- AC-71 (FR-19.2, retired key): Given the install adds `PIPELINE_TEAMS="…"` and keeps a line `PIPELINE_START_LEVEL="analysis"` (an upgrade from 3.0.0), then it fails with `'PIPELINE_START_LEVEL' is not a setting in the plugin's pipeline.env template`. The same file without the `PIPELINE_START_LEVEL` line passes.
+- AC-72 (FR-19.1, unchanged file not examined): T (the trunk) already holds a hand-edited `pipeline.env` that breaks FR-19 in inert ways: `PIPELINE_START_LEVEL="analysis"`, `MY_KEY="x"`, `export PIPELINE_WAIT_TRIES=3`, and `BASE_BRANCH` set twice to the same value. It still names the fixture's trunk, host and remote. The upgrade install commit leaves `pipeline.env` byte-identical to T's. Then the guard allows the route (exit 0) and the route run directly merges (`MERGED`, exit 0). Given the same fixture where the install commit adds one comment line to that file, then it fails, which shows that any content change brings the whole file under the rule.
+- AC-73 (FR-19.6, NFR-5, copy): Given a line `SECRET_TOKEN="s3cr3t-value"` (an unknown key), then:
+  - the guard's block message and the route's line match the exact copy in the reasons table;
+  - both contain `scripts/pipeline/pipeline.env line <n>:`;
+  - neither contains `s3cr3t-value`;
+  - the guard's message still ends with the route-refused block text and its `--open-only` way forward;
+  - `bash scripts/pipeline/install-merge.sh --open-only` is still allowed by the guard.
+- AC-74 (FR-19.2, NFR-1, fail closed): Given a reference whose `template/scripts/pipeline/pipeline.env` is missing, and an install that changes `pipeline.env`, then the guard blocks with `the plugin's pipeline.env template could not be read`, and the route run directly exits 4 with that same reason, with no push.
 
 Init and docs (`tests/pipeline/test_init.sh`)
 - AC-43 (FR-1): A fresh `init.sh` install has an executable `scripts/pipeline/install-merge.sh` identical to `REPO_SRC`, and `.install-manifest` lists it. A re-run with it hand-edited reports it as `customised, kept`.
@@ -382,6 +479,8 @@ Init and docs (`tests/pipeline/test_init.sh`)
 - AC-51 (FR-15): The persona project-agnosticism test still passes, and `agents/*.md` and `.claude/agents/*.md` are identical pairs.
 - AC-52 (Metric 1, manual, for QA): Given a throwaway GitHub repo with no protection, when `/pipeline-init` is run from the qa ref with every consent ticked, then the owner's only action after the sign-in is none, `git log origin/master` contains the install, protection is applied afterwards, and the Impact line reads `Install merged into …`.
 - AC-63 (FR-10, FR-14, FR-16; new, SHI-55): `commands/pipeline-init.md` contains the "not opened" Impact line and says to report it when `--open-only` is also refused. Both `BRANCHING.md` copies and the `v3.2.0` CHANGELOG section say that the route checks the install against the trunk as the host reports it, before the push and before the merge, and falls back to the owner when the host cannot be reached.
+- AC-75 (FR-14; new, Q-1): Both `BRANCHING.md` copies and the `v3.2.0` CHANGELOG section contain `nothing but comments and plain settings from the plugin's template` and, in the same sentence, `pipeline.env` and `falls back to the owner`. The `v3.2.0` known-limits text names SHI-56 for reading `pipeline.env` as data.
+- AC-76 (delivery; new, Q-1): Every test file in the `tests=(…)` list of `tests/pipeline/run-all.sh` is named in the `Tests:` bullet of `docs/pipeline/CONTEXT.md`, including `test_adapters.sh` and `test_install_merge.sh`. This is checked by a test in `test_init.sh`, or by review if the engineer judges a test of a docs file to be out of place. Either way, QA verifies it.
 
 ## Interpretations (BA decisions derived from product.md; none loosens R1–R8)
 1. R1c says "every file is one init.sh installs or scaffolds; tooling identical". R1c's own example lists a hand-edited `.claude/settings.json` hook entry as a hole. So the safety-bearing project files are held to identity as well: settings.json, CI files, deploy scripts and `.new` copies (class S). This is stricter. It costs nothing on the default path, because a fresh install creates them from the template and a re-run does not touch them.
@@ -394,18 +493,26 @@ Init and docs (`tests/pipeline/test_init.sh`)
    - the request's source is the install commit;
    - the request targets the trunk;
    then what the host merges is exactly `diff(T, install commit)`, the diff that was proved. For that reason no host file-list comparison is required. A push that goes somewhere else, or a remote that is renamed or rewritten mid-run, shows up as a source-commit or trunk-head mismatch and is refused.
-6. (SHI-55) The trunk's *name* still comes from `BASE_BRANCH` in `pipeline.env` (working tree = committed), as the guard reads it today for every command. Treating `pipeline.env` as a trust root generally, and constraining what an unreviewed install may put in it, is follow-up SHI-56, not SHI-55 (see Delivery notes).
+6. (SHI-55) (amended, Q-1) The trunk's *name* still comes from `BASE_BRANCH` in `pipeline.env` (working tree = committed), as the guard reads it today for every command. SHI-45 now limits what an unreviewed install may put in `pipeline.env` (FR-19, R1c-2). Reading `pipeline.env` as data everywhere, and how far the guard trusts `BASE_BRANCH` / `STAGING_BRANCH`, stay in follow-up SHI-56.
 7. (SHI-55) The guard stays network-free by owner decision, so its install check is a local pre-check. The guard's security contribution is FR-5a–c and FR-5e: only the plugin's own route may run, and it must run alone. The route then carries the proof.
+8. (Q-1) R1c-2 says "plain text" and "no variable, command or substitution". FR-19 makes that checkable:
+   - An assignment starts at column 1. That is how the template and `/pipeline-init` write it.
+   - A value may be double-quoted without `$`, backtick or `\`; single-quoted (literal to bash); or bare from a safe character set. `~` is excluded because bash expands it in an assignment.
+   - A `#` starts a comment only after whitespace, as in bash.
+   - A mode-only change is "not a change" to the content, so it is not examined (FR-3.5).
+   - The shipped regex line must match exactly, with no trailing comment ("exactly as shipped").
+   - Reasons name the line and the key, never the value, so a token pasted by mistake is not echoed (NFR-5).
+   - An upgrade from 3.0.0 therefore merges only if `/pipeline-init`'s proposed `PIPELINE_TEAMS` line **replaces** `PIPELINE_START_LEVEL`. `commands/pipeline-init.md` already says "in place of". Otherwise the upgrade falls back to the owner, as R1c-2 intends.
 
 ## Delivery notes
-- Flags / env: no new `pipeline.env` key. Only the existing test doubles are used, from the process environment (FR-18). The reference lookup (FR-4) is the engineer's to implement within its constraints. The install set stays defined in one place (`init.sh --list` / `--verify-install`). For FR-17 the verifier accepts T from the route, and the guard's pre-check keeps using the local trunk ref. The mechanism is the engineer's.
-- Rollout order: SHI-47, then SHI-48 and SHI-49 in parallel, then SHI-50 (all done). SHI-55 is the rework: it is fixed on the ticket branch, re-merged to master, and re-promoted through dev, qa and staging for re-test. Existing installs get the route and the new guard on their next `/pipeline-init` re-run.
+- Flags / env: no new `pipeline.env` key. Only the existing test doubles are used, from the process environment (FR-18). The reference lookup (FR-4) is the engineer's to implement within its constraints. The install set stays defined in one place (`init.sh --list` / `--verify-install`). For FR-17 the verifier accepts T from the route, and the guard's pre-check keeps using the local trunk ref. The mechanism is the engineer's. (Q-1) FR-19's allowed keys are read from the reference's pipeline.env template by that same verifier. `--list` reports `pipeline.env` under its new class.
+- Rollout order: SHI-47, then SHI-48 and SHI-49 in parallel, then SHI-50 (all done). The rework is SHI-55 (FR-17, FR-18) and the new eng ticket for FR-19 (R1c-2). Both are built on the ticket branch in this loop, re-merged to master, and re-promoted through dev, qa and staging for re-test. They touch the same verifier: build them in one pass or in sequence on the branch. The FR-19 route ACs rely on the SHI-55 route. Go-live waits for both (Q-1 (a)). Existing installs get the route and the new guard on their next `/pipeline-init` re-run.
 - Known limits, stated in the docs and CHANGELOG:
   - The guard sees agent tool calls only. A script that calls the host API internally is not examined (unchanged). In the same class: git's own per-repository configuration and hooks run during the route's fetch and push. They are project state, like any script an agent writes. FR-17.4 still refuses the merge if they change what is being merged.
   - The route acts on whichever host repository the project's remote names. It can only land a verified install there, checked against that repository's real trunk.
   - The owner's consent (R5) is enforced by `/pipeline-init`'s instructions, not by the guard.
   - The install request's Pipeline Gate check shows as failed. That is expected until SHI-46.
   - The reference is only as trustworthy as the user's plugin install.
-  - `pipeline.env` is class F (free content) and is sourced by most pipeline scripts, by the guard for every command, and by CI's `gate.sh`. An unreviewed install merge can therefore carry executable content in it. This is follow-up SHI-56; whether go-live waits for it is clarifications Q-1.
-- CONTEXT.md "stop and ask before altering the write-boundary hooks": the owner approved this change in product.md and approved the SHI-55 direction on 2026-09-28.
-- CONTEXT.md Stack test list lacks `test_install_merge.sh` and `test_adapters.sh` (PO to update; noted in signoff.md).
+  - (amended, Q-1) An unreviewed install can only land a `pipeline.env` that holds plain template settings (FR-19). The pipeline scripts, the guard and CI's `gate.sh` still `source` the file, so a `pipeline.env` that reaches the trunk by another way (a reviewed merge, or the owner's own push) is still executed. How far the guard trusts `BASE_BRANCH` / `STAGING_BRANCH` from the working tree is also unchanged. Both are follow-up SHI-56.
+- CONTEXT.md "stop and ask before altering the write-boundary hooks": the owner approved this change in product.md, approved the SHI-55 direction on 2026-09-28, and chose the narrow pipeline.env fix (Q-1 (a)) on 2026-09-28.
+- CONTEXT.md Stack test list lacks `test_adapters.sh` and `test_install_merge.sh`. The PO has no write access to CONTEXT.md, so the engineer updates the `Tests:` bullet in the new eng ticket (AC-76). `tests/pipeline/run-all.sh` already runs both.
