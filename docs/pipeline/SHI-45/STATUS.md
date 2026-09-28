@@ -19,7 +19,7 @@ Rework loops used: 0/3
 | 9 | production | devops (tag vX.Y.Z) | pending | |
 
 ## Next action
-Owner decision: accept QA without live AC-52, or run it from a session rooted in the sandbox; then devops promote-staging.
+Owner accepted QA without live AC-52 (to be checked by hand later). Run devops (promote-staging).
 
 ## Waiting on the owner
 - nothing
