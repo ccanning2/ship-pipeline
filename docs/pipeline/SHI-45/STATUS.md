@@ -13,13 +13,13 @@ Rework loops used: 0/3
 | 3 | analysis | business-analyst ⇄ product-owner (plan) | done | 16 FRs, 52 ACs; eng SHI-47..SHI-50 |
 | 4 | build | senior-engineer | done | 1506 tests pass; 73d98fe |
 | 5 | dev | devops (merge → master, dev check) | done | 1506 pass; dev+qa 0991b4f |
-| 6 | qa | qa-tester | pending | |
+| 6 | qa | qa-tester | done | pass, 0 defects; AC-52 + fallback not run live |
 | 7 | staging | app-specialist | pending | |
 | 8 | go-live | the owner | pending | |
 | 9 | production | devops (tag vX.Y.Z) | pending | |
 
 ## Next action
-Run qa-tester on the build on qa (0991b4f).
+Owner decision: accept QA without live AC-52, or run it from a session rooted in the sandbox; then devops promote-staging.
 
 ## Waiting on the owner
 - nothing
