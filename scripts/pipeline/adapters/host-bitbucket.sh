@@ -36,6 +36,22 @@ bb_merge() { # branch base title
   fi
   bb POST "$r/pullrequests/$id/merge" '{"merge_strategy":"merge_commit"}' >/dev/null || die "Bitbucket refused to merge PR #$id"
 }
+bb_request_open() { # branch base title body -> "<id> <url>"
+  local r out; r="$(bb_repo)"
+  out="$(bb GET "$r/pullrequests?state=OPEN&q=$(urlenc "source.branch.name=\"$1\" AND destination.branch.name=\"$2\"")" 2>/dev/null \
+    | json '.values[0] // empty | "\(.id) \(.links.html.href)"' || true)"
+  [ -n "$out" ] || out="$(bb POST "$r/pullrequests" "$(jq -nc --arg t "$3" --arg s "$1" --arg d "$2" --arg b "$4" \
+      '{title:$t, source:{branch:{name:$s}}, destination:{branch:{name:$d}}, description:$b}')" | json '"\(.id) \(.links.html.href)"')" \
+    || die "could not open a pull request from $1 into $2"
+  echo "$out"
+}
+# Bitbucket reports no mergeability before the merge call, and its merge takes no sha: install-merge.sh re-reads the
+# source commit (below) right before merging and refuses on a mismatch
+bb_request_info() { bb GET "$(bb_repo)/pullrequests/$1" | json '"\(.source.commit.hash) ready"'; }
+bb_request_merge() {
+  local e; e="$(bb POST "$(bb_repo)/pullrequests/$1/merge" '{"merge_strategy":"merge_commit"}' 2>&1 >/dev/null)" && return 0
+  refused "Bitbucket refused to merge PR #$1: ${e#curl: }"
+}
 bb_set_ref() {
   local r name; r="$(bb_repo)"
   case "$1" in

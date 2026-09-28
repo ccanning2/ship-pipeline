@@ -23,6 +23,22 @@ gl_merge() { # branch base title
   fi
   $glab_cmd api -X PUT "projects/$p/merge_requests/$iid/merge" -f sha="$(git rev-parse HEAD)" >/dev/null || die "GitLab refused to merge !$iid"
 }
+gl_request_open() { # branch base title body -> "<iid> <url>"
+  local p r; p="$(gl_pid)"
+  r="$($glab_cmd api "projects/$p/merge_requests?state=opened&source_branch=$(urlenc "$1")&target_branch=$(urlenc "$2")" 2>/dev/null | json '.[0] // empty | "\(.iid) \(.web_url)"' || true)"
+  [ -n "$r" ] || r="$($glab_cmd api -X POST "projects/$p/merge_requests" -f source_branch="$1" -f target_branch="$2" -f title="$3" \
+         -f description="$4" | json '"\(.iid) \(.web_url)"')" || die "could not open a merge request from $1 into $2"
+  echo "$r"
+}
+gl_request_info() {
+  $glab_cmd api "projects/$(gl_pid)/merge_requests/$1" | json '(.detailed_merge_status // .merge_status // "") as $s
+    | "\(.sha) \(if ($s | test("^(checking|unchecked|preparing|approvals_syncing|cannot_be_merged_recheck)$")) then "checking"
+      elif ($s | test("^(mergeable|can_be_merged)$")) then "ready" else "blocked" end)"'
+}
+gl_request_merge() { # iid sha: GitLab refuses when the source is no longer sha
+  local e; e="$($glab_cmd api -X PUT "projects/$(gl_pid)/merge_requests/$1/merge" -f sha="$2" 2>&1 >/dev/null)" && return 0
+  refused "GitLab refused to merge !$1: ${e#glab: }"
+}
 gl_set_ref() { # ref sha
   local p name; p="$(gl_pid)"
   case "$1" in

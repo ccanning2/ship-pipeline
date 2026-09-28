@@ -9,6 +9,12 @@
 # `glab release create`) or `scripts/pipeline/host.sh merge|set-ref` is examined. Text in echo, grep, tail or a commit message never trips it.
 # Never allowed from an agent, ticket or not: force pushes or deletes of the base/staging branch or a version
 # tag, bulk pushes (--all, --mirror), and adding the `infra` label (a human's decision; see pipeline-gate.yml).
+# One ticketless route is allowed: scripts/pipeline/install-merge.sh, /pipeline-init's merge of the pipeline's own
+# install. It runs only on its own (no other command, no variable assignment), with no argument or exactly
+# --open-only, and only when the plugin's own copy of scripts/init.sh (--verify-install) finds the files the route
+# runs identical to the plugin's and, to merge, HEAD on the install branch and nothing but the install. The plugin's
+# copy comes from this hook's environment (PIPELINE_PLUGIN_ROOT) or Claude Code's record of the installed plugin,
+# never from the command or the repository.
 # Exit 2 blocks (stderr shown to Claude). PIPELINE_BYPASS=1 in the environment Claude Code itself was started
 # with lets a command through (announced). A command cannot set it for the hook: only the human can.
 set -uo pipefail
@@ -53,6 +59,7 @@ no_ticket() { # <stage>
 Ways forward:
   - Ticket work: run /ship <TICKET>; scripts/pipeline/promote.sh moves the build through the gates.
   - Repository maintenance with no ticket (an install commit, a CI or dependency change): push a branch that is not $base or $stg and open a pull request. A human reviews it, adds the 'infra' label (docs/pipeline/BRANCHING.md) and merges it.
+  - The pipeline's own install or upgrade: /pipeline-init merges it through scripts/pipeline/install-merge.sh, which accepts nothing but the plugin's own files.
   - Or ask the owner to run the command in their own terminal: this hook gates agent tool calls only.
 Do not try to get around this hook."
 }
@@ -158,28 +165,94 @@ check_host() { # args after scripts/pipeline/host.sh: merge and set-ref move the
   local s
   case "${1:-}" in
     merge) s="$(dst_stage "${3:-}")"; gate "${s:-dev}";;
+    request-merge) gate dev;;   # merges a PR/MR by id, like gh pr merge
     set-ref) s="$(dst_stage "${2:-}")"; [ -n "$s" ] && gate "$s";;
   esac
   return 0
 }
 
+# ---- the install route: scripts/pipeline/install-merge.sh (SHI-45) ----
+plugin_name=ship-pipeline
+json_field() { # <field> of the hook input
+  if command -v jq >/dev/null 2>&1; then printf '%s' "$input" | jq -r ".$1 // empty" 2>/dev/null
+  else
+    local p="" c; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { p="$c"; break; }; done
+    [ -n "$p" ] && printf '%s' "$input" | $p -c 'import sys,json; print(json.load(sys.stdin).get(sys.argv[1]) or "")' "$1" 2>/dev/null
+  fi
+}
+plugin_root() { # the plugin's own copy: this hook's environment, else Claude Code's record of the installed plugin
+  local f p ps n
+  if [ -n "${PIPELINE_PLUGIN_ROOT:-}" ]; then p="$PIPELINE_PLUGIN_ROOT"
+  else
+    f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"; [ -f "$f" ] || return 1
+    if command -v jq >/dev/null 2>&1; then
+      ps="$(jq -r --arg n "$plugin_name@" '.plugins // {} | to_entries[] | select(.key | startswith($n)) | .value | (if type == "array" then .[] else . end) | .installPath // empty' "$f" 2>/dev/null)" || return 1
+    else
+      local py="" c; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </dev/null && { py="$c"; break; }; done
+      [ -n "$py" ] || return 1
+      ps="$($py -c 'import json,sys
+d=json.load(open(sys.argv[1])).get("plugins") or {}
+for k,v in d.items():
+    if k.startswith(sys.argv[2]):
+        for e in (v if isinstance(v,list) else [v]):
+            if e.get("installPath"): print(e["installPath"])' "$f" "$plugin_name@" 2>/dev/null)" || return 1
+    fi
+    ps="$(printf '%s\n' "$ps" | tr '\\' '/' | tr -d '\r' | sed '/^$/d' | sort -u)"
+    n="$(printf '%s\n' "$ps" | sed '/^$/d' | wc -l | tr -d ' ')"
+    [ "$n" = 1 ] || return 1   # none, or two recorded installs that disagree
+    p="$ps"
+  fi
+  [ -f "$p/scripts/init.sh" ] && [ -f "$p/.claude-plugin/plugin.json" ] || return 1
+  printf '%s' "$p"
+}
+check_route() { # after every segment: route_seg, route_path, route_args and route_alone describe the route's call
+  local ref out r cwd abs d want a k=0 mode=""
+  [ "${PIPELINE_BYPASS:-0}" = 1 ] && { bypassed=1; return 0; }
+  refuse() {
+    block "PIPELINE GATE: blocked '$route_seg' (install route): $1. This route merges only the pipeline's own install: every changed file must be one that scripts/init.sh installs, and each tooling file must match the plugin's copy. Way forward: run 'bash scripts/pipeline/install-merge.sh --open-only' and leave the request for the owner to mark infra and merge. Do not try to get around this hook."
+  }
+  # a. the project's own route, however the path is spelled
+  cwd="$(json_field cwd | tr '\\' '/')"; [ -n "$cwd" ] || cwd="$project"
+  case "$route_path" in /*|[A-Za-z]:/*|[A-Za-z]:\\*) abs="$(printf '%s' "$route_path" | tr '\\' '/')";; *) abs="$cwd/$route_path";; esac
+  d="$(cd "${abs%/*}" 2>/dev/null && pwd -P)"; want="$(cd "$P" 2>/dev/null && pwd -P)"
+  [ -n "$d" ] && [ "$d" = "$want" ] && [ "${abs##*/}" = install-merge.sh ] || refuse "the route must be run as scripts/pipeline/install-merge.sh"
+  # b. no argument, or exactly --open-only
+  for a in ${route_args[@]+"${route_args[@]}"}; do
+    if [ "$k" = 0 ] && [ "$a" = --open-only ]; then mode=--open-only; else refuse "unexpected argument '$a'"; fi
+    k=$((k+1))
+  done
+  # c, d. the plugin's own init.sh checks the route's files and, to merge, the install commit
+  ref="$(plugin_root)" || refuse "the plugin's installed copy could not be found"
+  if ! out="$(bash "$ref/scripts/init.sh" --verify-install $mode --project-dir "$project" 2>&1)"; then
+    r="${out#*$'\t'}"; [ "$r" != "$out" ] || r="the install check failed ($(printf '%s' "$out" | tr -d '\r' | head -n 1))"
+    refuse "$(printf '%s' "$r" | head -n 1)"
+  fi
+  # nothing may run before, beside or after it in the same call (it could change what was just checked)
+  [ "$route_alone" = 1 ] || refuse "the route must run on its own: no variable assignment and no other command in the same call"
+}
+
+route_n=0; nprog=0; route_seg=""; route_path=""; route_args=(); route_assign=0
 set -f
 while IFS= read -r seg; do
   read -ra w <<<"$seg" || true
-  i=0; n=${#w[@]}
+  i=0; n=${#w[@]}; seg_assign=0
   # leading assignments and keywords are not the command; a wrapper (bash -c, sudo, xargs, eval, ...) runs the
   # words after it, so it is skipped together with its options and the command it wraps is examined instead
   while [ "$i" -lt "$n" ]; do
+    # an assignment whose value holds a / (FOO=/x) is still an assignment, not a program named x
+    case "${w[$i]}" in [A-Za-z_]*=*) seg_assign=1; i=$((i+1)); continue;; esac
     case "${w[$i]##*/}" in
-      [A-Za-z_]*=*|then|do|else|'!') i=$((i+1));;
+      [A-Za-z_]*=*) seg_assign=1; i=$((i+1));;
+      then|do|else|'!') i=$((i+1));;
       command|exec|time|nohup|env|sudo|doas|nice|timeout|xargs|eval|bash|sh|zsh|dash|ksh)
         i=$((i+1))
-        while [ "$i" -lt "$n" ]; do case "${w[$i]}" in -*|[0-9]*|[A-Za-z_]*=*) i=$((i+1));; *) break;; esac; done;;
+        while [ "$i" -lt "$n" ]; do case "${w[$i]}" in [A-Za-z_]*=*) seg_assign=1; i=$((i+1));; -*|[0-9]*) i=$((i+1));; *) break;; esac; done;;
       *) break;;
     esac
   done
   [ "$i" -lt "$n" ] || continue
   args=(); j=$((i+1)); prog="${w[$i]##*/}"
+  case "$prog" in *[!0-9]*) nprog=$((nprog+1));; esac   # a bare number is the tail of a 2>&1, not a command
   while [ "$j" -lt "$n" ]; do
     t="${w[$j]}"
     case "$t" in
@@ -200,8 +273,13 @@ while IFS= read -r seg; do
     gh) check_gh ${args[@]+"${args[@]}"};;
     glab) check_glab ${args[@]+"${args[@]}"};;
     host.sh) check_host ${args[@]+"${args[@]}"};;
+    install-merge.sh) route_n=$((route_n+1)); route_seg="$seg"; route_path="${w[$i]}"; route_args=(${args[@]+"${args[@]}"}); route_assign=$seg_assign;;
   esac
 done <<<"$segments"
+if [ "$route_n" -gt 0 ]; then   # decided last, so a push or merge beside it is refused for what it is
+  route_alone=0; [ "$route_n" = 1 ] && [ "$nprog" = 1 ] && [ "$route_assign" = 0 ] && route_alone=1
+  check_route
+fi
 set +f
 [ "$bypassed" = 1 ] && echo "PIPELINE GATE: bypassed via PIPELINE_BYPASS=1 for: $cmd" >&2
 exit 0

@@ -13,6 +13,8 @@ PY=""; for c in python3 python "py -3"; do $c -c 'import sys' >/dev/null 2>&1 </
 
 # Fixtures never inherit the hosting project's settings or the caller's environment.
 unset PIPELINE_TICKET_REGEX PIPELINE_TICKET PIPELINE_BYPASS PIPELINE_BASE_REF PIPELINE_DOCS_REF BASE_BRANCH STAGING_BRANCH PIPELINE_REMOTE TRACKER_TEAM_KEY
+# ...nor the plugin installed on this machine: the install route's reference is only ever the one a test passes
+unset PIPELINE_PLUGIN_ROOT; CLAUDE_CONFIG_DIR="$(mktemp -d)"; export CLAUDE_CONFIG_DIR
 
 PASS=0; FAIL=0
 
@@ -150,3 +152,20 @@ full_through() {
 dev_sha_of() { sed -n 's/^Dev: \([0-9a-f]*\).*/\1/p' "$(tdir "$1")/releases.md"; }
 qa_sha_of() { sed -n 's/^QA: \([0-9a-f]*\).*/\1/p' "$(tdir "$1")/releases.md"; }
 gate() { (cd "$R" && bash scripts/pipeline/gate.sh "$@" 2>&1); }
+
+# --- the install route (SHI-45) ---
+# origin_repo: R with an origin (a local bare repo, ORIGIN) whose master holds one app file; HEAD on master
+origin_repo() {
+  R="$(mktemp -d)"; ORIGIN="$(mktemp -d)"; git init -q --bare "$ORIGIN"
+  git -C "$R" init -q -b master; git -C "$R" config user.email t@t; git -C "$R" config user.name t
+  mkdir -p "$R/src"; echo "class App {}" > "$R/src/App.java"; commit_all init
+  g remote add origin "$ORIGIN"; g push -q origin master; g fetch -q origin
+}
+# install_branch [init flags]: what /pipeline-init does: the install branch from origin/master, init.sh from REPO_SRC
+# (the reference), CONTEXT.md and RELEASE_CHECKLIST.md filled in, one commit
+install_branch() {
+  g checkout -q -b ship-pipeline/install origin/master
+  bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name demo --team-key REP --base-branch master --staging-branch staging "$@" >/dev/null
+  echo "Filled in for this project." >> "$R/docs/pipeline/CONTEXT.md"; echo "- [ ] project check" >> "$R/RELEASE_CHECKLIST.md"
+  commit_all "chore: install ship pipeline"
+}

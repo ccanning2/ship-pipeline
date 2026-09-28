@@ -400,4 +400,54 @@ out=$(bash "$INIT" --project-dir "$P2" --profile reputabill 2>&1); assert_exit "
 assert_contains "profile context used" "$(cat "$P2/docs/pipeline/CONTEXT.md")" "Curate"
 out=$(bash "$INIT" --project-dir "$P2" --profile nope 2>&1); assert_exit "unknown profile fails" 1 $? "$out"
 
+
+# ---- SHI-45: the install route is tooling, and /pipeline-init merges its own install ----
+Pi="$(mkp)"; out=$(bash "$INIT" --project-dir "$Pi" 2>&1); assert_exit "AC-43: install" 0 $? "$out"
+[ -x "$Pi/scripts/pipeline/install-merge.sh" ] && cmp -s "$Pi/scripts/pipeline/install-merge.sh" "$REPO_SRC/scripts/pipeline/install-merge.sh" \
+  && ok "AC-43: install-merge.sh is installed, executable and identical" || bad "AC-43: install-merge.sh is installed, executable and identical"
+grep -q ' scripts/pipeline/install-merge.sh$' "$Pi/scripts/pipeline/.install-manifest" && ok "AC-43: the manifest lists it" || bad "AC-43: the manifest lists it"
+echo "# mine" >> "$Pi/scripts/pipeline/install-merge.sh"
+out=$(bash "$INIT" --project-dir "$Pi" 2>&1); assert_contains "AC-43: a hand-edited route is customised, kept" "$out" "customised, kept scripts/pipeline/install-merge.sh"
+grep -q 'install-merge' "$REPO_SRC/scripts/init.sh" && sed -n '1,60p' "$REPO_SRC/scripts/init.sh" | grep -q 'install-merge}.sh' \
+  && ok "AC-43: init.sh's header lists it as tooling" || bad "AC-43: init.sh's header lists it as tooling"
+# --list: the one definition of the install set, and it writes nothing into the project
+Pl0="$(mktemp -d)"; mkdir -p "$Pl0/p/scripts/pipeline"; cp "$Pi/scripts/pipeline/pipeline.env" "$Pl0/p/scripts/pipeline/"
+out=$(bash "$INIT" --list "$Pl0/x" --project-dir "$Pl0/p" 2>&1); assert_exit "--list" 0 $? "$out"
+for kv in "scripts/pipeline/install-merge.sh	T" "scripts/pipeline/hooks/guard-merge.sh	T" ".claude/settings.json	S" ".github/workflows/pipeline-gate.yml	S" \
+          "scripts/deploy/deploy.sh	S" "docs/pipeline/CONTEXT.md	F" "scripts/pipeline/tracker.map	F"; do
+  assert_contains "--list classifies ${kv%	*}" "$out" "$kv"
+done
+assert_eq "--list writes nothing into the project" "scripts" "$(ls "$Pl0/p")"
+out=$(bash "$INIT" --list relative/dir --project-dir "$Pl0/p" 2>&1); assert_exit "--list needs an absolute directory" 1 $? "$out"
+out=$(bash "$INIT" --project-dir "$Pi" --open-only 2>&1); assert_exit "--open-only belongs to --verify-install" 1 $? "$out"
+I="$REPO_SRC/commands/pipeline-init.md"
+q7="$(sed -n '/^7\. \*\*Consent\*\*/,/^This one answer/p' "$I")"
+assert_eq "AC-44: question 7 still has four options" 4 "$(printf '%s\n' "$q7" | grep -c '^   - \*\*')"
+br="$(printf '%s\n' "$q7" | grep '^   - \*\*Branches:')"
+assert_contains "AC-44: Branches merges the install pull request" "$br" "merge the install pull request"
+assert_contains "AC-44: without a human review" "$br" "no human review"
+l_doc=$(grep -n 'bash scripts/pipeline/doctor.sh`\. It takes seconds' "$I" | head -n1 | cut -d: -f1)
+l_route=$(grep -n 'install-merge.sh' "$I" | head -n1 | cut -d: -f1); l_prot=$(grep -n 'host.sh protect' "$I" | head -n1 | cut -d: -f1)
+[ -n "$l_doc" ] && [ -n "$l_route" ] && [ -n "$l_prot" ] && [ "$l_doc" -lt "$l_route" ] && [ "$l_route" -lt "$l_prot" ] \
+  && ok "AC-45: doctor, then the route, then branch protection" || bad "AC-45: doctor, then the route, then branch protection" "doctor $l_doc route $l_route protect $l_prot"
+for s in "install-merge.sh --open-only" "REFUSED" "never uses an admin" "never changes branch protection" "never adds or requests the infra label"; do
+  grep -qF -e "$s" "$I" && ok "AC-46: /pipeline-init says: $s" || bad "AC-46: /pipeline-init says: $s"
+done
+grep -qE 'gh pr merge|glab mr merge|--admin' "$I" && bad "AC-46: /pipeline-init runs no CLI or admin merge" || ok "AC-46: /pipeline-init runs no CLI or admin merge"
+grep -qF '"Branches" unticked:** commit' "$I" && grep -qF 'open a pull request for the owner to mark as `infra` and merge' "$I" && grep -qF 'let the owner push it from their own terminal' "$I" \
+  && ok "AC-47: unticked keeps today's step 8" || bad "AC-47: unticked keeps today's step 8"
+for s in "Install merged into <trunk>: <url>" "Install pull request not merged (<reason>)"; do grep -qF -e "$s" "$I" && ok "FR-16: Impact reports: $s" || bad "FR-16: Impact reports: $s"; done
+for f in docs/pipeline/BRANCHING.md template/docs/pipeline/BRANCHING.md README.md; do
+  m="$(grep -F 'install-merge.sh' "$REPO_SRC/$f" || true)"
+  case "$m" in *"without a human review"*) ok "AC-48: $f names the route, without a human review";; *) bad "AC-48: $f names the route, without a human review";; esac
+  grep -qiE 'mark(s)? it infra and merge' "$REPO_SRC/$f" && ok "AC-48: $f describes the owner fallback" || bad "AC-48: $f describes the owner fallback"
+done
+rv="$(cd "$REPO_SRC" && grep -liE 'reviewed install|install is reviewed' README.md CHANGELOG.md docs/pipeline/*.md template/docs/pipeline/*.md commands/pipeline-init.md || true)"
+assert_eq "AC-49: nothing says the install is reviewed" "" "$rv"
+assert_eq "AC-50: plugin.json is 3.2.0" "3.2.0" "$($PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])' 2>/dev/null || (cd "$REPO_SRC" && $PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])'))"
+v32="$(sed -n '/^## v3.2.0/,/^## v3.1.0/p' "$REPO_SRC/CHANGELOG.md")"
+[ "$(grep -m1 '^## ' "$REPO_SRC/CHANGELOG.md")" = "## v3.2.0" ] && ok "AC-50: CHANGELOG opens with v3.2.0" || bad "AC-50: CHANGELOG opens with v3.2.0"
+for s in "install-merge.sh" "guard-merge.sh" "--open-only" "SHI-46"; do assert_contains "AC-50: v3.2.0 covers $s" "$v32" "$s"; done
+pairs=""; for a in "$REPO_SRC"/agents/*.md; do cmp -s "$a" "$REPO_SRC/.claude/agents/${a##*/}" || pairs="$pairs ${a##*/}"; done
+assert_eq "AC-51: agents/*.md and .claude/agents/*.md are identical pairs" "" "$pairs"
 summary

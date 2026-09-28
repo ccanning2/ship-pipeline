@@ -10,6 +10,13 @@
 #   check                              exit 0 when the host CLI/API is installed and signed in (prints why not)
 #   slug                               owner/repo, group/project or workspace/repo
 #   merge <branch> <base> <title>      open (or reuse) a PR/MR from <branch> into <base> and merge it at HEAD
+#   request-open <branch> <base> <title> <body>   open (or reuse the open) PR/MR from <branch> into <base>; prints
+#                                      "<id> <url>". Adds no label and no reviewer
+#   request-info <id>                  prints "<source commit> <ready|checking|blocked>" (checking: the host is still
+#                                      working out whether it can merge)
+#   request-merge <id> <sha>           merge the PR/MR, only while its source commit is <sha> (GitHub and GitLab pin the
+#                                      sha in the call); a refusal prints the host's reason and exits 3. Never an admin
+#                                      or bypass merge
 #   set-ref <refs/heads/x|refs/tags/x> <sha>   create or move a branch or tag through the API (never forced)
 #   dispatch <env> <sha> <ticket> <ref>        start the deploy pipeline for <env> on <ref>
 #   wait <env> <sha> [ref]             wait for the deploy run for <env> on <sha> (on <ref>: the branch or tag that
@@ -39,6 +46,7 @@ remote_path() { # the path part of the remote URL: owner/repo
 }
 urlenc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's#/#%2F#g' -e 's/ /%20/g' -e 's/:/%3A/g'; }
 json() { have jq || die "needs jq to read the $host API (/pipeline-init installs it)"; jq -r "$1"; }
+refused() { printf '%s\n' "$*" | tr -d '\r' | sed '/^[[:space:]]*$/d' | head -n 1 | cut -c1-300; exit 3; }   # one line, no payload
 
 # ---------------------------------------------------------------- dispatch (called by the adapter) ----
 say() { echo "ENFORCEMENT=$1"; echo "$2"; exit 0; }
@@ -50,6 +58,9 @@ case "$verb" in
   check) "${pfx}_check";;
   slug) case "$pfx" in gh) gh_slug;; *) remote_path;; esac;;
   merge) [ $# -ge 3 ] || die "usage: host.sh merge <branch> <base> <title>"; "${pfx}_merge" "$@";;
+  request-open) [ $# -ge 4 ] || die "usage: host.sh request-open <branch> <base> <title> <body>"; "${pfx}_request_open" "$@";;
+  request-info) [ $# -ge 1 ] || die "usage: host.sh request-info <id>"; "${pfx}_request_info" "$1";;
+  request-merge) [ $# -ge 2 ] || die "usage: host.sh request-merge <id> <sha>"; "${pfx}_request_merge" "$1" "$2";;
   set-ref) [ $# -ge 2 ] || die "usage: host.sh set-ref <ref> <sha>"; "${pfx}_set_ref" "$@";;
   dispatch) [ $# -ge 4 ] || die "usage: host.sh dispatch <env> <sha> <ticket> <ref>"; "${pfx}_dispatch" "$@";;
   wait) [ $# -ge 2 ] || die "usage: host.sh wait <env> <sha> [ref]"; "${pfx}_wait" "$@";;
@@ -58,6 +69,6 @@ case "$verb" in
   protect) "${pfx}_protect" "$1";;
   enforcement) "${pfx}_enforcement";;
   web-url) "${pfx}_web";;
-  *) die "usage: host.sh <name|check|slug|merge|set-ref|dispatch|wait|var-get|var-set|protect|enforcement|web-url>";;
+  *) die "usage: host.sh <name|check|slug|merge|request-open|request-info|request-merge|set-ref|dispatch|wait|var-get|var-set|protect|enforcement|web-url>";;
 esac
 }

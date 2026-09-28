@@ -38,7 +38,7 @@
 #     the host's CI files (.github/workflows/*.yml | .gitlab/*.yml + .gitlab-ci.yml | bitbucket-pipelines.yml),
 #     scripts/deploy/*, .claude/settings.json
 #   Tooling (refreshed on every run): scripts/pipeline/{gate,promote,intake,handover,status,next-version,check-signoff,
-#     cloud-setup,ticket-id,base-ref,enforcement,doctor,connect,ci-gate,ci-resolve}.sh, scripts/pipeline/lib/*,
+#     cloud-setup,ticket-id,base-ref,enforcement,doctor,connect,ci-gate,ci-resolve,install-merge}.sh, scripts/pipeline/lib/*,
 #     host.sh + tracker.sh (the adapters for the chosen platforms, from scripts/pipeline/adapters/), tracker-schema.txt,
 #     scripts/pipeline/hooks/*, .claude/agents/*, docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md, docs/pipeline/_templates/*
 #   The plugin's test suite (tests/pipeline/*) is never installed; an older install's untouched copy is removed.
@@ -46,12 +46,20 @@
 #   content no longer matches its record was edited by hand: it is kept, and the new version goes to <file>.new.
 #   .gitignore gains the pipeline's entries once, under "# ship-pipeline".
 #   __BASE_BRANCH__ / __STAGING_BRANCH__ in any scaffolded file are replaced with the project's branch names.
+# Two modes used by the install route (scripts/pipeline/install-merge.sh and the guard hook), always run from the
+# plugin's own copy of this file, never from a project; they write nothing into the project:
+#   --verify-install [--open-only]  exit 0 when the project's HEAD is nothing but this plugin's install (FR-3 of SHI-45),
+#                     else print "<path><TAB><reason>" and exit 1. --open-only checks only the files the route runs.
+#   --list DIR        print "<path><TAB><class><TAB><expected copy>" for every file this install writes, for the
+#                     configuration in --project-dir's pipeline.env (class T tooling, S safety-bearing project file,
+#                     G .gitlab-ci.yml, F free project file); rendered copies go under DIR.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$(pwd)"; name=""; key=""; profile=""; force=0; deploy_envs=yes; base=""; stg=""
-git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=merge; mkbranches=0; start=""; teams=""
-dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""
+git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=""; mkbranches=0; start=""; teams=""
+dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""; list_dir=""; verify=0; open_only=0
 while [ $# -gt 0 ]; do case "$1" in
+  --list) list_dir="${2:-}"; shift 2;; --verify-install) verify=1; shift;; --open-only) open_only=1; shift;;
   --project-dir) dir="$2"; shift 2;; --name) name="$2"; shift 2;; --team-key) key="$2"; shift 2;;
   --profile) profile="$2"; shift 2;; --force-tooling) force=1; shift;;
   --base-branch) base="${2:-}"; shift 2;; --staging-branch) stg="${2:-}"; shift 2;;
@@ -70,8 +78,15 @@ if [ -n "$profile" ]; then
     || { echo "init: unknown profile '$profile' (see $here/profiles)" >&2; exit 1; }
   src_ctx="$here/profiles/$profile/CONTEXT.md"; src_chk="$here/profiles/$profile/RELEASE_CHECKLIST.md"
 fi
-cd "$dir"; git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "init: $dir is not a git repository" >&2; exit 1; }
-[ -n "$name" ] || name="$(basename "$(git rev-parse --show-toplevel)")"
+case "$list_dir" in /*|[A-Za-z]:/*) ;; ?*) echo "init: --list takes an absolute directory" >&2; exit 1;; esac
+if [ "$verify" = 1 ] && [ -n "$list_dir" ]; then echo "init: --verify-install and --list do not combine" >&2; exit 1; fi
+if [ "$open_only" = 1 ] && [ "$verify" != 1 ]; then echo "unknown arg --open-only" >&2; exit 1; fi
+cd "$dir"
+if [ -n "$list_dir" ]; then [ -n "$name" ] || name=project   # --list reads a configuration; it needs no repository
+else
+  git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "init: $dir is not a git repository" >&2; exit 1; }
+  [ -n "$name" ] || name="$(basename "$(git rev-parse --show-toplevel)")"
+fi
 
 # A project that already declared it has no deployable environments keeps that shape on a flagless
 # re-run. The key is only ever READ: pipeline.env is project-owned and is never written, rewritten or
@@ -80,20 +95,26 @@ cd "$dir"; git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "init: $dir i
 # trimmed and lowercased; absent, empty or anything else resolves on (today's stricter behaviour).
 # Known limit: init reads pipeline.env as TEXT and does not evaluate shell control flow, so a value that
 # only bash could resolve (inside `if false; then ... fi`, an uncalled function or a heredoc) is not seen.
+# pipeline.env is read once (dv_load) for every declared_value that follows: on Git Bash each process costs tens of
+# milliseconds, and init resolves about ten keys. Matching and trimming are pure bash, with the grep/sed semantics.
+dv_file=""; dv_text=""
+dv_clean() { tr -d '\r' < "$1" | sed -E 's/(^|[[:space:]])#.*$/\1/'; }
+dv_load() { dv_file="$1"; dv_text=""; if [ -f "$1" ]; then dv_text="$(dv_clean "$1")"; fi; }
 declared_value() { # file key -> echoes the key's value when the last line naming it is a plain assignment; nothing otherwise
-  local file="$1" key="$2" line v
+  local file="$1" key="$2" line="" l v re text
   [ -f "$file" ] || return 0
   # The LAST line that mentions the key as a whole word decides, comments removed first: a `#` only starts
   # a comment when it follows whitespace (a `#` glued to a word is part of the value, as in bash), and the
   # comment itself may hold anything, quotes and apostrophes included.
-  line="$(tr -d '\r' < "$file" \
-    | sed -E 's/(^|[[:space:]])#.*$/\1/' \
-    | grep -E "(^|[^A-Za-z0-9_])$key([^A-Za-z0-9_]|\$)" \
-    | tail -n 1 || true)"
+  if [ "$file" = "$dv_file" ]; then text="$dv_text"; else text="$(dv_clean "$file")"; fi
+  re="(^|[^A-Za-z0-9_])$key([^A-Za-z0-9_]|\$)"
+  while IFS= read -r l; do if [[ $l =~ $re ]]; then line="$l"; fi; done <<<"$text"
   [ -n "$line" ] || return 0
   # Only an exact assignment shape counts. Anything else on that last line -- `unset`, `+=`, `declare`,
   # `readonly`, another value, a mention in passing -- is unrecognised and falls through to strict.
-  v="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/^export[[:space:]]+//; s/[[:space:]]+$//')"
+  v="$line"; v="${v#"${v%%[![:space:]]*}"}"
+  case "$v" in export[[:space:]]*) v="${v#export}"; v="${v#"${v%%[![:space:]]*}"}";; esac
+  v="${v%"${v##*[![:space:]]}"}"
   case "$v" in "$key="*) v="${v#"$key="}";; *) return 0;; esac
   case "$v" in '"'*'"') v="${v#\"}"; v="${v%\"}";; "'"*"'") v="${v#\'}"; v="${v%\'}";; esac
   # a quote that survives one matching outer pair is literal to bash ('"no"', "'no'", or an unbalanced quote)
@@ -107,7 +128,133 @@ declared_capability() { # file key -> echoes "no" only when the key resolves to 
 
 # Branch names: a flag wins, then what pipeline.env already says, then the remote's default branch, then the
 # current branch. A value that only a shell could resolve ($VAR, a placeholder) is not a branch name.
-plain_branch() { case "$1" in *'$'*|*__*) ;; *) printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//';; esac; }
+plain_branch() { local v="$1"; case "$v" in *'$'*|*__*) ;; *) v="${v#"${v%%[![:space:]]*}"}"; printf '%s' "${v%"${v##*[![:space:]]}"}";; esac; }
+
+# The .gitlab-ci.yml this install writes, shared by the install and --verify-install.
+# gitlab_ci <the current file, or "" when there is none> <include path>... prints the file's new content; returns 1
+# when the install leaves the file as it is (every include is there) and 2 when that is left to /pipeline-init (the
+# file has its own include: list, and a second top-level include: key would be invalid YAML).
+gitlab_ci() {
+  local f="$1" i miss=(); shift
+  if [ -z "$f" ]; then
+    echo "# GitLab CI entry point. The ship pipeline's jobs live in the included files."; echo "include:"
+    for i in "$@"; do echo "  - local: '$i'"; done; return 0
+  fi
+  for i in "$@"; do grep -qF "$i" "$f" || miss+=("$i"); done
+  [ ${#miss[@]} -gt 0 ] || return 1
+  if grep -qE '^include:' "$f"; then return 2; fi
+  cat "$f"; [ -z "$(tail -c1 "$f")" ] || echo; echo; echo "# ship-pipeline"; echo "include:"
+  for i in "${miss[@]}"; do echo "  - local: '$i'"; done
+}
+
+# --verify-install (SHI-45 FR-3, FR-5c): the proof that the project's HEAD is nothing but this plugin's install. It runs
+# from the plugin's copy of this file and trusts nothing the project says about itself: the install set comes from
+# --list for the configuration committed at HEAD, contents are compared with git's raw blob ids (no filters, no
+# replace refs), and any error fails closed.
+strip_hash() { # <dir> <file>... -> the blob id of each file with every CR removed, one per line, in order
+  local d="$1" i=0 f; shift; mkdir -p "$d"
+  for f in "$@"; do i=$((i+1)); [ -f "$f" ] || return 1; : > "$d/$i"; done
+  # one awk for every file: each file is one record (RS is a byte text never holds); a second record means it held one
+  D="$d" awk 'BEGIN { RS = "\001"; p = 0 }
+    FNR > 1 { exit 3 }
+    { do p++; while (p < ARGC && ARGV[p] != FILENAME); gsub(/\r/, ""); o = ENVIRON["D"] "/" p; printf "%s", $0 > o; close(o) }' "$@" || return 1
+  # git reads these paths itself, so on Git Bash (native git.exe) they must be Windows paths: pwd -W, a builtin there
+  d="$(cd "$d" && { pwd -W 2>/dev/null || pwd; })" || return 1
+  i=0; for f in "$@"; do i=$((i+1)); printf '%s\n' "$d/$i"; done | git --no-replace-objects hash-object --no-filters --stdin-paths
+}
+verify_install() {
+  local IB=ship-pipeline/install G="git --no-replace-objects" vt wt_host f i n cur head tip vbase vremote cb dm setout meta path
+  local om nm os ns st ent cls src ndiff=0 SET MAN hs=() h2 inc=()
+  local rf=(install-merge.sh host.sh lib/host-common.sh base-ref.sh ticket-id.sh hooks/guard-merge.sh) wt=() rs=() exp=() blob=() cpath=()
+  vt="$(mktemp -d)"; trap 'rm -rf "$vt"' EXIT
+  nope() { printf '%s\t%s\n' "$1" "$2"; exit 1; }
+  # FR-5c: the files the route runs are the plugin's own (line endings aside)
+  wt_host="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env GIT_HOST)" | tr '[:upper:]' '[:lower:]')"; [ -n "$wt_host" ] || wt_host=github
+  for f in "${rf[@]}"; do
+    wt+=("scripts/pipeline/$f")
+    case "$f" in host.sh) rs+=("$here/scripts/pipeline/adapters/host-$wt_host.sh");; *) rs+=("$here/scripts/pipeline/$f");; esac
+  done
+  n=${#rf[@]}
+  for ((i=0; i<n; i++)); do [ -f "${wt[$i]}" ] && [ -f "${rs[$i]}" ] || nope "${wt[$i]}" "${wt[$i]} (used by the route) differs from the plugin's copy"; done
+  hs=($(strip_hash "$vt/c" "${wt[@]}" "${rs[@]}")) || nope - "the route's files could not be read"
+  [ ${#hs[@]} -eq $((2*n)) ] || nope - "the route's files could not be read"
+  for ((i=0; i<n; i++)); do [ "${hs[$i]}" = "${hs[$((i+n))]}" ] || nope "${wt[$i]}" "${wt[$i]} (used by the route) differs from the plugin's copy"; done
+  [ "$open_only" = 1 ] && exit 0
+  # FR-5d and FR-3.1: the install branch, on top of the remote trunk, with something to merge
+  vbase="$(bash scripts/pipeline/base-ref.sh --branch)"; vremote="$(bash scripts/pipeline/base-ref.sh --remote)"
+  cur="$($G symbolic-ref -q --short HEAD 2>/dev/null || true)"
+  [ "$cur" = "$IB" ] || nope - "the current branch is '${cur:-a detached HEAD}', not '$IB'"
+  head="$($G rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null)" || nope - "HEAD is not a commit"
+  tip="$($G rev-parse -q --verify "refs/remotes/$vremote/$vbase^{commit}" 2>/dev/null)" && $G merge-base --is-ancestor "$tip" "$head" 2>/dev/null \
+    || nope - "$vremote/$vbase is missing or not an ancestor of HEAD"
+  [ "$tip" != "$head" ] || nope - "nothing to merge"
+  # FR-3.2: the configuration committed at HEAD names the same trunk
+  mkdir -p "$vt/p/scripts/pipeline"
+  $G cat-file blob "$head:scripts/pipeline/pipeline.env" > "$vt/p/scripts/pipeline/pipeline.env" 2>/dev/null \
+    || nope scripts/pipeline/pipeline.env "scripts/pipeline/pipeline.env is missing at HEAD"
+  cb="$(plain_branch "$(declared_value "$vt/p/scripts/pipeline/pipeline.env" BASE_BRANCH)")"
+  [ "$cb" = "$vbase" ] || nope scripts/pipeline/pipeline.env "scripts/pipeline/pipeline.env at HEAD says BASE_BRANCH=\"$cb\", but the trunk is '$vbase'"
+  # the install set for that configuration, from the one definition of it (--list, below)
+  setout="$(bash "$here/scripts/init.sh" --list "$vt/x" --project-dir "$vt/p" 2>"$vt/err")" \
+    || nope - "the install set could not be worked out ($(head -n 1 "$vt/err" 2>/dev/null))"
+  SET=$'\n'"$setout"$'\n'
+  MAN=$'\n'"$( ($G cat-file blob "$tip:scripts/pipeline/.install-manifest" 2>/dev/null || true) | tr -d '\r' | awk '{print $3}')"$'\n'
+  entry() { ent=""; case "$SET" in *$'\n'"$1"$'\t'*) ent="${SET#*$'\n'"$1"$'\t'}"; ent="${ent%%$'\n'*}";; esac; }
+  retired() { # <deleted path>: a file an earlier install recorded that this version no longer ships, or a stale .new
+    case "$1" in .gitignore.pipeline) return 0;; esac
+    entry "$1"; [ -z "$ent" ] || return 1
+    case "$1" in *.new) entry "${1%.new}"; case "$ent" in T$'\t'*|S$'\t'*) return 0;; esac;; esac
+    case "$1" in scripts/pipeline/*|.claude/agents/*|docs/pipeline/_templates/*|docs/pipeline/TICKETS.md|docs/pipeline/BRANCHING.md|docs/pipeline/CLOUD.md|tests/pipeline/*) ;;
+      *) return 1;; esac
+    case "$MAN" in *$'\n'"$1"$'\n'*) return 0;; esac
+    case "$1" in *.new) case "$MAN" in *$'\n'"${1%.new}"$'\n'*) return 0;; esac;; esac
+    return 1
+  }
+  $G diff --no-ext-diff --no-textconv --no-renames --no-abbrev --raw -z "$tip" "$head" > "$vt/diff" 2>/dev/null || nope - "the install diff could not be read"
+  set -f
+  while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+    ndiff=$((ndiff+1))
+    set -- $meta; om="${1#:}"; nm="${2:-}"; os="${3:-}"; ns="${4:-}"; st="${5:-}"
+    case "$om $nm" in *120000*|*160000*) nope "$path" "$path is a symlink or a submodule, which the install never writes";; esac
+    case "$st" in
+      D) retired "$path" || nope "$path" "$path is deleted but is not retired tooling"; continue;;
+      A|M) ;;
+      *) nope "$path" "$path changes type";;
+    esac
+    entry "$path"
+    if [ -z "$ent" ]; then
+      case "$path" in *.new) entry "${path%.new}"; case "$ent" in T$'\t'*|S$'\t'*) ent="S${ent#?}";; *) ent="";; esac;; esac
+    fi
+    [ -n "$ent" ] || nope "$path" "$path is not part of the install"
+    [ "$os" != "$ns" ] || continue   # the file mode alone changed
+    cls="${ent%%$'\t'*}"; src="${ent#*$'\t'}"
+    case "$cls" in
+      F) continue;;
+      T|S) exp+=("$src");;
+      G) inc=("/.gitlab/pipeline-gate.yml"); $G cat-file -e "$head:.gitlab/pipeline-deploy.yml" 2>/dev/null && inc+=("/.gitlab/pipeline-deploy.yml")
+         if $G cat-file blob "$tip:.gitlab-ci.yml" > "$vt/gt" 2>/dev/null; then
+           gitlab_ci "$vt/gt" "${inc[@]}" > "$vt/g" || nope "$path" "$path differs from what the install writes (its include: list is the owner's to merge)"
+         else gitlab_ci "" "${inc[@]}" > "$vt/g"; fi
+         exp+=("$vt/g");;
+      *) nope "$path" "$path is not part of the install";;
+    esac
+    blob+=("$ns"); cpath+=("$path")
+  done < "$vt/diff"
+  set +f
+  [ "$ndiff" -gt 0 ] || nope - "nothing to merge"
+  n=${#exp[@]}; [ "$n" -gt 0 ] || exit 0
+  hs=($(strip_hash "$vt/n" "${exp[@]}")) || nope - "the plugin's copies could not be read"
+  [ ${#hs[@]} -eq "$n" ] || nope - "the plugin's copies could not be read"
+  for ((i=0; i<n; i++)); do
+    [ "${hs[$i]}" != "${blob[$i]}" ] || continue
+    # the committed file may itself carry CRs (a checkout without autocrlf): compare it with its CRs removed too
+    h2="$($G cat-file blob "${blob[$i]}" 2>/dev/null | tr -d '\r' | $G hash-object --no-filters --stdin 2>/dev/null)" || h2=""
+    [ -n "$h2" ] && [ "$h2" = "${hs[$i]}" ] || nope "${cpath[$i]}" "${cpath[$i]} differs from the plugin's copy"
+  done
+  exit 0
+}
+if [ "$verify" = 1 ]; then verify_install; fi
+dv_load scripts/pipeline/pipeline.env
 if [ -z "$key" ] && [ -f scripts/pipeline/pipeline.env ]; then   # an existing install's key (for the report only)
   key="$(grep -E '^[[:space:]]*(export[[:space:]]+)?TRACKER_TEAM_KEY=' scripts/pipeline/pipeline.env | tail -n 1 \
     | sed -E 's/^[^=]*=//; s/[[:space:]]+#.*$//; s/^["'"'"']//; s/["'"'"'][[:space:]]*$//' | tr -cd 'A-Za-z0-9' || true)"
@@ -152,6 +299,9 @@ if [ -z "$teams" ]; then
 fi
 teams_out="$(bash "$here/scripts/pipeline/teams.sh" --normalize "$teams" 2>&1)" || { echo "init: --teams: ${teams_out#teams: }" >&2; exit 1; }
 teams="${teams_out##*$'\n'}"; teams_note=""; [ "$teams" = "$teams_out" ] || teams_note="${teams_out%$'\n'*}"; teams_note="${teams_note#teams: }"
+# --deploy-mode, else (for --list, which describes an existing configuration) DEPLOY_MODE from pipeline.env, else merge
+[ -n "$deploy_mode" ] || [ -z "$list_dir" ] || deploy_mode="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env DEPLOY_MODE)")"
+[ -n "$deploy_mode" ] || deploy_mode=merge
 case "$deploy_mode" in merge|explicit) ;; *) echo "init: --deploy-mode must be merge or explicit (got '$deploy_mode')" >&2; exit 1;; esac
 for u in "$git_url" "$tracker_url" "$dev_url" "$qa_url" "$stg_url" "$prod_url"; do
   case "$u" in ""|http://*|https://*) ;; *) echo "init: '$u' is not an http(s) URL" >&2; exit 1;; esac
@@ -162,11 +312,11 @@ case "$cloud_id$health" in *[!A-Za-z0-9/._-]*) echo "init: --tracker-cloud-id an
 # an existing pipeline.env is never rewritten: a flag that picks another platform installs that adapter, and says
 # which line of pipeline.env the owner (or /pipeline-init, with their yes) must change to match
 env_note=""
-for kv in "GIT_HOST:$git_host" "TRACKER:$tracker"; do
+[ -n "$list_dir" ] || for kv in "GIT_HOST:$git_host" "TRACKER:$tracker"; do
   was="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env "${kv%%:*}")" | tr '[:upper:]' '[:lower:]')"
   [ -z "$was" ] || [ "$was" = "${kv#*:}" ] || env_note="${env_note:+$env_note; }set ${kv%%:*}=\"${kv#*:}\" in scripts/pipeline/pipeline.env (it says $was)"
 done
-if [ -f scripts/pipeline/pipeline.env ]; then
+if [ -f scripts/pipeline/pipeline.env ] && [ -z "$list_dir" ]; then
   was="$(bash "$here/scripts/pipeline/teams.sh" --normalize "$declared_teams" 2>/dev/null || true)"
   if [ -z "$declared_teams" ]; then env_note="${env_note:+$env_note; }add PIPELINE_TEAMS=\"$teams\" to scripts/pipeline/pipeline.env (it replaces PIPELINE_START_LEVEL)"
   elif [ "$was" != "$teams" ]; then env_note="${env_note:+$env_note; }set PIPELINE_TEAMS=\"$teams\" in scripts/pipeline/pipeline.env (it says $declared_teams)"; fi
@@ -261,13 +411,37 @@ apply_tooling() {
   fi
   plan_src=(); plan_dst=()
 }
+list_tooling() { # --list: print where the rendered copy of each planned tooling file is; nothing in the project is written
+  local n=${#plan_src[@]} i d e srcs docs=() mdirs=()
+  for ((i=0; i<n; i++)); do
+    case "${plan_dst[$i]}" in
+      docs/*) docs+=("$i"); mdirs+=("$list_dir/${plan_dst[$i]%/*}");;
+      *) render "${plan_src[$i]}" "${plan_dst[$i]}" "$list_dir/r$i"; printf '%s\tT\t%s\n' "${plan_dst[$i]}" "$rendered";;
+    esac
+  done
+  if [ ${#docs[@]} -gt 0 ]; then   # as apply_tooling does: one cp per directory, one sed for every doc
+    mkdir -p $(printf '%s\n' "${mdirs[@]}" | sort -u)
+    for d in $(printf '%s\n' "${mdirs[@]}" | sort -u); do
+      srcs=(); for e in "${docs[@]}"; do [ "$list_dir/${plan_dst[$e]%/*}" = "$d" ] && srcs+=("${plan_src[$e]}"); done
+      cp "${srcs[@]}" "$d/"
+    done
+    sed -i.bak -e "s:__BASE_BRANCH__:$base_esc:g" -e "s:__STAGING_BRANCH__:$stg_esc:g" $(for e in "${docs[@]}"; do printf '%s\n' "$list_dir/${plan_dst[$e]}"; done)
+    for e in "${docs[@]}"; do printf '%s\tT\t%s\n' "${plan_dst[$e]}" "$list_dir/${plan_dst[$e]}"; done
+  fi
+  plan_src=(); plan_dst=()
+}
+listed=0
 copy_owned() { # src dst
+  if [ -n "$list_dir" ]; then   # --list: F = the project's own content; S = safety-bearing, must stay as the template renders it
+    case "$2" in docs/pipeline/CONTEXT.md|RELEASE_CHECKLIST.md|scripts/pipeline/pipeline.env|docs/pipeline/README.md) printf '%s\tF\t\n' "$2"; return;; esac
+    listed=$((listed+1)); render "$1" "$2" "$list_dir/o$listed"; printf '%s\tS\t%s\n' "$2" "$rendered"; return
+  fi
   if [ -f "$2" ]; then kept+=("$2"); return; fi
   ensure_dir "$2"; render "$1" "$2"; cat "$rendered" > "$2"; created+=("$2")
 }
 
 # --- tooling (always current) ---
-for f in gate promote intake handover teams status board next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor connect ci-gate ci-resolve; do
+for f in gate promote intake handover teams status board next-version check-signoff cloud-setup ticket-id base-ref enforcement doctor connect ci-gate ci-resolve install-merge; do
   copy_tooling "$here/scripts/pipeline/$f.sh" "scripts/pipeline/$f.sh"
 done
 # the code host and the tracker: the one adapter for each platform chosen, installed under a fixed name
@@ -283,7 +457,7 @@ for f in "$here"/agents/*.md; do copy_tooling "$f" ".claude/agents/${f##*/}"; do
 for f in TICKETS BRANCHING CLOUD; do copy_tooling "$here/template/docs/pipeline/$f.md" "docs/pipeline/$f.md"; done
 for f in "$here"/template/docs/pipeline/_templates/*.md; do copy_tooling "$f" "docs/pipeline/_templates/${f##*/}"; done
 planned=" ${plan_dst[*]} "
-apply_tooling
+if [ -n "$list_dir" ]; then mkdir -p "$list_dir"; list_tooling; manifest=/nonexistent/.install-manifest; else apply_tooling; fi
 # Retired tooling: a file an earlier install put in place that this version no longer ships (a removed persona or
 # template, the adapter for a platform no longer chosen, the test suite older versions copied in). It is removed
 # when it is still exactly as installed (line endings aside); a copy the owner edited is kept and reported.
@@ -305,6 +479,7 @@ fi
 copy_owned "$src_ctx" docs/pipeline/CONTEXT.md
 copy_owned "$src_chk" RELEASE_CHECKLIST.md
 copy_owned "$here/template/scripts/pipeline/pipeline.env" scripts/pipeline/pipeline.env
+dv_file=""   # a pipeline.env created just now is read afresh
 ci_note=""
 if [ "$deploy_envs" = yes ]; then
   for f in deploy rollback smoke; do copy_owned "$here/scripts/deploy/$f.sh" "scripts/deploy/$f.sh"; done
@@ -323,23 +498,23 @@ case "$git_host" in
     copy_owned "$here/template/.gitlab/pipeline-gate.yml" ".gitlab/pipeline-gate.yml"
     [ "$deploy_envs" = yes ] && copy_owned "$here/template/.gitlab/pipeline-deploy.yml" ".gitlab/pipeline-deploy.yml"
     inc=("/.gitlab/pipeline-gate.yml"); [ -f .gitlab/pipeline-deploy.yml ] && inc+=("/.gitlab/pipeline-deploy.yml")
-    if [ ! -f .gitlab-ci.yml ]; then
-      { echo "# GitLab CI entry point. The ship pipeline's jobs live in the included files."; echo "include:"
-        for i in "${inc[@]}"; do echo "  - local: '$i'"; done; } > .gitlab-ci.yml; created+=(.gitlab-ci.yml)
+    if [ -n "$list_dir" ]; then printf '%s\tG\t\n' .gitlab-ci.yml   # --list: --verify-install checks it with gitlab_ci
+    elif [ ! -f .gitlab-ci.yml ]; then
+      gitlab_ci "" "${inc[@]}" > .gitlab-ci.yml; created+=(.gitlab-ci.yml)
     else
-      missing_inc=(); for i in "${inc[@]}"; do grep -qF "$i" .gitlab-ci.yml || missing_inc+=("$i"); done
-      if [ ${#missing_inc[@]} -eq 0 ]; then kept+=(.gitlab-ci.yml)
-      elif grep -qE '^include:' .gitlab-ci.yml; then
-        # a second top-level include: key would be invalid YAML, so this one merge is left to /pipeline-init
-        ci_note="add to the include: list in .gitlab-ci.yml:$(printf " - local: '%s'" "${missing_inc[@]}")"; kept+=(.gitlab-ci.yml)
-      else
-        { [ -z "$(tail -c1 .gitlab-ci.yml)" ] || echo; echo; echo "# ship-pipeline"; echo "include:"
-          for i in "${missing_inc[@]}"; do echo "  - local: '$i'"; done; } >> .gitlab-ci.yml; updated+=(.gitlab-ci.yml)
-      fi
+      gl_rc=0; gitlab_ci .gitlab-ci.yml "${inc[@]}" > "$tmpd/gitlab-ci.yml" || gl_rc=$?
+      case "$gl_rc" in
+        0) cat "$tmpd/gitlab-ci.yml" > .gitlab-ci.yml; updated+=(.gitlab-ci.yml);;
+        2) # a second top-level include: key would be invalid YAML, so this one merge is left to /pipeline-init
+           missing_inc=(); for i in "${inc[@]}"; do grep -qF "$i" .gitlab-ci.yml || missing_inc+=("$i"); done
+           ci_note="add to the include: list in .gitlab-ci.yml:$(printf " - local: '%s'" "${missing_inc[@]}")"; kept+=(.gitlab-ci.yml);;
+        *) kept+=(.gitlab-ci.yml);;
+      esac
     fi;;
   bitbucket)
     bsrc="$here/template/bitbucket-pipelines.yml"; [ "$deploy_envs" = yes ] || bsrc="$here/template/bitbucket-pipelines.gate-only.yml"
-    if [ -f bitbucket-pipelines.yml ] && ! grep -q 'Pipeline Gate' bitbucket-pipelines.yml; then
+    if [ -n "$list_dir" ]; then copy_owned "$bsrc" bitbucket-pipelines.yml; copy_owned "$bsrc" bitbucket-pipelines.ship.yml
+    elif [ -f bitbucket-pipelines.yml ] && ! grep -q 'Pipeline Gate' bitbucket-pipelines.yml; then
       copy_owned "$bsrc" bitbucket-pipelines.ship.yml
       ci_note="bitbucket-pipelines.yml already exists: merge the steps from bitbucket-pipelines.ship.yml into it (Bitbucket reads one file only)"
     else copy_owned "$bsrc" bitbucket-pipelines.yml; fi;;
@@ -348,6 +523,10 @@ copy_owned "$here/template/.claude/settings.json" .claude/settings.json
 copy_owned "$here/template/docs/pipeline/README.md" docs/pipeline/README.md
 if [ "$force" = 1 ] && [ "$deploy_envs" = yes ]; then
   for f in deploy rollback smoke; do copy_tooling "$here/scripts/deploy/$f.sh" "scripts/deploy/$f.sh"; done
+fi
+if [ -n "$list_dir" ]; then   # the rest of the install's own files: any content
+  printf '%s\tF\t\n' .gitignore scripts/pipeline/.install-manifest scripts/pipeline/tracker.map
+  exit 0
 fi
 
 # fill placeholders in freshly created files only

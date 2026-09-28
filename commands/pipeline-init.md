@@ -44,7 +44,7 @@ Pass the Call 1 answers as flags, so `connect.sh` describes this project and not
    - "No deployable environments".
 7. **Consent** (multiSelect, four options, the first three recommended): "Set up now":
    - **Install CLIs:** install the missing ones (gh/glab/acli/jq).
-   - **Branches:** create the trunk and staging branches if the remote lacks them, and protect both so the Pipeline Gate is required.
+   - **Branches:** create the trunk and staging branches if the remote lacks them, merge the install pull request (no human review), then protect both so the Pipeline Gate is required.
    - **Tracker:** create the labels, custom fields and statuses.
    - **Deploys on:** only if the hosts and secrets already exist.
 
@@ -89,7 +89,7 @@ Then relay the output:
   - Relay each `CREATED`, `MAPPED` and `NOTE` line.
   - A Jira status it creates still has to be added to the project's workflow before it is used. Until then it is mapped to the nearest existing status, so nothing blocks.
   - With `TRACKER=connector`, do the same through the connector's tools instead.
-- Branch protection ("Branches"): `bash scripts/pipeline/host.sh protect <trunk>` and `… protect <staging>`. A refusal (for example HTTP 403 on a free private GitHub repository) is not a failure: report it with the enforcement mode from `bash scripts/pipeline/enforcement.sh`.
+- Branch protection ("Branches") comes last, in step 8, after the install is merged: the protection requires the Pipeline Gate check, which a request with no ticket would fail.
 - "Deploys on": `bash scripts/pipeline/host.sh var-set PIPELINE_DEPLOY_ENABLED true`.
 
 ## 6. Fill in the project files (while waiting on the sign-in)
@@ -108,9 +108,20 @@ Project-owned files are never rewritten, so an older install keeps its old `pipe
    - **`pipeline.env`:** propose the exact lines, including any new keys (`GIT_HOST`, `GIT_HOST_URL`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `DEPLOY_MODE`, `PIPELINE_TEAMS` in place of `PIPELINE_START_LEVEL`) that match the step-2 answers.
 2. Apply each change only after the owner says yes, then re-run the doctor. Anything they decline stays as a warning.
 
-## 8. Check and commit
+## 8. Check, commit and merge
 1. Run `bash scripts/pipeline/doctor.sh`. It takes seconds and checks the files, `pipeline.env`, git, the host, CI and the tracker through its CLI. Install is not "done" while it reports a FAIL.
-2. Commit with the message `chore: install ship pipeline`. The guard hook blocks an agent's push of that commit to the trunk, because it has no ticket. Push a branch and open a pull request for the owner to mark as `infra` and merge (a label on GitHub and GitLab; on Bitbucket the owner pushes the branch as `infra/…`). Or let the owner push it from their own terminal.
+2. **"Branches" unticked:** commit with the message `chore: install ship pipeline`. The guard hook blocks an agent's push of that commit to the trunk, because it has no ticket. Push a branch and open a pull request for the owner to mark as `infra` and merge (a label on GitHub and GitLab; on Bitbucket the owner pushes the branch as `infra/…`). Or let the owner push it from their own terminal. Do not run the install route.
+3. **"Branches" ticked:** init merges its own install request, without a human review, in this order:
+   1. Create the install branch from the trunk tip. Its name is `install_branch` in the route: `b="$(sed -n 's/^install_branch="\(.*\)"$/\1/p' scripts/pipeline/install-merge.sh)"; git fetch -q origin; git switch -c "$b" "$(bash scripts/pipeline/base-ref.sh)"` (use the `PIPELINE_REMOTE` remote). The uncommitted install comes with it.
+   2. Stage only the install's files: every path `init.sh` reported as created, updated or removed, `docs/pipeline/CONTEXT.md`, `RELEASE_CHECKLIST.md`, `scripts/pipeline/tracker.map`, and the CI file of any `ACTION:` merge. Commit them as `chore: install ship pipeline`. Nothing else goes in: the route refuses any other file.
+   3. Run `bash scripts/pipeline/install-merge.sh` on its own, as the whole command (no other command, no variable assignment, no pipe). The guard hook lets it through only when the plugin's own `init.sh` finds that every changed file is one the install writes and every tooling file matches the plugin's copy. It pushes the install branch, opens the request (or reuses the open one), and merges it at the install commit.
+      - `MERGED <url>`: the install is on the trunk and the working tree is back on it. Relay any `NOTE` line.
+      - `REFUSED <url> <reason>` (exit 3: a required review or check, a ruleset, a missing permission, a rejected push), `NOT-INSTALL <path>: <reason>` (exit 4), or a guard block (exit 2): run `bash scripts/pipeline/install-merge.sh --open-only` (it prints `OPENED <url>`) and leave the request for the owner to mark `infra` and merge. Report the fallback line below.
+      - Never work around a refusal: init never uses an admin or bypass merge, never changes branch protection or rulesets to get the merge through, never adds or requests the infra label, and never tries another route (a direct push, a CLI merge, the host API).
+   4. Only then, whatever the merge outcome, protect the branches: `bash scripts/pipeline/host.sh protect <trunk>` and `… protect <staging>`. A refusal (for example HTTP 403 on a free private GitHub repository) is not a failure.
+   5. Report the enforcement mode from `bash scripts/pipeline/enforcement.sh`.
+
+   On a re-run (an upgrade) the flow is the same. Where the trunk already requires the Pipeline Gate check or a review, the host refuses the merge and the fallback applies. A team that wants a human review of the install leaves "Branches" unticked or keeps a required review on the trunk.
 
 Reply with only:
 - **What was done:**
@@ -119,4 +130,6 @@ Reply with only:
   - CLIs installed and signed in;
   - tracker items created or mapped;
   - branches created or protected.
-- **Impact:** the doctor's result (ready yes/no), the enforcement mode, and anything left that only the owner can do (hosts and deploy secrets, a Jira workflow edit, a declined item).
+- **Impact:** the doctor's result (ready yes/no), the enforcement mode, and anything left that only the owner can do (hosts and deploy secrets, a Jira workflow edit, a declined item). With "Branches" ticked, also the merge outcome, one of:
+  - `Install merged into <trunk>: <url>`
+  - `Install pull request not merged (<reason>). Open <url>, mark it infra and merge it (on Bitbucket, push the branch as infra/<name>).`

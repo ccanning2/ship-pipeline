@@ -2,6 +2,21 @@
 
 Each release in one section, newest first. Upgrading notes sit under the release that needs them.
 
+## v3.2.0
+
+`/pipeline-init` merges its own install. After the sign-in there is nothing left for the owner to do on the code host.
+
+- **The install route (SHI-45).** With "Branches" ticked (question 7 now reads "create, merge the install pull request (no human review), then protect"), init commits the install on the branch `ship-pipeline/install`, runs `scripts/pipeline/install-merge.sh`, and applies branch protection only afterwards. The route pushes that branch (never forced), opens the request or reuses the open one, and merges it **without a human review**, pinned to the install commit: GitHub and GitLab pass the sha to the merge call, and on Bitbucket the route re-reads the request's source commit right before merging. Then it moves the local trunk to the remote one and deletes the install branch. It prints `MERGED <url>`, `REFUSED <url> <reason>` (exit 3) or `NOT-INSTALL <path>: <reason>` (exit 4). `install-merge.sh` is a new tooling file, installed on the next `/pipeline-init` run.
+- **The guard's one new allowance.** `guard-merge.sh` lets `install-merge.sh` through only when it runs alone (no other command, no variable assignment), with no argument or exactly `--open-only`, and the plugin's own `scripts/init.sh --verify-install` confirms:
+  - the files the route runs (`install-merge.sh`, `host.sh`, `lib/host-common.sh`, `base-ref.sh`, `ticket-id.sh`, `guard-merge.sh`) match the plugin's copy;
+  - to merge: HEAD is on the install branch on top of the remote trunk, every changed file is one the install writes for the committed configuration, every tooling file, `.claude/settings.json`, CI file and deploy script matches the plugin's copy (line endings and file modes aside), `.gitlab-ci.yml` is exactly what init writes, and every deletion is retired tooling.
+  - The plugin's copy is read from Claude Code's record of the installed plugin (or `PIPELINE_PLUGIN_ROOT` in the environment Claude Code started with), never from the command or the repository. Anything it cannot check fails closed.
+  - Every other decision is unchanged. Two tightenings: `host.sh request-merge` (a new verb) needs a ticket like `host.sh merge`, and an assignment whose value holds a `/` (`FOO=/x git push …`) no longer hides the command after it.
+- **Fallback.** When the host refuses (a required review or check, a ruleset, a missing permission, a rejected push) or the guard does, init runs `install-merge.sh --open-only` and reports `Install pull request not merged (<reason>). Open <url>, mark it infra and merge it.` Init never uses an admin merge, never changes protection or rulesets to get it through and never adds the infra label. With "Branches" unticked, step 8 is as before.
+- **Known limits.** The install request's Pipeline Gate check shows as failed (it has no ticket); an upgrade on a trunk that already requires that check falls back to the owner until SHI-46. The guard sees agent tool calls only, so a script that calls the host API itself is not examined. The owner's consent is enforced by `/pipeline-init`'s instructions, not by the guard. The check is only as trustworthy as the plugin install on the machine.
+
+Upgrading from 3.1.0: re-run `/pipeline-init`. It installs `install-merge.sh` and the new guard. On a trunk that is already protected the upgrade request falls back to you to mark infra and merge.
+
 ## v3.1.0
 
 A project picks exactly the teams it wants, instead of a start level, and one ticket can use others.

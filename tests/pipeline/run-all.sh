@@ -3,7 +3,7 @@
 # The files run in parallel (each builds its own temporary repositories) and their output is printed in order;
 # PIPELINE_TESTS_SERIAL=1 runs them one after another instead.
 cd "$(dirname "$0")"
-tests=(test_config.sh test_init.sh test_gate.sh test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh test_doctor.sh test_deploy_scripts.sh test_adapters.sh)
+tests=(test_config.sh test_init.sh test_gate.sh test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh test_doctor.sh test_deploy_scripts.sh test_adapters.sh test_install_merge.sh)
 status=0
 if [ "${PIPELINE_TESTS_SERIAL:-0}" = 1 ]; then
   for t in "${tests[@]}"; do [ -f "$t" ] || continue; bash "$t" || status=1; done

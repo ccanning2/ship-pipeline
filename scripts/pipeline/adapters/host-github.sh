@@ -22,6 +22,20 @@ gh_merge() { # branch base title
   fi
   $gh_cmd api -X PUT "repos/$or/pulls/$pr/merge" -f merge_method=merge -f sha="$(git rev-parse HEAD)" >/dev/null || die "GitHub refused to merge PR #$pr"
 }
+gh_request_open() { # branch base title body -> "<number> <url>"
+  local or r; or="$(gh_slug)"
+  r="$($gh_cmd api "repos/$or/pulls?head=${or%%/*}:$1&base=$2&state=open" -q '.[0] // empty | "\(.number) \(.html_url)"' 2>/dev/null || true)"
+  [ -n "$r" ] || r="$($gh_cmd api -X POST "repos/$or/pulls" -f title="$3" -f head="$1" -f base="$2" -f body="$4" -q '"\(.number) \(.html_url)"')" \
+    || die "could not open a pull request from $1 into $2"
+  echo "$r"
+}
+gh_request_info() {
+  $gh_cmd api "repos/$(gh_slug)/pulls/$1" -q '"\(.head.sha) \(if .mergeable == null then "checking" elif .mergeable then "ready" else "blocked" end)"'
+}
+gh_request_merge() { # number sha: GitHub refuses (409) when the head is no longer sha
+  local e; e="$($gh_cmd api -X PUT "repos/$(gh_slug)/pulls/$1/merge" -f merge_method=merge -f sha="$2" 2>&1 >/dev/null)" && return 0
+  refused "GitHub refused to merge PR #$1: ${e#gh: }"
+}
 gh_set_ref() {
   local or; or="$(gh_slug)"
   $gh_cmd api -X PATCH "repos/$or/git/$1" -f sha="$2" -F force=false >/dev/null 2>&1 \

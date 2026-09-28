@@ -78,7 +78,7 @@ To watch it live:
 
 The detail stays in `docs/pipeline/ABC-142/` and on the tracker ticket.
 
-**Work without a ticket** (the install commit, a CI change, a dependency bump): open a PR/MR, and a human marks it infra so the Pipeline Gate skips the ticket requirement. On GitHub and GitLab that is the `infra` label; on Bitbucket it is a source branch named `infra/…`. Agents can never mark it infra themselves.
+**Work without a ticket** (the install commit, a CI change, a dependency bump): open a PR/MR, and a human marks it infra so the Pipeline Gate skips the ticket requirement. On GitHub and GitLab that is the `infra` label; on Bitbucket it is a source branch named `infra/…`. Agents can never mark it infra themselves. The one exception is the pipeline's own install or upgrade: with "Branches" ticked, `/pipeline-init` merges its install request itself, without a human review, through `scripts/pipeline/install-merge.sh`, which accepts nothing but the plugin's own files. If the host or the guard refuses (a required review or check, a missing permission), the request stays open, and you mark it infra and merge it. Want a human review of the install? Leave "Branches" unticked, or keep a required review on the trunk.
 
 ## How it works
 
@@ -118,7 +118,7 @@ The tracker is the source of truth; `docs/pipeline/<TICKET>/tickets.md` mirrors 
 Protocol: `docs/pipeline/TICKETS.md`.
 
 ### Enforcement
-- `hooks/guard-merge.sh` blocks an agent's push, merge or tag unless the ticket passes the gate for that ref. It covers `git`, `gh`, `glab` and `host.sh`. It also blocks force pushes and agents marking work infra.
+- `hooks/guard-merge.sh` blocks an agent's push, merge or tag unless the ticket passes the gate for that ref. It covers `git`, `gh`, `glab` and `host.sh`. It also blocks force pushes and agents marking work infra. It lets one ticketless route through: `install-merge.sh`, run alone, when the plugin's own `init.sh` confirms the commit is nothing but the install.
 - `hooks/allow-paths.sh` and `hooks/allow-commands.sh` confine each persona to the files and commands of its role.
 - The CI Pipeline Gate re-checks pull requests. Branch protection makes it required where the plan allows; otherwise the pipeline says it runs in **local hook only** mode.
 
@@ -140,7 +140,8 @@ Project knowledge lives in `docs/pipeline/CONTEXT.md` and `RELEASE_CHECKLIST.md`
 commands/                /ship, /pipeline-init, /pipeline-status, /pipeline-doctor
 agents/                  the six personas (installed into .claude/agents/)
 scripts/init.sh          the installer
-scripts/pipeline/        gate, promote, intake, handover, board, status, next-version, doctor, connect, ci-gate, ci-resolve
+scripts/pipeline/        gate, promote, intake, handover, board, status, next-version, doctor, connect, ci-gate, ci-resolve,
+                         install-merge (init's merge of its own install)
   adapters/              host-<github|gitlab|bitbucket>.sh, tracker-<jira|linear|github|gitlab|connector>.sh:
                          init installs the chosen two as host.sh and tracker.sh
   lib/                   the code the adapters share
