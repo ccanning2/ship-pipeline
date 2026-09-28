@@ -14,7 +14,7 @@ Rework loops used: 0/3
 | 4 | build | senior-engineer | done | 1506 tests pass; 73d98fe |
 | 5 | dev | devops (merge → master, dev check) | done | 1506 pass; dev+qa 0991b4f |
 | 6 | qa | qa-tester | done | pass, 0 defects; AC-52 + fallback not run live |
-| 7 | staging | app-specialist | pending | |
+| 7 | staging | app-specialist | in-progress | |
 | 8 | go-live | the owner | pending | |
 | 9 | production | devops (tag vX.Y.Z) | pending | |
 
