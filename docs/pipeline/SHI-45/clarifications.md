@@ -2,7 +2,7 @@
 
 <!-- One block per question. To: PO | Owner. State: open | answered -->
 
-## Q-1 (To: Owner, Status: needs-input, State: open). Does the v3.2.0 go-live wait for follow-up NEW-1 (pipeline.env)?
+## Q-1 (To: Owner, Status: needs-input, State: open). Does the v3.2.0 go-live wait for follow-up SHI-56 (pipeline.env)?
 Asked: 2026-09-28 by business-analyst. Blocks: go-live only (not the SHI-55 build).
 Context:
 - `scripts/pipeline/pipeline.env` is class F (any content) in the install proof.
@@ -18,8 +18,8 @@ Context:
 Options:
 - (a) Go-live waits for a narrow fix. A new eng ticket under SHI-45 limits `pipeline.env` in the install diff to
   comments, blank lines and literal assignments of the keys `init.sh` and `/pipeline-init` write. This is stricter
-  than R1c today, so it needs a short PO confirmation. NEW-1 keeps the wider hardening.
-- (b) Go-live after SHI-55 only. NEW-1 follows in a later release, and the CHANGELOG states the limit.
+  than R1c today, so it needs a short PO confirmation. SHI-56 keeps the wider hardening.
+- (b) Go-live after SHI-55 only. SHI-56 follows in a later release, and the CHANGELOG states the limit.
 
 Recommendation: (a). It closes the gap v3.2.0 opens and costs nothing on the default path.
 Answer:

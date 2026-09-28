@@ -10,4 +10,4 @@
 | SHI-49 | eng | - | - | done | engineer | install-merge.sh route: push, open, pinned merge, refusal, cleanup on all hosts |
 | SHI-50 | eng | - | - | done | engineer | /pipeline-init flow, consent, docs and v3.2.0 release notes |
 | SHI-55 | defect | staging | High | open | engineer | Install route: a forged local origin/master lets ticketless changes through the guard |
-| NEW-1 | follow-up | - | - | open | product-owner | pipeline.env is executed by the guard, scripts and CI: read it as data and limit what an unreviewed install may put in it |
+| SHI-56 | follow-up | - | - | open | product-owner | pipeline.env is executed by the guard, scripts and CI: read it as data and limit what an unreviewed install may put in it |

@@ -76,7 +76,7 @@ Terms used below:
      | T: tooling | every tooling destination in `init.sh`. Includes `scripts/pipeline/*.sh` in its tooling loop (with `install-merge.sh`), `host.sh` (= `adapters/host-<GIT_HOST>.sh`), `tracker.sh` (= `adapters/tracker-<TRACKER>.sh`), `lib/host-common.sh`, `lib/tracker-common.sh` (not for connector), `tracker-schema.txt`, `hooks/*.sh`, `.claude/agents/<each agents/*.md>`, `docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md`, `docs/pipeline/_templates/<each template>` | identical to the reference copy, rendered |
      | S: safety-bearing project files | `.claude/settings.json`; the host's CI files (`.github/workflows/pipeline-gate.yml`, `deploy.yml` when deploy envs are on; `.gitlab/pipeline-gate.yml`, `.gitlab/pipeline-deploy.yml`; `bitbucket-pipelines.yml` or `bitbucket-pipelines.ship.yml` from the matching template); `scripts/deploy/{deploy,rollback,smoke}.sh` when deploy envs are on; any `<T or S path>.new` | identical to the reference template or file, rendered. A `.new` file matches the reference copy of the file it sits beside |
      | G: `.gitlab-ci.yml` (GitLab only) | `.gitlab-ci.yml` | either a new file that is exactly what `init.sh` generates when none exists, or T's version followed by exactly the `# ship-pipeline` include block `init.sh` appends. Any other change, including an edit to an existing `include:` list, fails |
-     | F: free project files | `docs/pipeline/CONTEXT.md`, `RELEASE_CHECKLIST.md`, `docs/pipeline/README.md`, `scripts/pipeline/pipeline.env`, `scripts/pipeline/tracker.map`, `.gitignore`, `scripts/pipeline/.install-manifest` | any content (see follow-up NEW-1 for `pipeline.env`) |
+     | F: free project files | `docs/pipeline/CONTEXT.md`, `RELEASE_CHECKLIST.md`, `docs/pipeline/README.md`, `scripts/pipeline/pipeline.env`, `scripts/pipeline/tracker.map`, `.gitignore`, `scripts/pipeline/.install-manifest` | any content (see follow-up SHI-56 for `pipeline.env`) |
 
   4. Every deleted path is one `init.sh` retires. That means a path under `scripts/pipeline/`, `.claude/agents/`,
      `docs/pipeline/_templates/`, `docs/pipeline/{TICKETS,BRANCHING,CLOUD}.md` or `tests/pipeline/` that is **not** in
@@ -225,7 +225,7 @@ Terms used below:
   `PIPELINE_CURL_CMD` and `PIPELINE_WAIT_TRIES` count only when they come from the process environment. Host
   credentials come from where they come from today (the CLIs' own sign-in, the environment,
   `~/.config/ship-pipeline/bitbucket.env`). Every other script, and the guard for every other command, reads
-  `pipeline.env` as today (follow-up NEW-1).
+  `pipeline.env` as today (follow-up SHI-56).
 
 ## Non-functional requirements
 - NFR-1 (safety, high-risk area): Fail closed. Any error, missing tool, missing ref or commit, unreadable blob, host
@@ -394,7 +394,7 @@ Init and docs (`tests/pipeline/test_init.sh`)
    - the request's source is the install commit;
    - the request targets the trunk;
    then what the host merges is exactly `diff(T, install commit)`, the diff that was proved. For that reason no host file-list comparison is required. A push that goes somewhere else, or a remote that is renamed or rewritten mid-run, shows up as a source-commit or trunk-head mismatch and is refused.
-6. (SHI-55) The trunk's *name* still comes from `BASE_BRANCH` in `pipeline.env` (working tree = committed), as the guard reads it today for every command. Treating `pipeline.env` as a trust root generally, and constraining what an unreviewed install may put in it, is follow-up NEW-1, not SHI-55 (see Delivery notes).
+6. (SHI-55) The trunk's *name* still comes from `BASE_BRANCH` in `pipeline.env` (working tree = committed), as the guard reads it today for every command. Treating `pipeline.env` as a trust root generally, and constraining what an unreviewed install may put in it, is follow-up SHI-56, not SHI-55 (see Delivery notes).
 7. (SHI-55) The guard stays network-free by owner decision, so its install check is a local pre-check. The guard's security contribution is FR-5a–c and FR-5e: only the plugin's own route may run, and it must run alone. The route then carries the proof.
 
 ## Delivery notes
@@ -406,6 +406,6 @@ Init and docs (`tests/pipeline/test_init.sh`)
   - The owner's consent (R5) is enforced by `/pipeline-init`'s instructions, not by the guard.
   - The install request's Pipeline Gate check shows as failed. That is expected until SHI-46.
   - The reference is only as trustworthy as the user's plugin install.
-  - `pipeline.env` is class F (free content) and is sourced by most pipeline scripts, by the guard for every command, and by CI's `gate.sh`. An unreviewed install merge can therefore carry executable content in it. This is follow-up NEW-1; whether go-live waits for it is clarifications Q-1.
+  - `pipeline.env` is class F (free content) and is sourced by most pipeline scripts, by the guard for every command, and by CI's `gate.sh`. An unreviewed install merge can therefore carry executable content in it. This is follow-up SHI-56; whether go-live waits for it is clarifications Q-1.
 - CONTEXT.md "stop and ask before altering the write-boundary hooks": the owner approved this change in product.md and approved the SHI-55 direction on 2026-09-28.
 - CONTEXT.md Stack test list lacks `test_install_merge.sh` and `test_adapters.sh` (PO to update; noted in signoff.md).
