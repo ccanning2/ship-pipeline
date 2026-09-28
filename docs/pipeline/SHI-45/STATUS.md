@@ -24,7 +24,7 @@ push and again before the merge (FR-17). It never executes pipeline.env (FR-18).
 AC-53..AC-63, move SHI-55 to fixed with the commit, then re-promote for re-test.
 
 ## Waiting on the owner
-- Q-1 (clarifications.md): does v3.2.0 go-live wait for follow-up SHI-56 (pipeline.env)? Needed before go-live, not before the build.
+- nothing (Q-1 answered: (a) narrow pipeline.env fix before go-live)
 
 ## Open defect tickets
 - SHI-55 (High, staging): install route trusts the local origin/master ref
