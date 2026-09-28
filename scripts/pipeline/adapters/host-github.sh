@@ -30,8 +30,9 @@ gh_request_open() { # branch base title body -> "<number> <url>"
   echo "$r"
 }
 gh_request_info() {
-  $gh_cmd api "repos/$(gh_slug)/pulls/$1" -q '"\(.head.sha) \(if .mergeable == null then "checking" elif .mergeable then "ready" else "blocked" end)"'
+  $gh_cmd api "repos/$(gh_slug)/pulls/$1" -q '"\(.head.sha) \(if .mergeable == null then "checking" elif .mergeable then "ready" else "blocked" end) \(.base.ref)"'
 }
+gh_branch_head() { $gh_cmd api "repos/$(gh_slug)/branches/$(urlenc "$1")" -q .commit.sha; }
 gh_request_merge() { # number sha: GitHub refuses (409) when the head is no longer sha
   local e; e="$($gh_cmd api -X PUT "repos/$(gh_slug)/pulls/$1/merge" -f merge_method=merge -f sha="$2" 2>&1 >/dev/null)" && return 0
   refused "GitHub refused to merge PR #$1: ${e#gh: }"

@@ -11,7 +11,7 @@ Rework loops used: 1/3
 | 1 | intake | orchestrator | done | |
 | 2 | product | product-owner (plan) | done | approved (feature, user-facing); follow-up SHI-46; R1c-2 + US-7 added (Q-1) |
 | 3 | analysis | business-analyst ⇄ product-owner (plan) | done (amended for SHI-55 and R1c-2) | 19 FRs, 76 ACs; fix criteria on SHI-55; FR-19 + AC-64..AC-76 for R1c-2 (SHI-57); follow-up SHI-56; Q-1 answered (a) |
-| 4 | build | senior-engineer | rework | fix SHI-55 (FR-17, FR-18, AC-53..AC-63) and build SHI-57 (FR-19, AC-64..AC-76, AC-59 amended) |
+| 4 | build | senior-engineer | in-progress (rework 1) | fix SHI-55 (FR-17, FR-18, AC-53..AC-63) and build SHI-57 (FR-19, AC-64..AC-76, AC-59 amended) |
 | 5 | dev | devops (merge → master, dev check) | pending re-run | previous: 1506 pass; dev+qa 0991b4f |
 | 6 | qa | qa-tester | pending re-run | previous: pass, 0 defects; AC-52 + fallback not run live |
 | 7 | staging | app-specialist | blocked | SHI-55 (High) raised; back to build |

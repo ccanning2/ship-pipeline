@@ -48,18 +48,23 @@
 #   __BASE_BRANCH__ / __STAGING_BRANCH__ in any scaffolded file are replaced with the project's branch names.
 # Two modes used by the install route (scripts/pipeline/install-merge.sh and the guard hook), always run from the
 # plugin's own copy of this file, never from a project; they write nothing into the project:
-#   --verify-install [--open-only]  exit 0 when the project's HEAD is nothing but this plugin's install (FR-3 of SHI-45),
-#                     else print "<path><TAB><reason>" and exit 1. --open-only checks only the files the route runs.
+#   --verify-install [--open-only | --trunk-tip SHA]  exit 0 when the project's HEAD is nothing but this plugin's
+#                     install (FR-3 of SHI-45), else print "<path><TAB><reason>" and exit 1. --open-only checks only the
+#                     files the route runs. --trunk-tip is the trunk's head as the code host reports it (the route reads
+#                     it from the host); without it the local <remote>/<trunk> ref stands in, which only makes the
+#                     guard's network-free check a pre-check, never the proof. pipeline.env is read as data, never run.
 #   --list DIR        print "<path><TAB><class><TAB><expected copy>" for every file this install writes, for the
 #                     configuration in --project-dir's pipeline.env (class T tooling, S safety-bearing project file,
-#                     G .gitlab-ci.yml, F free project file); rendered copies go under DIR.
+#                     G .gitlab-ci.yml, E pipeline.env: plain settings of the template's keys only, F free project
+#                     file); rendered copies go under DIR.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$(pwd)"; name=""; key=""; profile=""; force=0; deploy_envs=yes; base=""; stg=""
 git_host=""; git_url=""; tracker=""; tracker_url=""; cloud_id=""; deploy_mode=""; mkbranches=0; start=""; teams=""
-dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""; list_dir=""; verify=0; open_only=0
+dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""; list_dir=""; verify=0; open_only=0; trunk_tip=""
 while [ $# -gt 0 ]; do case "$1" in
   --list) list_dir="${2:-}"; shift 2;; --verify-install) verify=1; shift;; --open-only) open_only=1; shift;;
+  --trunk-tip) trunk_tip="${2:-}"; [ -n "$trunk_tip" ] || { echo "init: --trunk-tip takes a commit sha" >&2; exit 1; }; shift 2;;
   --project-dir) dir="$2"; shift 2;; --name) name="$2"; shift 2;; --team-key) key="$2"; shift 2;;
   --profile) profile="$2"; shift 2;; --force-tooling) force=1; shift;;
   --base-branch) base="${2:-}"; shift 2;; --staging-branch) stg="${2:-}"; shift 2;;
@@ -81,6 +86,7 @@ fi
 case "$list_dir" in /*|[A-Za-z]:/*) ;; ?*) echo "init: --list takes an absolute directory" >&2; exit 1;; esac
 if [ "$verify" = 1 ] && [ -n "$list_dir" ]; then echo "init: --verify-install and --list do not combine" >&2; exit 1; fi
 if [ "$open_only" = 1 ] && [ "$verify" != 1 ]; then echo "unknown arg --open-only" >&2; exit 1; fi
+if [ -n "$trunk_tip" ] && { [ "$verify" != 1 ] || [ "$open_only" = 1 ]; }; then echo "init: --trunk-tip belongs to --verify-install (the merge form)" >&2; exit 1; fi
 cd "$dir"
 if [ -n "$list_dir" ]; then [ -n "$name" ] || name=project   # --list reads a configuration; it needs no repository
 else
@@ -162,12 +168,59 @@ strip_hash() { # <dir> <file>... -> the blob id of each file with every CR remov
   d="$(cd "$d" && { pwd -W 2>/dev/null || pwd; })" || return 1
   i=0; for f in "$@"; do i=$((i+1)); printf '%s\n' "$d/$i"; done | git --no-replace-objects hash-object --no-filters --stdin-paths
 }
+# FR-19 (class E): a pipeline.env the install adds or changes holds only blank lines, comments, plain KEY=value settings
+# of the keys in the plugin's pipeline.env template (each once) and the template's own PIPELINE_TICKET_REGEX line.
+# env_rule <the committed file> <the template>: exits through nope on the first line that breaks the rule. A reason
+# names the line and at most the key, never the value.
+env_rule() {
+  local f="$1" tpl="$2" P=scripts/pipeline/pipeline.env keys=" " rx="" l n=0 k r v t tt why seen=" " m
+  local re_blank='^[[:blank:]]*$' re_com='^[[:blank:]]*#' re_exp='^[[:blank:]]*export([[:blank:]]|$)' re_set='^([A-Za-z_][A-Za-z0-9_]*)=(.*)$'
+  [ -n "$tpl" ] && [ -f "$tpl" ] && [ -r "$tpl" ] || nope "$P" "$P: the plugin's pipeline.env template could not be read"
+  while IFS= read -r l || [ -n "$l" ]; do
+    l="${l%$'\r'}"
+    if [[ $l =~ $re_set ]]; then
+      keys="$keys${BASH_REMATCH[1]} "; [ "${BASH_REMATCH[1]}" != PIPELINE_TICKET_REGEX ] || [ -n "$rx" ] || rx="$l"
+    fi
+  done < "$tpl"
+  [ "$keys" != " " ] || nope "$P" "$P: the plugin's pipeline.env template could not be read"
+  line_bad() { nope "$P" "$P line $n: $1"; }
+  while IFS= read -r l || [ -n "$l" ]; do
+    n=$((n+1)); l="${l//$'\r'/}"
+    if [[ $l =~ $re_blank ]] || [[ $l =~ $re_com ]]; then continue; fi
+    if [[ $l =~ $re_exp ]]; then line_bad "'export' is not allowed"; fi
+    [[ $l =~ $re_set ]] || line_bad "this line is not a comment, a blank line or a plain KEY=\"value\" setting"
+    k="${BASH_REMATCH[1]}"; r="${BASH_REMATCH[2]}"; why=""; t=""
+    case "$keys" in *" $k "*) ;; *) line_bad "'$k' is not a setting in the plugin's pipeline.env template";; esac
+    if [ "$k" = PIPELINE_TICKET_REGEX ] && [ -n "$rx" ] && [ "$l" = "$rx" ]; then :   # the shipped line, exactly
+    else
+      case "$r" in
+        \"*) v="${r#\"}"
+             case "$v" in *\"*) t="${v#*\"}"; v="${v%%\"*}"; case "$v" in *'$'*|*'`'*|*\\*) why=plain;; esac;; *) why=plain;; esac;;
+        \'*) v="${r#\'}"; case "$v" in *\'*) t="${v#*\'}";; *) why=plain;; esac;;
+        *) v="${r%%[!A-Za-z0-9_./:@%+,-]*}"; t="${r#"$v"}";;
+      esac
+      if [ -z "$why" ] && [ -n "$t" ]; then   # after the value: blanks, then optionally a # comment
+        case "$t" in
+          [[:blank:]]*) tt="${t#"${t%%[![:blank:]]*}"}"; case "$tt" in ''|'#'*) ;; *) why=shape;; esac;;
+          *) why=plain;;
+        esac
+      fi
+    fi
+    [ "$why" != plain ] || line_bad "the value of '$k' is not a plain value (no variable, command, substitution or escape)"
+    case "$seen" in *" $k:"*) m="${seen#*" $k:"}"; m="${m%% *}"; line_bad "'$k' is set more than once (first on line $m)";; esac
+    seen="$seen$k:$n "
+    [ "$why" != shape ] || line_bad "this line is not a comment, a blank line or a plain KEY=\"value\" setting"
+  done < "$f"
+  return 0
+}
 verify_install() {
-  local IB=ship-pipeline/install G="git --no-replace-objects" vt wt_host f i n cur head tip vbase vremote cb dm setout meta path
-  local om nm os ns st ent cls src ndiff=0 SET MAN hs=() h2 inc=()
+  local IB=ship-pipeline/install G="git --no-replace-objects -c core.commitGraph=false" vt wt_host f i n cur head tip vbase vremote cb dm setout meta path
+  local om nm os ns st ent cls src ndiff=0 SET MAN hs=() h2 inc=() k cv wv
   local rf=(install-merge.sh host.sh lib/host-common.sh base-ref.sh ticket-id.sh hooks/guard-merge.sh) wt=() rs=() exp=() blob=() cpath=()
   vt="$(mktemp -d)"; trap 'rm -rf "$vt"' EXIT
   nope() { printf '%s\t%s\n' "$1" "$2"; exit 1; }
+  # real history only (FR-17.3): no replace refs, no grafts, no commit-graph; pipeline.env is read, never run (FR-18)
+  export GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE="$vt/no-grafts" PIPELINE_ENV_AS_DATA=1
   # FR-5c: the files the route runs are the plugin's own (line endings aside)
   wt_host="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env GIT_HOST)" | tr '[:upper:]' '[:lower:]')"; [ -n "$wt_host" ] || wt_host=github
   for f in "${rf[@]}"; do
@@ -180,26 +233,55 @@ verify_install() {
   [ ${#hs[@]} -eq $((2*n)) ] || nope - "the route's files could not be read"
   for ((i=0; i<n; i++)); do [ "${hs[$i]}" = "${hs[$((i+n))]}" ] || nope "${wt[$i]}" "${wt[$i]} (used by the route) differs from the plugin's copy"; done
   [ "$open_only" = 1 ] && exit 0
-  # FR-5d and FR-3.1: the install branch, on top of the remote trunk, with something to merge
+  # FR-5d and FR-3.1: the install branch, on top of the trunk tip, with something to merge. The tip is the host's
+  # (--trunk-tip, from the route); without it the local <remote>/<trunk> ref stands in (the guard's pre-check)
   vbase="$(bash scripts/pipeline/base-ref.sh --branch)"; vremote="$(bash scripts/pipeline/base-ref.sh --remote)"
   cur="$($G symbolic-ref -q --short HEAD 2>/dev/null || true)"
   [ "$cur" = "$IB" ] || nope - "the current branch is '${cur:-a detached HEAD}', not '$IB'"
   head="$($G rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null)" || nope - "HEAD is not a commit"
-  tip="$($G rev-parse -q --verify "refs/remotes/$vremote/$vbase^{commit}" 2>/dev/null)" && $G merge-base --is-ancestor "$tip" "$head" 2>/dev/null \
-    || nope - "$vremote/$vbase is missing or not an ancestor of HEAD"
+  if [ -n "$trunk_tip" ]; then
+    case "$trunk_tip" in *[!0-9a-f]*) nope - "the host's $vbase ($trunk_tip) is not a full commit sha";; esac
+    [ ${#trunk_tip} -eq 40 ] || [ ${#trunk_tip} -eq 64 ] || nope - "the host's $vbase ($trunk_tip) is not a full commit sha"
+    tip="$($G rev-parse -q --verify "$trunk_tip^{commit}" 2>/dev/null)" && [ "$tip" = "$trunk_tip" ] && $G merge-base --is-ancestor "$tip" "$head" 2>/dev/null \
+      || nope - "the host's $vbase ($trunk_tip) is not an ancestor of HEAD"
+  else
+    tip="$($G rev-parse -q --verify "refs/remotes/$vremote/$vbase^{commit}" 2>/dev/null)" && $G merge-base --is-ancestor "$tip" "$head" 2>/dev/null \
+      || nope - "$vremote/$vbase is missing or not an ancestor of HEAD"
+  fi
   [ "$tip" != "$head" ] || nope - "nothing to merge"
-  # FR-3.2: the configuration committed at HEAD names the same trunk
+  $G diff --no-ext-diff --no-textconv --no-renames --no-abbrev --raw -z "$tip" "$head" > "$vt/diff" 2>/dev/null || nope - "the install diff could not be read"
+  # the configuration committed at HEAD, and the install set for it, from the one definition of it (--list, below)
   mkdir -p "$vt/p/scripts/pipeline"
   $G cat-file blob "$head:scripts/pipeline/pipeline.env" > "$vt/p/scripts/pipeline/pipeline.env" 2>/dev/null \
     || nope scripts/pipeline/pipeline.env "scripts/pipeline/pipeline.env is missing at HEAD"
-  cb="$(plain_branch "$(declared_value "$vt/p/scripts/pipeline/pipeline.env" BASE_BRANCH)")"
-  [ "$cb" = "$vbase" ] || nope scripts/pipeline/pipeline.env "scripts/pipeline/pipeline.env at HEAD says BASE_BRANCH=\"$cb\", but the trunk is '$vbase'"
-  # the install set for that configuration, from the one definition of it (--list, below)
   setout="$(bash "$here/scripts/init.sh" --list "$vt/x" --project-dir "$vt/p" 2>"$vt/err")" \
     || nope - "the install set could not be worked out ($(head -n 1 "$vt/err" 2>/dev/null))"
   SET=$'\n'"$setout"$'\n'
-  MAN=$'\n'"$( ($G cat-file blob "$tip:scripts/pipeline/.install-manifest" 2>/dev/null || true) | tr -d '\r' | awk '{print $3}')"$'\n'
   entry() { ent=""; case "$SET" in *$'\n'"$1"$'\t'*) ent="${SET#*$'\n'"$1"$'\t'}"; ent="${ent%%$'\n'*}";; esac; }
+  # FR-19: when the install adds pipeline.env or changes its content, the whole committed file meets class E
+  set -f
+  while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+    [ "$path" = scripts/pipeline/pipeline.env ] || continue
+    set -- $meta; os="${3:-}"; ns="${4:-}"; st="${5:-}"
+    case "$st" in A|M) [ "$os" != "$ns" ] || break;; *) break;; esac
+    entry "$path"; src="${ent#*$'\t'}"; case "$ent" in E$'\t'*) ;; *) src="";; esac
+    $G cat-file blob "$ns" > "$vt/env" 2>/dev/null || nope "$path" "$path could not be read at HEAD"
+    env_rule "$vt/env" "$src"
+    break
+  done < "$vt/diff"
+  set +f
+  # FR-3.2: the configuration committed at HEAD is the one the route acts with (the working tree's), after defaults
+  for k in BASE_BRANCH GIT_HOST GIT_HOST_URL PIPELINE_REMOTE; do
+    cv="$(plain_branch "$(declared_value "$vt/p/scripts/pipeline/pipeline.env" "$k")")"
+    case "$k" in
+      BASE_BRANCH) wv="$vbase";;
+      GIT_HOST) wv="$wt_host"; cv="$(printf '%s' "$cv" | tr '[:upper:]' '[:lower:]')"; [ -n "$cv" ] || cv=github;;
+      GIT_HOST_URL) wv="$(plain_branch "$(declared_value scripts/pipeline/pipeline.env "$k")")";;
+      PIPELINE_REMOTE) wv="$vremote"; [ -n "$cv" ] || cv=origin;;
+    esac
+    [ "$cv" = "$wv" ] || nope scripts/pipeline/pipeline.env "scripts/pipeline/pipeline.env at HEAD says $k=\"$cv\", but the working tree says \"$wv\""
+  done
+  MAN=$'\n'"$( ($G cat-file blob "$tip:scripts/pipeline/.install-manifest" 2>/dev/null || true) | tr -d '\r' | awk '{print $3}')"$'\n'
   retired() { # <deleted path>: a file an earlier install recorded that this version no longer ships, or a stale .new
     case "$1" in .gitignore.pipeline) return 0;; esac
     entry "$1"; [ -z "$ent" ] || return 1
@@ -210,7 +292,6 @@ verify_install() {
     case "$1" in *.new) case "$MAN" in *$'\n'"${1%.new}"$'\n'*) return 0;; esac;; esac
     return 1
   }
-  $G diff --no-ext-diff --no-textconv --no-renames --no-abbrev --raw -z "$tip" "$head" > "$vt/diff" 2>/dev/null || nope - "the install diff could not be read"
   set -f
   while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
     ndiff=$((ndiff+1))
@@ -229,7 +310,7 @@ verify_install() {
     [ "$os" != "$ns" ] || continue   # the file mode alone changed
     cls="${ent%%$'\t'*}"; src="${ent#*$'\t'}"
     case "$cls" in
-      F) continue;;
+      F|E) continue;;   # E: the FR-19 rule was applied above
       T|S) exp+=("$src");;
       G) inc=("/.gitlab/pipeline-gate.yml"); $G cat-file -e "$head:.gitlab/pipeline-deploy.yml" 2>/dev/null && inc+=("/.gitlab/pipeline-deploy.yml")
          if $G cat-file blob "$tip:.gitlab-ci.yml" > "$vt/gt" 2>/dev/null; then
@@ -432,8 +513,10 @@ list_tooling() { # --list: print where the rendered copy of each planned tooling
 }
 listed=0
 copy_owned() { # src dst
-  if [ -n "$list_dir" ]; then   # --list: F = the project's own content; S = safety-bearing, must stay as the template renders it
-    case "$2" in docs/pipeline/CONTEXT.md|RELEASE_CHECKLIST.md|scripts/pipeline/pipeline.env|docs/pipeline/README.md) printf '%s\tF\t\n' "$2"; return;; esac
+  if [ -n "$list_dir" ]; then   # --list: F = the project's own content; E = pipeline.env, plain template settings only
+    # (--verify-install, env_rule); S = safety-bearing, must stay as the template renders it
+    case "$2" in scripts/pipeline/pipeline.env) printf '%s\tE\t%s\n' "$2" "$1"; return;; esac
+    case "$2" in docs/pipeline/CONTEXT.md|RELEASE_CHECKLIST.md|docs/pipeline/README.md) printf '%s\tF\t\n' "$2"; return;; esac
     listed=$((listed+1)); render "$1" "$2" "$list_dir/o$listed"; printf '%s\tS\t%s\n' "$2" "$rendered"; return
   fi
   if [ -f "$2" ]; then kept+=("$2"); return; fi

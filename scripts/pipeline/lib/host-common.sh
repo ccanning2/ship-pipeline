@@ -12,8 +12,9 @@
 #   merge <branch> <base> <title>      open (or reuse) a PR/MR from <branch> into <base> and merge it at HEAD
 #   request-open <branch> <base> <title> <body>   open (or reuse the open) PR/MR from <branch> into <base>; prints
 #                                      "<id> <url>". Adds no label and no reviewer
-#   request-info <id>                  prints "<source commit> <ready|checking|blocked>" (checking: the host is still
-#                                      working out whether it can merge)
+#   request-info <id>                  prints "<source commit> <ready|checking|blocked> <target branch>" (checking: the
+#                                      host is still working out whether it can merge)
+#   branch-head <branch>               prints the full sha the host reports as the head of <branch> (read only)
 #   request-merge <id> <sha>           merge the PR/MR, only while its source commit is <sha> (GitHub and GitLab pin the
 #                                      sha in the call); a refusal prints the host's reason and exits 3. Never an admin
 #                                      or bypass merge
@@ -27,8 +28,14 @@
 #   web-url                            the repository's web address
 # Test doubles: PIPELINE_GH_CMD (gh), PIPELINE_GLAB_CMD (glab), PIPELINE_CURL_CMD (curl), PIPELINE_WAIT_TRIES.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # scripts/pipeline
-# shellcheck disable=SC1091
-[ -f "$here/pipeline.env" ] && source "$here/pipeline.env"
+# With PIPELINE_ENV_AS_DATA=1 (the install route) pipeline.env is never run: GIT_HOST_URL is read from it as data, and
+# the test doubles and PIPELINE_WAIT_TRIES count only from the process environment (base-ref.sh has the rules).
+if [ "${PIPELINE_ENV_AS_DATA:-0}" = 1 ]; then
+  GIT_HOST_URL="$(bash "$here/base-ref.sh" --value GIT_HOST_URL)"; DEPLOY_WORKFLOW=""
+else
+  # shellcheck disable=SC1091
+  [ -f "$here/pipeline.env" ] && source "$here/pipeline.env"
+fi
 host_url="${GIT_HOST_URL:-}"; host_url="${host_url%/}"
 remote="$(bash "$here/base-ref.sh" --remote)"
 wf="${DEPLOY_WORKFLOW:-deploy.yml}"
@@ -60,6 +67,7 @@ case "$verb" in
   merge) [ $# -ge 3 ] || die "usage: host.sh merge <branch> <base> <title>"; "${pfx}_merge" "$@";;
   request-open) [ $# -ge 4 ] || die "usage: host.sh request-open <branch> <base> <title> <body>"; "${pfx}_request_open" "$@";;
   request-info) [ $# -ge 1 ] || die "usage: host.sh request-info <id>"; "${pfx}_request_info" "$1";;
+  branch-head) [ $# -ge 1 ] || die "usage: host.sh branch-head <branch>"; "${pfx}_branch_head" "$1";;
   request-merge) [ $# -ge 2 ] || die "usage: host.sh request-merge <id> <sha>"; "${pfx}_request_merge" "$1" "$2";;
   set-ref) [ $# -ge 2 ] || die "usage: host.sh set-ref <ref> <sha>"; "${pfx}_set_ref" "$@";;
   dispatch) [ $# -ge 4 ] || die "usage: host.sh dispatch <env> <sha> <ticket> <ref>"; "${pfx}_dispatch" "$@";;
@@ -69,6 +77,6 @@ case "$verb" in
   protect) "${pfx}_protect" "$1";;
   enforcement) "${pfx}_enforcement";;
   web-url) "${pfx}_web";;
-  *) die "usage: host.sh <name|check|slug|merge|request-open|request-info|request-merge|set-ref|dispatch|wait|var-get|var-set|protect|enforcement|web-url>";;
+  *) die "usage: host.sh <name|check|slug|merge|request-open|request-info|request-merge|branch-head|set-ref|dispatch|wait|var-get|var-set|protect|enforcement|web-url>";;
 esac
 }

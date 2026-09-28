@@ -450,4 +450,39 @@ v32="$(sed -n '/^## v3.2.0/,/^## v3.1.0/p' "$REPO_SRC/CHANGELOG.md")"
 for s in "install-merge.sh" "guard-merge.sh" "--open-only" "SHI-46"; do assert_contains "AC-50: v3.2.0 covers $s" "$v32" "$s"; done
 pairs=""; for a in "$REPO_SRC"/agents/*.md; do cmp -s "$a" "$REPO_SRC/.claude/agents/${a##*/}" || pairs="$pairs ${a##*/}"; done
 assert_eq "AC-51: agents/*.md and .claude/agents/*.md are identical pairs" "" "$pairs"
+# SHI-55 / SHI-57: pipeline.env is class E in the one definition of the install set; --trunk-tip is the route's only
+out=$(bash "$INIT" --list "$Pl0/y" --project-dir "$Pl0/p" 2>&1); assert_exit "--list (again)" 0 $? "$out"
+assert_contains "FR-19: --list classifies pipeline.env as E, against the plugin's template" "$out" "scripts/pipeline/pipeline.env	E	$REPO_SRC/template/scripts/pipeline/pipeline.env"
+out=$(bash "$INIT" --project-dir "$Pi" --trunk-tip 0123456789abcdef0123456789abcdef01234567 2>&1); assert_exit "--trunk-tip belongs to --verify-install" 1 $? "$out"
+out=$(bash "$INIT" --verify-install --open-only --trunk-tip 0123456789abcdef0123456789abcdef01234567 --project-dir "$Pi" 2>&1); assert_exit "--trunk-tip does not combine with --open-only" 1 $? "$out"
+out=$(bash "$INIT" --verify-install --trunk-tip 2>&1); assert_exit "--trunk-tip needs a sha" 1 $? "$out"
+# base-ref.sh --value and PIPELINE_ENV_AS_DATA (FR-18): pipeline.env is read, never run
+Pv="$(mktemp -d)"; mkdir -p "$Pv/scripts/pipeline"; cp "$REPO_SRC/scripts/pipeline/base-ref.sh" "$Pv/scripts/pipeline/"; MKv="$Pv/marker"
+printf 'BASE_BRANCH="trunk" # the trunk\nPIPELINE_REMOTE=up\nSTAGING_BRANCH=%s\ntouch %s\nGIT_HOST_URL="https://git.example.com"\n' "'stg'" "$MKv" > "$Pv/scripts/pipeline/pipeline.env"
+assert_eq "FR-18: base-ref.sh --value reads a key as data" "https://git.example.com" "$(cd "$Pv" && bash scripts/pipeline/base-ref.sh --value GIT_HOST_URL)"
+[ -e "$MKv" ] && bad "FR-18: --value runs nothing" || ok "FR-18: --value runs nothing"
+assert_eq "FR-18: with PIPELINE_ENV_AS_DATA=1 the trunk, remote and staging are read as data" "up/trunk stg" \
+  "$(cd "$Pv" && PIPELINE_ENV_AS_DATA=1 bash scripts/pipeline/base-ref.sh) $(cd "$Pv" && PIPELINE_ENV_AS_DATA=1 BASE_BRANCH=evil bash scripts/pipeline/base-ref.sh --staging)"
+[ -e "$MKv" ] && bad "FR-18: PIPELINE_ENV_AS_DATA=1 runs nothing in pipeline.env" || ok "FR-18: PIPELINE_ENV_AS_DATA=1 runs nothing in pipeline.env"
+assert_eq "FR-18: and the process environment's value does not count" "trunk" "$(cd "$Pv" && PIPELINE_ENV_AS_DATA=1 BASE_BRANCH=evil bash scripts/pipeline/base-ref.sh --branch)"
+out=$(cd "$Pv" && bash scripts/pipeline/base-ref.sh --value PIPELINE_GH_CMD 2>&1); assert_exit "FR-18: --value reads only the declared keys" 1 $? "$out"
+# AC-63, AC-75: the docs say the route checks against the host's trunk, and what an install may put in pipeline.env
+for s in "Install pull request not opened (<reason>)" "If \`--open-only\` is refused as well"; do
+  grep -qF -e "$s" "$I" && ok "AC-63: /pipeline-init says: $s" || bad "AC-63: /pipeline-init says: $s"
+done
+for f in docs/pipeline/BRANCHING.md template/docs/pipeline/BRANCHING.md CHANGELOG.md; do
+  txt="$(cat "$REPO_SRC/$f")"; [ "$f" = CHANGELOG.md ] && txt="$v32"
+  l="$(printf '%s\n' "$txt" | grep -F 'the trunk as the host reports it' | head -n 1)"
+  case "$l" in *"before the push"*"before the merge"*"falls back to the owner when the host cannot be reached"*) ok "AC-63: $f: checked against the host's trunk, before the push and the merge, with the fallback";;
+    *) bad "AC-63: $f: checked against the host's trunk, before the push and the merge, with the fallback" "$l";; esac
+  l="$(printf '%s\n' "$txt" | grep -F "nothing but comments and plain settings from the plugin's template" | head -n 1)"
+  case "$l" in *pipeline.env*"falls back to the owner"*) ok "AC-75: $f: the pipeline.env sentence";; *) bad "AC-75: $f: the pipeline.env sentence" "$l";; esac
+done
+assert_contains "AC-75: the v3.2.0 known limits name SHI-56" "$v32" "SHI-56"
+# AC-76: CONTEXT.md's Tests bullet names every file run-all.sh runs
+if [ -f "$REPO_SRC/docs/pipeline/CONTEXT.md" ]; then
+  tb="$(sed -n '/^- Tests:/,/^- [A-Z]/p' "$REPO_SRC/docs/pipeline/CONTEXT.md")"; miss=""
+  for t in $(sed -n 's/^tests=(\(.*\))$/\1/p' "$REPO_SRC/tests/pipeline/run-all.sh"); do case "$tb" in *"$t"*) ;; *) miss="$miss $t";; esac; done
+  assert_eq "AC-76: CONTEXT.md's Tests bullet names every test file run-all.sh runs" "" "$miss"
+fi
 summary

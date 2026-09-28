@@ -47,7 +47,8 @@ bb_request_open() { # branch base title body -> "<id> <url>"
 }
 # Bitbucket reports no mergeability before the merge call, and its merge takes no sha: install-merge.sh re-reads the
 # source commit (below) right before merging and refuses on a mismatch
-bb_request_info() { bb GET "$(bb_repo)/pullrequests/$1" | json '"\(.source.commit.hash) ready"'; }
+bb_request_info() { bb GET "$(bb_repo)/pullrequests/$1" | json '"\(.source.commit.hash) ready \(.destination.branch.name)"'; }
+bb_branch_head() { bb GET "$(bb_repo)/refs/branches/$(urlenc "$1")" | json '.target.hash // empty'; }
 bb_request_merge() {
   local e; e="$(bb POST "$(bb_repo)/pullrequests/$1/merge" '{"merge_strategy":"merge_commit"}' 2>&1 >/dev/null)" && return 0
   refused "Bitbucket refused to merge PR #$1: ${e#curl: }"

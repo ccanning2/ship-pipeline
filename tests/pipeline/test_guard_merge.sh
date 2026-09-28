@@ -253,6 +253,107 @@ out=$(rhook "$RM"); assert_exit "AC-5: the upgrade may be merged" 0 $? "$out"
 route_case "AC-14: deleting gate.sh is refused" 2 "scripts/pipeline/gate.sh is deleted but is not retired tooling" "git rm -q scripts/pipeline/gate.sh"
 route_case "AC-14: deleting settings.json is refused" 2 ".claude/settings.json is deleted but is not retired tooling" "git rm -q .claude/settings.json"
 route_case "deleting an app file is refused" 2 "src/App.java is deleted but is not retired tooling" "git rm -q src/App.java"
+# ==== SHI-55 / SHI-57 (R1c-2): the guard's pre-check, the committed configuration, the pipeline.env content rule ====
+ENVF=scripts/pipeline/pipeline.env
+put_line() { L="$2" awk -v k="$1" 'index($0, k "=") == 1 && !d { print ENVIRON["L"]; d = 1; next } { print }' "$ENVF" > "$ENVF.t" && mv "$ENVF.t" "$ENVF"; }
+add_line() { printf '%s\n' "$@" >> "$ENVF"; }
+# env_case <label> <exit> <text in the block, or ""> <command and args, run in $R>: the change reaches the COMMITTED
+# pipeline.env only; the working tree keeps the rendered file (NFR-6: the guard still sources it for every command)
+env_case() {
+  local at l="$1" x="$2" t="$3"; shift 3; at="$(g rev-parse HEAD)"
+  (cd "$R" && "$@"); g add -A; g commit -qm env --allow-empty
+  g show "$at:$ENVF" > "$R/$ENVF"
+  out=$(rhook "$RM"); assert_exit "$l" "$x" $? "$out"; [ -z "$t" ] || assert_contains "$l: says why" "$out" "$t"
+  g reset -q --hard "$at"
+}
+MK="$(mktemp -d)/marker"
+origin_repo; install_branch
+en=$(( $(g show HEAD:$ENVF | wc -l | tr -d ' ') + 1 ))   # the number of a line appended to the rendered file
+bl="$(g show HEAD:$ENVF | grep -n '^BASE_BRANCH=' | cut -d: -f1)"; pl="$(g show HEAD:$ENVF | grep -n "^PROJECT_NAME=" | cut -d: -f1)"; rl="$(g show HEAD:$ENVF | grep -n '^PIPELINE_TICKET_REGEX=' | cut -d: -f1)"
+# AC-17 (amended): the four keys the route acts with must be the committed ones
+env_case "AC-17: a committed GIT_HOST other than the working tree's is refused" 2 'GIT_HOST="gitlab"' put_line GIT_HOST 'GIT_HOST="gitlab"'
+env_case "AC-17: a committed GIT_HOST_URL other than the working tree's is refused" 2 'GIT_HOST_URL="https://git.example.com"' put_line GIT_HOST_URL 'GIT_HOST_URL="https://git.example.com"'
+env_case "AC-17: a committed PIPELINE_REMOTE other than the working tree's is refused" 2 'PIPELINE_REMOTE="fork", but the working tree says "origin"' put_line PIPELINE_REMOTE 'PIPELINE_REMOTE="fork"'
+# AC-65: plain settings of the template's keys pass, however they are written
+env_case "AC-65: another plain value" 0 "" put_line DEV_URL 'DEV_URL="https://dev.example.com/#/x"'
+env_case "AC-65: a single-quoted value" 0 "" put_line PROJECT_NAME "PROJECT_NAME='demo'"
+env_case "AC-65: an empty value" 0 "" put_line HEALTH_PATH 'HEALTH_PATH='
+env_case "AC-65: a trailing comment after a value" 0 "" put_line PROJECT_NAME 'PROJECT_NAME="demo"   # the name'
+env_case "AC-65: comment and blank lines added" 0 "" add_line "" "# a note" "   # indented note" ""
+env_case "AC-65: a key removed" 0 "" sed -i '/^HEALTH_PATH=/d' "$ENVF"
+env_case "AC-65: CRLF line endings" 0 "" sh -c "git config core.autocrlf false; sed -i 's/\$/\r/' $ENVF"
+g config --unset core.autocrlf 2>/dev/null
+env_case "AC-65: a narrow PIPELINE_TICKET_REGEX in place of the shipped line" 0 "" put_line PIPELINE_TICKET_REGEX 'PIPELINE_TICKET_REGEX="RAD-[0-9]+"'
+# AC-66, AC-71, AC-73: a key the template does not set
+env_case "AC-66: an unknown key is refused" 2 "scripts/pipeline/pipeline.env line $en: 'FOO' is not a setting in the plugin's pipeline.env template" add_line 'FOO="x"'
+env_case "AC-66: a test double's key is refused" 2 "'PIPELINE_GH_CMD' is not a setting in the plugin's pipeline.env template" add_line 'PIPELINE_GH_CMD="/tmp/fake"'
+env_case "AC-71: a retired key (PIPELINE_START_LEVEL) is refused" 2 "'PIPELINE_START_LEVEL' is not a setting in the plugin's pipeline.env template" add_line 'PIPELINE_START_LEVEL="analysis"'
+# AC-67: a line that is a command is refused, and nothing in it runs
+for l in "touch $MK" "source /tmp/x" 'eval "x"' "BASE_BRANCH=\"master\" touch $MK" "BASE_BRANCH=\"master\"; touch $MK" 'f() { :; }' 'if true; then :; fi'; do
+  env_case "AC-67: a command line is refused ($l)" 2 "scripts/pipeline/pipeline.env line $en:" add_line "$l"
+done
+[ -e "$MK" ] && bad "AC-67: no line of the committed pipeline.env ran" || ok "AC-67: no line of the committed pipeline.env ran"
+env_case "AC-67: a command line names the shape" 2 "line $en: this line is not a comment, a blank line or a plain KEY=\"value\" setting" add_line "touch $MK"
+# AC-68: a value that is not plain is refused
+for v in "\"\$(touch $MK)\"" "\"\`touch $MK\`\"" '"${TRACKER_TEAM_KEY}"' '"$HOME"' '$HOME' '~/x' '"a\b"'; do
+  env_case "AC-68: PROJECT_NAME=$v is refused" 2 "line $pl: the value of 'PROJECT_NAME' is not a plain value (no variable, command, substitution or escape)" put_line PROJECT_NAME "PROJECT_NAME=$v"
+done
+env_case "AC-68: a quote left open onto the next line is refused" 2 "scripts/pipeline/pipeline.env line" put_line PROJECT_NAME "PROJECT_NAME=\"demo
+x\""
+env_case "AC-68: the shipped regex line with a trailing comment is refused" 2 "line $rl: the value of 'PIPELINE_TICKET_REGEX' is not a plain value" \
+  put_line PIPELINE_TICKET_REGEX 'PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+" # mine'
+env_case "AC-68: the shipped regex line with \$(id) inside the quotes is refused" 2 "line $rl: the value of 'PIPELINE_TICKET_REGEX' is not a plain value" \
+  put_line PIPELINE_TICKET_REGEX 'PIPELINE_TICKET_REGEX="${TRACKER_TEAM_KEY:-}-[0-9]+$(id)"'
+[ -e "$MK" ] && bad "AC-68: no value of the committed pipeline.env ran" || ok "AC-68: no value of the committed pipeline.env ran"
+# AC-69, AC-70: export, and a key set twice
+env_case "AC-69: export in place of the plain line is refused" 2 "line $bl: 'export' is not allowed" put_line BASE_BRANCH 'export BASE_BRANCH="master"'
+env_case "AC-69: a bare export line is refused" 2 "line $en: 'export' is not allowed" add_line 'export PROJECT_NAME'
+env_case "AC-70: BASE_BRANCH set twice (same value) is refused" 2 "line $en: 'BASE_BRANCH' is set more than once (first on line $bl)" add_line 'BASE_BRANCH="master"'
+env_case "AC-70: the shipped regex line plus a plain one is refused" 2 "line $en: 'PIPELINE_TICKET_REGEX' is set more than once (first on line $rl)" add_line 'PIPELINE_TICKET_REGEX="RAD-[0-9]+"'
+# AC-73: the reason never echoes the value, and the owner's way forward stays open
+env_case "AC-73: an unknown key holding a secret is refused" 2 "PIPELINE GATE: blocked 'bash scripts/pipeline/install-merge.sh' (install route): scripts/pipeline/pipeline.env line $en: 'SECRET_TOKEN' is not a setting in the plugin's pipeline.env template. This route merges only the pipeline's own install" add_line 'SECRET_TOKEN="s3cr3t-value"'
+case "$out" in *s3cr3t-value*) bad "AC-73: the value is never printed" "$out";; *) ok "AC-73: the value is never printed";; esac
+assert_contains "AC-73: the block still offers --open-only" "$out" "Way forward: run 'bash scripts/pipeline/install-merge.sh --open-only'"
+(cd "$R" && add_line 'SECRET_TOKEN="s3cr3t-value"'); commit_all "secret"
+out=$(rhook "$RM --open-only"); assert_exit "AC-73: --open-only is still allowed" 0 $? "$out"
+g reset -q --hard HEAD~1
+# AC-74: no template in the reference fails closed
+NOTPL="$(mktemp -d)/ref"; mkdir -p "$NOTPL"; (cd "$REPO_SRC" && cp -r .claude-plugin agents scripts template "$NOTPL/"); rm -f "$NOTPL/template/scripts/pipeline/pipeline.env"
+out=$(PIPELINE_PLUGIN_ROOT="$NOTPL" hook "$RM"); assert_exit "AC-74: a reference without the pipeline.env template is refused" 2 $? "$out"
+assert_contains "AC-74: and says so" "$out" "scripts/pipeline/pipeline.env: the plugin's pipeline.env template could not be read"
+# AC-62 (NFR-2): the guard never uses the network: failing host fakes and an unreachable remote change no decision
+NF="$(mktemp -d)"; printf '#!/bin/sh\necho "$0 $*" >> "%s/log"\nexit 1\n' "$NF" > "$NF/fail"; chmod +x "$NF/fail"
+nhook() { PIPELINE_GH_CMD="$NF/fail" PIPELINE_GLAB_CMD="$NF/fail" PIPELINE_CURL_CMD="$NF/fail" rhook "$@"; }
+url="$(g remote get-url origin)"; g remote set-url origin "$NF/no-such-remote"
+out=$(nhook "$RM"); assert_exit "AC-62: AC-1 decided the same without any network" 0 $? "$out"
+(cd "$R" && echo x > src/app.js); commit_all "app"
+out=$(nhook "$RM"); assert_exit "AC-62: AC-8 decided the same without any network" 2 $? "$out"; assert_contains "AC-62: AC-8 names the file" "$out" "src/app.js is not part of the install"
+g reset -q --hard HEAD~1
+out=$(nhook "git push origin HEAD:master"); assert_exit "AC-62: a ticketless push decided the same" 2 $? "$out"
+g remote set-url origin "$url"
+# AC-53 (the SHI-55 repro): a forged local origin/master is only the guard's pre-check; the route's own check decides
+tipsha="$(g rev-parse origin/master)"; g checkout -q -b evil "$tipsha"; (cd "$R" && echo "class Backdoor {}" > src/Backdoor.java); commit_all "evil"
+g checkout -q ship-pipeline/install; g rebase -q evil 2>/dev/null; g update-ref refs/remotes/origin/master evil
+out=$(rhook "$RM"); a53=$?; assert_exit "AC-53: the guard's network-free pre-check cannot see a forged origin/master (test_install_merge.sh: the route refuses it)" 0 $a53 "$out"
+g remote set-url origin "$NF/no-such-remote"
+out=$(nhook "$RM"); assert_exit "AC-62: the AC-53 case is decided the same without any network" "$a53" $? "$out"
+g remote set-url origin "$url"
+assert_eq "AC-62: no host call was made by the guard" "" "$(cat "$NF/log" 2>/dev/null)"
+# AC-64, AC-65: the other shapes, each committing pipeline.env exactly as init.sh rendered it, or as the case says
+origin_repo; install_branch --deploy-mode explicit
+env_case "AC-65: a bare value (DEPLOY_MODE=explicit)" 0 "" put_line DEPLOY_MODE 'DEPLOY_MODE=explicit'
+origin_repo; install_branch --no-deploy-envs
+env_case "AC-65: this repository's own pipeline.env (a subset of the template's keys)" 0 "" cp "$REPO_SRC/$ENVF" "$ENVF"
+# AC-72: a pipeline.env the install leaves unchanged is not examined; any content change brings it under the rule
+origin_repo
+bash "$REPO_SRC/scripts/init.sh" --project-dir "$R" --name demo --team-key REP --base-branch master --staging-branch staging >/dev/null
+(cd "$R" && add_line 'PIPELINE_START_LEVEL="analysis"' 'MY_KEY="x"' 'export PIPELINE_WAIT_TRIES=3' 'BASE_BRANCH="master"')
+commit_all "an older install, hand-edited"; g push -q origin master; g fetch -q origin
+install_branch
+assert_eq "AC-72: the upgrade leaves pipeline.env byte-identical" "" "$(g diff --name-only origin/master HEAD -- $ENVF)"
+out=$(rhook "$RM"); assert_exit "AC-72: an unchanged hand-edited pipeline.env does not block the upgrade" 0 $? "$out"
+(cd "$R" && add_line "# one more line"); commit_all "touch pipeline.env"
+out=$(rhook "$RM"); assert_exit "AC-72: once changed, the whole file is under the rule" 2 $? "$out"; assert_contains "AC-72: naming the first bad line" "$out" "'PIPELINE_START_LEVEL' is not a setting in the plugin's pipeline.env template"
 # AC-24: the existing guard tests are only added to
 bref="$(cd "$REPO_SRC" && git rev-parse -q --verify origin/master 2>/dev/null || true)"
 if [ -n "$bref" ]; then

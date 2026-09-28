@@ -2,6 +2,71 @@
 
 Status: ready-for-dev
 
+## Rework 1 (SHI-55 defect, SHI-57 eng)
+
+### SHI-55: the route's proof is anchored to the host's trunk (FR-17, FR-18, FR-5d/e, NFR-2)
+- **`scripts/pipeline/install-merge.sh`**, merge form:
+  - It reads T, the trunk's head, from the host (`host.sh branch-head <trunk>`), once, before any push or request call. A failed read, or an answer that is not a full sha, gives `REFUSED <web url> the trunk tip could not be read from the host (<reason>)`, exit 3.
+  - If commit T is not here, it fetches the trunk and looks T up by id only. Still missing gives `REFUSED <web url> the host's trunk tip <T> could not be fetched`.
+  - It runs the plugin's `init.sh --verify-install --trunk-tip T` (exit 4 `NOT-INSTALL`). "Nothing to merge" and the upgrade title also use T.
+  - It pushes `<install sha>:refs/heads/ship-pipeline/install`, not `HEAD`.
+  - After the wait and right before the merge, it re-reads the request (source commit and target branch) and T. A request into another branch, or a trunk that moved, is refused with exit 3 and no merge call.
+  - It exports `PIPELINE_ENV_AS_DATA=1`, `GIT_NO_REPLACE_OBJECTS=1` and a nonexistent `GIT_GRAFT_FILE`. Ancestry checks use `-c core.commitGraph=false`.
+  - The local-ref "nothing to merge" early exit stays. It can only refuse (exit 1), never allow; AC-61 shows a missing or stale local ref still merges.
+  - `--open-only` reads no T. Its only new behaviour is pushing the recorded sha.
+- **`scripts/init.sh --verify-install`**:
+  - New `--trunk-tip SHA` (merge form only). Without it the local `<remote>/<trunk>` ref stands in. That is now documented as the guard's network-free pre-check.
+  - Real history only: `--no-replace-objects`, grafts off, commit-graph off. A shallow boundary counts as "not an ancestor".
+  - FR-3.2 now compares `BASE_BRANCH`, `GIT_HOST`, `GIT_HOST_URL` and `PIPELINE_REMOTE` (committed vs working tree, after defaults). The reason copy is `... at HEAD says <KEY>="<v>", but the working tree says "<w>"`.
+- **`base-ref.sh`**: with `PIPELINE_ENV_AS_DATA=1`, pipeline.env is parsed, never sourced, using `init.sh`'s `declared_value` rules. Process-env values of those keys are ignored. New `--value KEY`, for the FR-18 keys only.
+- **`lib/host-common.sh`**: in data mode, `GIT_HOST_URL` comes from `base-ref.sh --value` and nothing is sourced, so the test doubles and `PIPELINE_WAIT_TRIES` count only from the environment.
+- **Adapters (all three)**:
+  - New read-only verb `branch-head <branch>`: GitHub `repos/<slug>/branches/<b>` `.commit.sha`, GitLab `repository/branches/<b>` `.commit.id`, Bitbucket `refs/branches/<b>` `.target.hash`.
+  - `request-info` now prints a third field, the target branch.
+  - The guard decides `branch-head` like the other read verbs (it is not gated).
+- **Guard**: code unchanged. It stays network-free (AC-62). FR-5e was already implemented.
+- **Docs**:
+  - `commands/pipeline-init.md`: the pre-check wording, the new REFUSED causes, and the "not opened" Impact line with when to report it.
+  - Both `BRANCHING.md` copies and CHANGELOG v3.2.0: the host-anchored sentence and the fallback.
+  - CHANGELOG known limits name SHI-56.
+  - `plugin.json` stays 3.2.0.
+
+### SHI-57: pipeline.env content rule, class E (FR-19, R1c-2)
+- `init.sh --list` reports `scripts/pipeline/pipeline.env<TAB>E<TAB><reference template path>`. The verifier reads the allowed keys and the shipped `PIPELINE_TICKET_REGEX` line from that template at check time. No second list exists anywhere.
+- `env_rule` in `init.sh` runs only when the diff adds `pipeline.env` or changes its content (a mode-only change is not examined). It runs before FR-3.2, so a command line is reported as FR-19, not as a config mismatch.
+- It enforces lines of these kinds only: blank lines, comments, a plain `KEY=value` at column 1 (double-quoted with no `"`, `$`, backtick or `\`; single-quoted; empty; or bare `[A-Za-z0-9_./:@%+,-]`), optionally followed by whitespace and a `#` comment, and the template's regex line exactly. Each key may appear once.
+- Reason order: export, unknown key, value not plain, duplicate, other shape. Reasons name the line and at most the key, never the value.
+- A missing template fails closed: `scripts/pipeline/pipeline.env: the plugin's pipeline.env template could not be read`.
+- The guard and the route share it, because it lives in the one verifier.
+- **CONTEXT.md**: the `Tests:` bullet now lists `test_adapters.sh` and `test_install_merge.sh` (AC-76, checked in `test_init.sh`).
+
+### Tests (rework)
+- Suite before: 1506  after: 1930, all green (`bash tests/pipeline/run-all.sh`, ALL PIPELINE TESTS PASSED). By file: config 241, init 369, gate 175, promote 105, intake/status 135, allow-paths 25, guard 298 (was 220), doctor 55, deploy scripts 18, adapters 119, install-merge 390 (was 73).
+- `test_guard_merge.sh` and `test_adapters.sh`: added lines only (`git diff d7815e3` shows 0 removed lines, AC-24).
+- `test_install_merge.sh`: the fakes gained answers for `branch-head` (from the bare origin, or from `$FK/tip`, `$FK/tip2`, `$FK/tipfail`) and a target branch in `request-info`. The three existing request-info fake lines were edited for that. The AC-38 assertion changed from "no host call" to "the trunk-head read is the only host call", as amended AC-38 requires. No other existing line changed.
+- New cases:
+  - AC-53/54/55/59 on all three fakes: the forged ref, `PIPELINE_REMOTE=fork`, and a liar plus `touch` in the working-tree and in the committed pipeline.env.
+  - AC-56/57/58 on all three fakes.
+  - AC-16 and AC-17 route side, AC-60 (replace ref, graft, shallow), AC-61, AC-34 with no local ref, AC-31/32 read ordering.
+  - FR-19 cases AC-64..AC-74 in both the guard and the route.
+  - `init.sh`/`base-ref.sh` unit checks for `--trunk-tip`, `--value` and data mode, plus AC-63, AC-75 and AC-76 in `test_init.sh`.
+
+### How to check it on dev (install from the master ref into a throwaway repo)
+- `bash tests/pipeline/run-all.sh`.
+- The SHI-55 repro from signoff.md on a fixture:
+  1. Run `git update-ref refs/remotes/origin/master evil`, then run the route directly with the fake host.
+  2. Expect `NOT-INSTALL src/Backdoor.java: …`, exit 4, with no push and no request.
+  3. The guard's pre-check may still allow the command. That is by design (network-free).
+- Put `touch /tmp/x` in the working-tree pipeline.env and run the route: `/tmp/x` is never created.
+- Commit `FOO="x"` in pipeline.env on an install branch: the guard blocks with `scripts/pipeline/pipeline.env line <n>: 'FOO' is not a setting in the plugin's pipeline.env template`.
+
+### For devops
+- No CI, deploy or infra file changes. `run-all.sh` is unchanged.
+
+### Known limits (unchanged scope)
+- The trunk's name still comes from `BASE_BRANCH` (working tree = committed). If both omit it, `base-ref.sh` falls back to `<remote>/HEAD`. Wider pipeline.env hardening is SHI-56.
+- The GitHub trunk-head read resolves the repository with `gh repo view` (as `web-url` already did), so the host log shows that call too.
+
 ## Tickets worked
 - SHI-47 (eng): install verifier: `scripts/init.sh --verify-install` and `--list`
 - SHI-48 (eng): guard recognition of `install-merge.sh`, R6 regression

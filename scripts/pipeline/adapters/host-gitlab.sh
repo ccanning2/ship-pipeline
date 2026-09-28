@@ -33,8 +33,9 @@ gl_request_open() { # branch base title body -> "<iid> <url>"
 gl_request_info() {
   $glab_cmd api "projects/$(gl_pid)/merge_requests/$1" | json '(.detailed_merge_status // .merge_status // "") as $s
     | "\(.sha) \(if ($s | test("^(checking|unchecked|preparing|approvals_syncing|cannot_be_merged_recheck)$")) then "checking"
-      elif ($s | test("^(mergeable|can_be_merged)$")) then "ready" else "blocked" end)"'
+      elif ($s | test("^(mergeable|can_be_merged)$")) then "ready" else "blocked" end) \(.target_branch)"'
 }
+gl_branch_head() { $glab_cmd api "projects/$(gl_pid)/repository/branches/$(urlenc "$1")" | json '.commit.id // empty'; }
 gl_request_merge() { # iid sha: GitLab refuses when the source is no longer sha
   local e; e="$($glab_cmd api -X PUT "projects/$(gl_pid)/merge_requests/$1/merge" -f sha="$2" 2>&1 >/dev/null)" && return 0
   refused "GitLab refused to merge !$1: ${e#glab: }"
