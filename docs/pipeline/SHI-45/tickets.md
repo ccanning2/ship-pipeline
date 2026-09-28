@@ -9,3 +9,4 @@
 | SHI-48 | eng | - | - | done | engineer | Guard: recognise install-merge.sh, allow only a verified install, R6 regression |
 | SHI-49 | eng | - | - | done | engineer | install-merge.sh route: push, open, pinned merge, refusal, cleanup on all hosts |
 | SHI-50 | eng | - | - | done | engineer | /pipeline-init flow, consent, docs and v3.2.0 release notes |
+| SHI-55 | defect | staging | High | open | engineer | Install route: a forged local origin/master lets ticketless changes through the guard |
