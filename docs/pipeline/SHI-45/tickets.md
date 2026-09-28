@@ -5,7 +5,7 @@
 | Ticket | Kind | Found-in | Severity | State | Owner | Title |
 |---|---|---|---|---|---|---|
 | SHI-46 | follow-up | - | - | open | product-owner | Let the Pipeline Gate pass a verified install PR on a protected trunk |
-| SHI-47 | eng | - | - | in-progress | engineer | Install verifier: the install set, class rules and trusted plugin reference |
-| SHI-48 | eng | - | - | in-progress | engineer | Guard: recognise install-merge.sh, allow only a verified install, R6 regression |
-| SHI-49 | eng | - | - | in-progress | engineer | install-merge.sh route: push, open, pinned merge, refusal, cleanup on all hosts |
-| SHI-50 | eng | - | - | in-progress | engineer | /pipeline-init flow, consent, docs and v3.2.0 release notes |
+| SHI-47 | eng | - | - | done | engineer | Install verifier: the install set, class rules and trusted plugin reference |
+| SHI-48 | eng | - | - | done | engineer | Guard: recognise install-merge.sh, allow only a verified install, R6 regression |
+| SHI-49 | eng | - | - | done | engineer | install-merge.sh route: push, open, pinned merge, refusal, cleanup on all hosts |
+| SHI-50 | eng | - | - | done | engineer | /pipeline-init flow, consent, docs and v3.2.0 release notes |
