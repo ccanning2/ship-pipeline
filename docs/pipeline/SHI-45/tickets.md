@@ -9,6 +9,6 @@
 | SHI-48 | eng | - | - | done | engineer | Guard: recognise install-merge.sh, allow only a verified install, R6 regression |
 | SHI-49 | eng | - | - | done | engineer | install-merge.sh route: push, open, pinned merge, refusal, cleanup on all hosts |
 | SHI-50 | eng | - | - | done | engineer | /pipeline-init flow, consent, docs and v3.2.0 release notes |
-| SHI-55 | defect | staging | High | fixed | engineer | Install route: a forged local origin/master lets ticketless changes through the guard |
+| SHI-55 | defect | staging | High | verified | qa-tester | Install route: a forged local origin/master lets ticketless changes through the guard |
 | SHI-56 | follow-up | - | - | open | product-owner | pipeline.env is executed by the guard, scripts and CI: read it as data and limit what an unreviewed install may put in it |
 | SHI-57 | eng | - | - | done | engineer | Install proof: a changed pipeline.env may hold only the template's plain settings (R1c-2) |
