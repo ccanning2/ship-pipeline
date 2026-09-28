@@ -40,6 +40,9 @@ trunk), `/pipeline-init` ends with the install merged into the trunk. Nothing is
   upgrade pull request when the host allows it, so that upgrades take no extra steps either.
 - US-6 (Could): As an installing developer, I want the install branch deleted after the merge, so that no leftover
   branches build up.
+- US-7 (Must, added in rework for SHI-55 / Q-1): As a pipeline owner, I want an unreviewed install to be unable to
+  put anything in `pipeline.env` except the plain settings init itself writes, so that the automatic merge cannot
+  land code that the guard, the pipeline scripts or CI would later run.
 
 ## Business rules & constraints
 The owner asked for this change and explicitly approved changing the guard hook for it. The safety decisions are
@@ -59,6 +62,28 @@ Recommended default:
   file, or a tooling file that differs from the plugin's copy, is refused as ticketless work. For example, a
   hand-edited `guard-merge.sh`, `allow-paths.sh`, `gate.sh` or `.claude/settings.json` hook entry could otherwise
   weaken a safety boundary through this route. Refusing it closes that hole.
+  - c-2. **`pipeline.env` (tightened in rework, owner decision Q-1 (a), 2026-09-28).** Other project-owned files
+    in the install set stay free content. `scripts/pipeline/pipeline.env` does not. When the request adds or changes
+    `pipeline.env`, the whole file, as it stands in the install commit, may hold only:
+    1. comment lines and blank lines;
+    2. assignments of the settings `init.sh` and `/pipeline-init` write, the keys of the shipped `pipeline.env`
+       template, one per line, each at most once. The value is plain text: no variable, no command, no
+       substitution, nothing run. The only thing allowed after it on the line is a trailing comment. The line has no
+       `export` and no other statement;
+    3. the one exception: the template's own `PIPELINE_TICKET_REGEX` line, exactly as the plugin ships it (it
+       derives the pattern from `TRACKER_TEAM_KEY`). Writing that key as a plain value also passes.
+    Anything else fails the proof, and the request is not treated as init's install. That includes an unknown key, a
+    line that runs something, a value that refers to another variable or a command, a duplicate key, or a key that
+    is no longer written (for example `PIPELINE_START_LEVEL`). The failure is reported the same way as any other
+    file that is not part of the install, and names the file and the offending line. Init then falls back to the
+    owner step as in R2: it opens the request and leaves it for the owner to review, mark `infra` and merge. Nothing
+    is pushed to the trunk and nothing is overridden.
+    The same rule applies in the guard's check and in the route's own check. A `pipeline.env` the request leaves
+    unchanged is not examined by this rule, so an existing install's hand-edited file does not block an upgrade that
+    does not touch it.
+    This rule limits what an **unreviewed install** may carry. It does not change how the pipeline scripts, the guard
+    or CI read `pipeline.env`, and it does not change which branches the guard trusts as trunk and staging. Those are
+    follow-up SHI-56.
 - d. The target is the trunk only. The route never moves the staging branch or a tag, never force-pushes and never
   deletes a protected ref.
 - e. Refused and rejected alternatives: a session marker such as ".init is running" (any agent can write it); a
@@ -108,18 +133,23 @@ review, and that a team that wants a review leaves the merge unchecked (R5) or k
    the sign-in is 0, and the install commit is on the trunk when init reports done.
 2. Zero regressions in the guard. Every existing `test_guard_merge.sh` case still blocks or allows as before. New
    cases show that a ticketless request with any file outside init's scaffold set, or with a tooling file that
-   differs from the plugin's copy, is blocked through the init route.
+   differs from the plugin's copy, or with a `pipeline.env` that breaks R1c-2, is blocked through the init route. A
+   `pipeline.env` exactly as `init.sh` writes it still merges.
 3. Whenever the host refuses the merge, init ends with one clear line and the pull request link. No protection,
    label or admin setting is changed.
 
 ## Out of scope
 - Changing the Pipeline Gate (CI) pass/fail conditions so that a verified install request passes on an already
   protected trunk. This is follow-up SHI-46 and needs the owner's say-so under CONTEXT.md.
+- Reading `pipeline.env` as data (never running it) in the pipeline scripts, the guard and CI, and deciding how far
+  the guard trusts `BASE_BRANCH` / `STAGING_BRANCH` from the working tree. This is follow-up SHI-56, and it touches
+  the write-boundary hooks and the gate (owner's say-so under CONTEXT.md). SHI-45 only limits what an unreviewed
+  install may put in the file (R1c-2).
 - Letting agents add the `infra` label, or use the init route for other ticketless maintenance (dependency bumps, CI
   migrations).
 - Merging into the staging branch or tagging during init.
 - `/pipeline-doctor` fixing things by merging.
 
 ## Open questions for the owner
-- None blocking. The one decision this ticket cannot make, widening the CI gate for upgrade re-runs on protected
-  repos, is follow-up SHI-46.
+- None blocking. Q-1 is answered: go-live waits for R1c-2. Widening the CI gate for upgrade re-runs on protected
+  repos is follow-up SHI-46. The wider `pipeline.env` hardening is follow-up SHI-56.

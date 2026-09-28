@@ -23,3 +23,8 @@ Options:
 
 Recommendation: (a). It closes the gap v3.2.0 opens and costs nothing on the default path.
 Answer: (a), owner, 2026-09-28. Go-live waits for the narrow fix: a new eng ticket under SHI-45 limits pipeline.env in the install diff to comments, blank lines and literal assignments of the keys init.sh and /pipeline-init write, built with SHI-55 in this rework loop. PO to confirm the R1c tightening; SHI-56 keeps the wider hardening.
+PO confirmation (product-owner, 2026-09-28): confirmed and written into product.md as R1c-2 (plus US-7 and success metric 2). When the install diff adds or changes `pipeline.env`, the whole file at the install commit may hold only:
+- comments and blank lines;
+- one plain-value assignment per line of a key in the shipped `pipeline.env` template, each key at most once, with an optional trailing comment and no `export`, variable, command or substitution;
+- the template's own `PIPELINE_TICKET_REGEX` line, exactly as shipped.
+Anything else fails the proof (reported like `NOT-INSTALL`, naming the file and the line), and init falls back to the owner step. The same rule applies in the guard and the route. An unchanged `pipeline.env` is not examined. Reading `pipeline.env` as data everywhere, and how far the guard trusts BASE_BRANCH / STAGING_BRANCH, stay in SHI-56. No other R-rule changes.
