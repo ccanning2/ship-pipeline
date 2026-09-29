@@ -12,17 +12,17 @@ Rework loops used: 0/3
 | 2 | product | product-owner (plan) | skipped (upstream) | |
 | 3 | analysis | business-analyst ⇄ product-owner (plan) | skipped (upstream) | |
 | 4 | build | senior-engineer | done | 2118b36, 1256 tests pass |
-| 5 | dev | devops (merge → master, dev check) | skipped (team not selected) | |
-| 6 | qa | qa-tester | skipped (team not selected) | |
-| 7 | staging | app-specialist | skipped (team not selected) | |
-| 8 | go-live | the owner | skipped (team not selected) | |
-| 9 | production | devops (tag vX.Y.Z) | skipped (team not selected) | |
+| 5 | dev | devops (merge → master, dev check) | done outside the pipeline | merged in PR #9 (d7815e3), released in v3.2.0 |
+| 6 | qa | qa-tester | done outside the pipeline | merged in PR #9 (d7815e3), released in v3.2.0 |
+| 7 | staging | app-specialist | done outside the pipeline | merged in PR #9 (d7815e3), released in v3.2.0 |
+| 8 | go-live | the owner | done outside the pipeline | merged in PR #9 (d7815e3), released in v3.2.0 |
+| 9 | production | devops (tag vX.Y.Z) | done outside the pipeline | merged in PR #9 (d7815e3), released in v3.2.0 |
 
 ## Next action
-Finished: build done on feature/SHI-30-detect-tracker-team (2118b36). Dev onwards not selected; the build is with the owner.
+Finished: shipped outside the pipeline. The owner merged PR #9 (d7815e3) on 2026-09-25, and it went to production in v3.2.0 with SHI-45. The owner confirmed on 2026-09-29.
 
 ## Waiting on the owner
-- the build on feature/SHI-30-detect-tracker-team (2118b36): review, verify, and merge or promote it yourself
+- nothing
 
 ## Open defect tickets
 - none
