@@ -16,7 +16,7 @@ Rework loops used: 1/3
 | 6 | qa | qa-tester | done (rework 1) | pass on 6a619f7; SHI-55 verified; AC-52 + fallback not run live (owner-accepted) |
 | 7 | staging | app-specialist | done (rework 1) | approved on 6a619f7; SHI-55 re-verified |
 | 8 | go-live | the owner | done | go: v3.2.0 on 6a619f7 | waits for SHI-55 and SHI-57 (Q-1 (a)) |
-| 9 | production | devops (tag vX.Y.Z) | in-progress | |
+| 9 | production | devops (tag vX.Y.Z) | done | v3.2.0 tagged on 6a619f7; plugin.json 3.2.0 |
 
 ## Next action
 The engineer fixes SHI-55 and builds SHI-57 against the amended requirements.md, on the ticket branch.
