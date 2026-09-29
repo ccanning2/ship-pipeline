@@ -11,15 +11,15 @@ Rework loops used: 0/3
 | 1 | intake | orchestrator | done | teams engineering,devops; arrives at engineering |
 | 2 | product | product-owner (plan) | skipped (upstream) | |
 | 3 | analysis | business-analyst ⇄ product-owner (plan) | skipped (upstream) | |
-| 4 | build | senior-engineer | in-progress | |
-| 5 | dev | devops (merge → master, dev check) | pending | |
+| 4 | build | senior-engineer | done | ready-for-dev @ abecd35 |
+| 5 | dev | devops (merge → master, dev check) | in-progress | |
 | 6 | qa | the owner (team not selected) | pending | |
 | 7 | staging | the owner (team not selected) | pending | |
 | 8 | go-live | the owner | pending | |
 | 9 | production | devops (tag vX.Y.Z) | pending | |
 
 ## Next action
-Stage 4 build: senior-engineer works SHI-54 (mode build).
+Stage 5 dev: devops promote-dev.
 
 ## Waiting on the owner
 - nothing
