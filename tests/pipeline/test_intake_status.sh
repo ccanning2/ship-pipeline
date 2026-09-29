@@ -62,10 +62,13 @@ assert_contains "status: qa cleared" "$out" "[x] qa"
 assert_contains "status: staging cleared" "$out" "[x] staging"
 assert_contains "status: production pending" "$out" "[ ] production"
 assert_contains "status: next gate" "$out" "Next gate to clear: production"
+assert_contains "status: the share of gates cleared (SHI-54)" "$out" "Gates cleared: 4 of 5 (80%)"
+assert_eq "status: PIPELINE_STATUS_SERIAL=1 prints the same as the parallel run (SHI-54)" "$out" "$(cd "$R" && PIPELINE_STATUS_SERIAL=1 bash scripts/pipeline/status.sh REP-80 2>&1)"
 full_sha=$(dev_sha_of REP-80)
 record REP-80 Staging "$full_sha"; signoff REP-80 approved "$full_sha"; golive REP-80
 out=$(cd "$R" && bash scripts/pipeline/status.sh REP-80 2>&1)
 assert_contains "status: shipped" "$out" "none (shipped)"
+assert_contains "status: every gate cleared is 100% (SHI-54)" "$out" "Gates cleared: 5 of 5 (100%)"
 out=$(cd "$R" && bash scripts/pipeline/status.sh 2>&1); assert_exit "status: no args fails" 1 $? "$out"
 
 # status: the project capability (AC-32, AC-33)
@@ -228,10 +231,12 @@ assert_contains "board: with what they are doing" "$out" "REP-401: health route 
 assert_contains "board: later stages wait" "$out" "[ ] dev         devops"
 assert_contains "board: the environments" "$out" "dev -  qa -  staging -  prod -"
 assert_contains "board: the last handoff, one line" "$out" "business-analyst -> senior-engineer: 2 eng tickets ready"
+assert_contains "board: estimated progress, the stage under way counting half (SHI-54)" "$out" "progress [######..............]  31%  2 of 8 stages done or skipped, 1 under way"
 case "$out" in *intake*) bad "board: intake is not a stage row" "$out";; *) ok "board: intake is not a stage row";; esac
 [ "$(printf '%s\n' "$out" | wc -l)" -le 20 ] && ok "board: fits in twenty lines" || bad "board: fits in twenty lines" "$out"
 out=$(cd "$R" && bash scripts/pipeline/board.sh REP-400 2>&1); assert_contains "board: box-drawing by default" "$out" "▶ build"
 out=$(bd --all); assert_contains "board --all: one line per ticket in flight" "$out" "REP-400    build"
+assert_contains "board --all: each ticket with its progress (SHI-54)" "$out" "in-progress                     31%"
 case "$out" in *_templates*) bad "board --all: skips the templates" "$out";; *) ok "board --all: skips the templates";; esac
 out=$(TMUX= bd REP-400 --pane </dev/null); assert_contains "board --pane: outside tmux, the command for a second terminal" "$out" "board.sh REP-400 --watch"
 (cd "$R" && git check-ignore -q .claude/.pipeline-activity/REP-400.log) && ok "board: the activity log is not committed" || bad "board: the activity log is not committed"

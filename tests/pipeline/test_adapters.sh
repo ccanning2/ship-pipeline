@@ -253,5 +253,43 @@ FAKE
   out=$(tm "$(mktemp -d)" --tracker jira --tracker-url https://acme.atlassian.net teams); assert_exit "teams: not signed in to Jira (exit 4)" 4 $? "$out"
   touch "$TD/fail"; out=$(tm "$JF" --tracker jira --tracker-url https://acme.atlassian.net teams); assert_exit "teams: jira not answering is exit 1" 1 $? "$out"
   rm -f "$TD/fail"
+
+  # ---- Linear verbs through a fake API: a handoff reads the team's labels once (the per-call cache) ----
+  use_tracker linear
+  LD="$(mktemp -d)"; export LD
+  cat > "$R/fake-linear.sh" <<'FAKE'
+#!/usr/bin/env bash
+data=""; while [ $# -gt 0 ]; do [ "$1" = --data ] && data="$2"; shift; done
+q="$(printf '%s' "$data" | jq -r .query)"
+case "$q" in
+  *issueLabels*) echo labels >> "$LD/log"
+    printf '%s' '{"data":{"issueLabels":{"nodes":[{"id":"gS","name":"Stage","isGroup":true,"team":null,"parent":null},{"id":"gO","name":"Owner","isGroup":true,"team":null,"parent":null},{"id":"lDev","name":"dev","isGroup":false,"team":null,"parent":{"id":"gS","name":"Stage"}},{"id":"lBuild","name":"build","isGroup":false,"team":null,"parent":{"id":"gS","name":"Stage"}},{"id":"lDevops","name":"devops","isGroup":false,"team":null,"parent":{"id":"gO","name":"Owner"}},{"id":"lEng","name":"engineer","isGroup":false,"team":null,"parent":{"id":"gO","name":"Owner"}}]}}}';;
+  *teams*) echo team >> "$LD/log"
+    printf '%s' '{"data":{"teams":{"nodes":[{"id":"t1","name":"Rep","states":{"nodes":[{"id":"s1","name":"In Progress","type":"started"}]}}]}}}';;
+  *commentCreate*) echo comment >> "$LD/log"; printf '%s' '{"data":{"commentCreate":{"success":true}}}';;
+  *issueUpdate*) echo "update $(printf '%s' "$data" | jq -c '.variables.l // .variables.s')" >> "$LD/log"; printf '%s' '{"data":{"issueUpdate":{"success":true}}}';;
+  *issue*) echo issue >> "$LD/log"
+    printf '%s' '{"data":{"issue":{"id":"u1","identifier":"REP-7","title":"t","description":"","url":"u","state":{"name":"In Progress"},"labels":{"nodes":[{"id":"lBuild","name":"build","parent":{"name":"Stage"}},{"id":"lEng","name":"engineer","parent":{"name":"Owner"}}]},"children":{"nodes":[]},"comments":{"nodes":[]}}}}';;
+  *) exit 22;;
+esac
+FAKE
+  chmod +x "$R/fake-linear.sh"; echo "fake-linear.sh" >> "$R/.git/info/exclude"
+  lt() { (cd "$R" && PIPELINE_CURL_CMD="$R/fake-linear.sh" PIPELINE_TRACKER_CONFIG="$CF" bash scripts/pipeline/tracker.sh "$@" 2>&1); }
+  : > "$LD/log"; out=$(lt handoff REP-7 dev devops --body 'Handoff: engineer -> devops'); assert_exit "linear cache: handoff succeeds" 0 $? "$out"
+  assert_contains "linear cache: handoff reports the new Stage and Owner" "$out" "handoff: REP-7 -> Stage dev, Owner devops"
+  assert_eq "linear cache: the labels are read once per call, not once per group" "1" "$(grep -cx labels "$LD/log")"
+  assert_contains "linear cache: Stage is set from the cached labels" "$(cat "$LD/log")" 'update ["lEng","lDev"]'
+  assert_contains "linear cache: Owner is set from the cached labels" "$(cat "$LD/log")" 'update ["lBuild","lDevops"]'
+  assert_eq "linear cache: and the comment is posted" "1" "$(grep -cx comment "$LD/log")"
+  : > "$LD/log"; out=$(lt handoff REP-7 dev devops --body 'again'); assert_exit "linear cache: a second call" 0 $? "$out"
+  assert_eq "linear cache: nothing is kept between calls (the next call reads the labels again)" "1" "$(grep -cx labels "$LD/log")"
+  : > "$LD/log"; out=$(cd "$R" && PIPELINE_TRACKER_NO_CACHE=1 PIPELINE_CURL_CMD="$R/fake-linear.sh" PIPELINE_TRACKER_CONFIG="$CF" bash scripts/pipeline/tracker.sh set REP-7 stage=dev owner=devops 2>&1)
+  assert_eq "linear cache: PIPELINE_TRACKER_NO_CACHE=1 reads the labels for every group" "2" "$(grep -cx labels "$LD/log")"
+  : > "$LD/log"; out=$(lt state REP-7 in-progress); assert_exit "linear cache: state still resolves the team's status" 0 $? "$out"
+  assert_contains "linear cache: state sets the mapped status" "$(cat "$LD/log")" 'update "s1"'
+  # a failed lookup is not cached: the error is reported and the call fails
+  printf '#!/usr/bin/env bash\nexit 22\n' > "$R/fake-down.sh"; chmod +x "$R/fake-down.sh"; echo "fake-down.sh" >> "$R/.git/info/exclude"
+  out=$(cd "$R" && PIPELINE_CURL_CMD="$R/fake-down.sh" PIPELINE_TRACKER_CONFIG="$CF" bash scripts/pipeline/tracker.sh set REP-7 stage=dev 2>&1); assert_exit "linear cache: an API that does not answer is still an error" 1 $? "$out"
+  use_tracker connector
 fi
 summary

@@ -19,10 +19,14 @@ lin() { # <query> [jq --arg pairs...] -> data
   printf '%s' "$out" | jq -e '.errors | not' >/dev/null 2>&1 || die "Linear: $(printf '%s' "$out" | jq -r '.errors[0].message')"
   printf '%s' "$out" | jq -c .data
 }
-lin_team() { lin 'query($k:String!){teams(filter:{key:{eq:$k}}){nodes{id name states{nodes{id name type}}}}}' --arg k "$key" | jq -c '.teams.nodes[0] // empty'; }
-lin_labels() { # all labels usable by the team (team + workspace)
+lin_team_fetch() { lin 'query($k:String!){teams(filter:{key:{eq:$k}}){nodes{id name states{nodes{id name type}}}}}' --arg k "$key" | jq -c '.teams.nodes[0] // empty'; }
+lin_labels_fetch() { # all labels usable by the team (team + workspace)
   lin 'query{issueLabels(first:250){nodes{id name isGroup team{key} parent{id name}}}}' | jq -c --arg k "$key" '[.issueLabels.nodes[] | select(.team == null or .team.key == $k)]'
 }
+# cached for one tracker.sh call (lib/tracker-common.sh memo): a handoff reads the labels once, not once per group;
+# setup, which creates labels, reads them fresh
+lin_team() { memo team lin_team_fetch; }
+lin_labels() { memo labels lin_labels_fetch; }
 lin_check() { local t; t="$(lin_team)"; [ -n "$t" ] || die "Linear has no team with key $key"; echo "tracker: Linear team $(printf '%s' "$t" | jq -r .name) ($key)"; }
 lin_issue() { lin 'query($id:String!){issue(id:$id){id identifier title description url state{name} labels{nodes{id name parent{name}}} children{nodes{identifier title state{name} labels{nodes{name parent{name}}}}} comments(last:10){nodes{body createdAt user{name}}}}}' --arg id "$(upper "$1")" | jq -c '.issue // empty'; }
 lin_view() {
@@ -81,7 +85,7 @@ lin_setup() {
     case "$kind" in
       group) lin 'mutation($t:String!,$n:String!){issueLabelCreate(input:{teamId:$t,name:$n,isGroup:true}){success}}' --arg t "$tid" --arg n "$a" >/dev/null && echo "CREATED label group $a";;
       label)
-        if [ -n "$a" ]; then gid="$(lin_labels | jq -r --arg g "$a" '[.[] | select(.name==$g and .isGroup)][0].id')"
+        if [ -n "$a" ]; then gid="$(lin_labels_fetch | jq -r --arg g "$a" '[.[] | select(.name==$g and .isGroup)][0].id')"
           lin 'mutation($t:String!,$n:String!,$p:String!){issueLabelCreate(input:{teamId:$t,name:$n,parentId:$p}){success}}' --arg t "$tid" --arg n "$b" --arg p "$gid" >/dev/null && echo "CREATED label $a/$b"
         else lin 'mutation($t:String!,$n:String!){issueLabelCreate(input:{teamId:$t,name:$n}){success}}' --arg t "$tid" --arg n "$b" >/dev/null && echo "CREATED label $b"; fi;;
       state)

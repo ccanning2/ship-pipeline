@@ -66,6 +66,7 @@ ABC-142  Add a health endpoint             teams: analysis,engineering,devops,qa
  · go-live     the owner
  · production  devops
 ────────────────────────────────────────────────────────────────────────────────
+ progress [######..............]  31%  2 of 8 stages done or skipped, 1 under way
  dev -  qa -  staging -  prod -    open defects: 0
  last handoffs
    14:02  business-analyst → senior-engineer: 2 eng tickets ready
@@ -74,7 +75,7 @@ ABC-142  Add a health endpoint             teams: analysis,engineering,devops,qa
 To watch it live:
 - Run `/ship` inside **tmux** and the board opens in a side pane that redraws itself.
 - Anywhere else, run `bash scripts/pipeline/board.sh ABC-142 --watch` in a second terminal.
-- `board.sh --all` lists every ticket in flight.
+- `board.sh --all` lists every ticket in flight with its progress. The percentage is an estimate: a stage done or skipped counts in full, the one under way as half. `status.sh <TICKET>` adds the share of gates cleared.
 
 The detail stays in `docs/pipeline/ABC-142/` and on the tracker ticket.
 
@@ -154,4 +155,4 @@ tests/pipeline/          the plugin's test suite (never installed into projects)
 ```
 
 ## Developing the plugin
-`bash tests/pipeline/run-all.sh` runs every test file in parallel (`PIPELINE_TESTS_SERIAL=1` runs them one by one). Release notes and upgrade steps: [CHANGELOG.md](CHANGELOG.md).
+`bash tests/pipeline/run-all.sh` runs every test file in parallel and streams each file's result in order as it finishes, with a `[n/N]` progress line and a pass/fail total (`PIPELINE_TESTS_SERIAL=1` runs them one by one). Release notes and upgrade steps: [CHANGELOG.md](CHANGELOG.md).

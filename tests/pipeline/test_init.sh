@@ -444,9 +444,10 @@ for f in docs/pipeline/BRANCHING.md template/docs/pipeline/BRANCHING.md README.m
 done
 rv="$(cd "$REPO_SRC" && grep -liE 'reviewed install|install is reviewed' README.md CHANGELOG.md docs/pipeline/*.md template/docs/pipeline/*.md commands/pipeline-init.md || true)"
 assert_eq "AC-49: nothing says the install is reviewed" "" "$rv"
-assert_eq "AC-50: plugin.json is 3.2.0" "3.2.0" "$($PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])' 2>/dev/null || (cd "$REPO_SRC" && $PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])'))"
+pv="$($PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])' 2>/dev/null || (cd "$REPO_SRC" && $PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])'))"
 v32="$(sed -n '/^## v3.2.0/,/^## v3.1.0/p' "$REPO_SRC/CHANGELOG.md")"
-[ "$(grep -m1 '^## ' "$REPO_SRC/CHANGELOG.md")" = "## v3.2.0" ] && ok "AC-50: CHANGELOG opens with v3.2.0" || bad "AC-50: CHANGELOG opens with v3.2.0"
+case "$pv" in 3.[2-9].*|[4-9].*) ok "AC-50: plugin.json is 3.2.0 or later";; *) bad "AC-50: plugin.json is 3.2.0 or later (got '$pv')";; esac
+[ "$(grep -m1 '^## ' "$REPO_SRC/CHANGELOG.md")" = "## v$pv" ] && ok "AC-50: CHANGELOG opens with the plugin.json version" || bad "AC-50: CHANGELOG opens with the plugin.json version"
 for s in "install-merge.sh" "guard-merge.sh" "--open-only" "SHI-46"; do assert_contains "AC-50: v3.2.0 covers $s" "$v32" "$s"; done
 pairs=""; for a in "$REPO_SRC"/agents/*.md; do cmp -s "$a" "$REPO_SRC/.claude/agents/${a##*/}" || pairs="$pairs ${a##*/}"; done
 assert_eq "AC-51: agents/*.md and .claude/agents/*.md are identical pairs" "" "$pairs"

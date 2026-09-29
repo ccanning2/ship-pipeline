@@ -25,6 +25,8 @@
 #                                      --check, only report what is missing); writes scripts/pipeline/tracker.map
 # Exit codes: 0 ok, 1 error, 2 setup --check found missing items, 3 TRACKER=connector (use the MCP connector).
 # Test doubles: PIPELINE_GH_CMD, PIPELINE_GLAB_CMD, PIPELINE_ACLI_CMD, PIPELINE_CURL_CMD, PIPELINE_TRACKER_CONFIG.
+# Within one call, read-only workspace lookups (Linear: the team and its labels) are fetched once and reused (memo,
+# below); nothing is kept between calls. PIPELINE_TRACKER_NO_CACHE=1 turns that off.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # scripts/pipeline
 # shellcheck disable=SC1091
 [ -f "$here/pipeline.env" ] && source "$here/pipeline.env"
@@ -59,6 +61,22 @@ valid_in() { # <value> <list...>
 }
 num_of() { printf '%s' "$1" | sed -E 's/^[A-Za-z0-9]+-//'; }
 upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+
+# ---- per-call cache ----
+# memo <key> <command...>: runs the command once per tracker.sh call and replays its output after that. For read-only
+# lookups that cannot change while one call runs (the team, its labels), so a handoff asks the tracker once instead of
+# once per label group. The cache lives in a temporary directory removed when the call ends: nothing is kept between
+# calls, so it can never go stale. A failed lookup is not cached. PIPELINE_TRACKER_NO_CACHE=1 turns it off.
+memo_dir=""
+memo_init() { [ -n "$memo_dir" ] && return 0; memo_dir="$(mktemp -d)" || { memo_dir=""; return 0; }; trap 'rm -rf "$memo_dir"' EXIT; }
+memo() {
+  local k="$1"; shift
+  if [ -z "$memo_dir" ] || [ ! -d "$memo_dir" ] || [ "${PIPELINE_TRACKER_NO_CACHE:-0}" = 1 ]; then "$@"; return; fi
+  [ -f "$memo_dir/$k" ] && { cat "$memo_dir/$k"; return 0; }
+  local out; out="$("$@")" || return $?
+  printf '%s\n' "$out" > "$memo_dir/$k.tmp" && mv "$memo_dir/$k.tmp" "$memo_dir/$k"
+  printf '%s\n' "$out"
+}
 
 # ---- bodies ----
 body=""
@@ -102,6 +120,7 @@ case "$tracker" in
         [ -n "$site" ] || die "TRACKER_URL (the Jira site) is not set in pipeline.env";;
 esac
 tracker_main() {
+memo_init
 check_only=0
 verb="${1:-}"; [ $# -gt 0 ] && shift
 need_id() { [ -n "${1:-}" ] || die "usage: tracker.sh $verb <ID> ..."; bash "$here/ticket-id.sh" "$1" >/dev/null || die "'$1' is not a $key ticket id"; }

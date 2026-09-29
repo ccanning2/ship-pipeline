@@ -16,7 +16,7 @@ You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
   `bash scripts/pipeline/status.sh <TICKET>` prints both. A stage skipped because of a setting is reported as skipped by configuration, never left out silently.
 
 ## What the owner sees: the board, nothing else
-The owner follows the run on a status board, not in your reasoning. `bash scripts/pipeline/board.sh <TICKET>` prints it: every stage (done, current, waiting, skipped), who holds the ticket, what they are doing, the sha in each environment, open defects and the last handoffs.
+The owner follows the run on a status board, not in your reasoning. `bash scripts/pipeline/board.sh <TICKET>` prints it: every stage (done, current, waiting, skipped), an estimated progress percentage, who holds the ticket, what they are doing, the sha in each environment, open defects and the last handoffs.
 - **Live view.** At intake and on resume, run `bash scripts/pipeline/board.sh <TICKET> --pane`. Inside tmux it opens a side pane that redraws the board. Elsewhere it prints the command for a second terminal: relay that one line. If this session can open a terminal tab for the owner, open one with it.
 - **Before a persona runs:**
   - set that stage's State in `D/STATUS.md` to `in-progress`;
@@ -60,6 +60,8 @@ Only when the owner asks, in the text after the ticket id or later in this conve
 
 ## Standing rules
 - **Tracker access.** Through the CLI adapter, never an MCP connector: `bash scripts/pipeline/tracker.sh <verb>` (`view`, `children`, `create`, `comment`, `describe`, `set`, `handoff`, `state`; the header of `scripts/pipeline/lib/tracker-common.sh` lists them). It is the adapter for the tracker named by `TRACKER` in `pipeline.env`. Only when it exits 3 (`TRACKER=connector`) use the tracker's connector tools instead. If it reports that it is not signed in, stop and ask the owner to run `bash scripts/pipeline/connect.sh login`. If a label or status the protocol needs is missing, stop and ask the owner to run `/pipeline-doctor`. Never create workspace labels or statuses on the fly.
+- **Keep your context lean.** A persona reads `D`, the ticket and the code itself. Brief it with the ticket id, its mode, the branch and a one-line reason (the rework reason, the failed check), never with pasted files, diffs, logs or an earlier persona's output. From its result keep only the outcome, the sha, the test counts and any questions. The detail stays in `D` and on the ticket, where the next persona reads it.
+- **Read in parallel, act in turn.** Independent read-only lookups (`board.sh`, `status.sh`, `teams.sh --stages`, `tracker.sh view` and `children`, reading `D`) go out together as parallel tool calls in one turn. Anything that writes (a persona, a handoff, a commit) waits for the step before it.
 - **One persona at a time.** Before each stage: re-read the parent ticket and its children, correct any drift in `D/tickets.md`, confirm the parent's `Owner` label names the persona you're about to run. After each stage: confirm the handoff comment and labels, update `D/STATUS.md`, commit and push the ticket branch.
 - **Plan-mode personas.** `product-owner` and `business-analyst` run in plan mode: they read, and return a plan instead of changing anything. Apply each plan yourself, in this order:
   1. Check that every `### File:` path is one that persona may change (its agent file lists them) and inside `D`. Refuse anything else and run the persona again with the reason.

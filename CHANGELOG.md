@@ -2,6 +2,18 @@
 
 Each release in one section, newest first. Upgrading notes sit under the release that needs them.
 
+## v3.3.0
+
+Faster tooling and a progress estimate on the board (SHI-54). No tooling path, agent or template name changes.
+
+- **Progress on the board.** `board.sh <TICKET>` prints an estimated progress line (`progress [######..............]  31%  2 of 8 stages done or skipped, 1 under way`): a stage done or skipped counts in full, the one under way (or stopped) as half. `board.sh --all` ends each ticket's line with the same percentage. `status.sh <TICKET>` adds `Gates cleared: n of 5 (p%)`.
+- **Parallel reads.** `status.sh` runs its five gate checks and two teams lookups side by side and prints them in the usual order (`PIPELINE_STATUS_SERIAL=1` runs them in turn). The gates themselves are unchanged.
+- **Fewer tracker calls.** Within one `tracker.sh` call the Linear adapter fetches the team and its labels once, so a `handoff` reads the labels once instead of once per label group. Nothing is cached between calls, a failed lookup is not cached, and `setup` (which creates labels) always reads them fresh. `PIPELINE_TRACKER_NO_CACHE=1` turns it off. The Jira, GitHub and GitLab adapters read the issue's own labels, which change between groups, so they are not cached.
+- **`/ship` keeps its context lean.** The orchestrator briefs each persona with the ticket id, mode, branch and a one-line reason instead of pasted files or earlier output, keeps only each persona's outcome, sha, counts and questions, and sends independent read-only lookups as parallel tool calls.
+- **Test runner.** `tests/pipeline/run-all.sh` streams each file's output in order as soon as it and the files before it finish, with a `[n/N] <file> passed|FAILED (p% of files done)` line, and ends with `TOTAL: <passed> passed, <failed> failed`.
+
+Upgrading from 3.2.0: re-run `/pipeline-init` to refresh the tooling (`board.sh`, `status.sh`, `tracker.sh`, `lib/tracker-common.sh`).
+
 ## v3.2.0
 
 `/pipeline-init` merges its own install. After the sign-in there is nothing left for the owner to do on the code host.

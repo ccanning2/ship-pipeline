@@ -7,9 +7,10 @@
 #                                                  print the command to run in a second terminal
 #        board.sh <TICKET> now <persona> <doing>   record who is busy and with what (one short line)
 #        board.sh <TICKET> handoff <from> <to> <reason>   record a handoff (one short line, no reasoning)
-#        board.sh --all                            one line per ticket in flight
+#        board.sh --all                            one line per ticket in flight, with its progress
 # The stages come from docs/pipeline/<TICKET>/STATUS.md, the environments from releases.md, open defects from
-# tickets.md. "now" and "handoff" lines go to .claude/.pipeline-activity/<TICKET>.log: live state, not committed.
+# tickets.md. Progress is an estimate: stages done or skipped count in full, the one under way as half.
+# "now" and "handoff" lines go to .claude/.pipeline-activity/<TICKET>.log: live state, not committed.
 # PIPELINE_BOARD_ASCII=1 draws with plain ASCII; colour is used only on a terminal (NO_COLOR turns it off).
 set -uo pipefail
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "board: not inside a git repository" >&2; exit 1; }
@@ -40,10 +41,13 @@ draw() { # <TICKET>: a handful of processes in all (each one is slow on Windows)
   printf '%s%s%s  %.40s%s\n' "$B" "$t" "$N" "${title:-}" "${level:+   ${D}teams: $level$N}"
   line
   # one row per stage: kind <TAB> stage <TAB> owner <TAB> what is happening (only for the current or a stopped stage)
+  local total=0 closed=0 active=0 pct bar i
   while IFS=$'\t' read -r kind stage owner doing; do
+    total=$((total + 1))
     case "$kind" in
-      done) icon="$I_DONE"; col="$G";; skip) icon="$I_SKIP"; col="$D";; now) icon="$I_NOW"; col="$Y";;
-      stop) icon="$I_STOP"; col="$RD";; *) icon="$I_TODO"; col="$D";;
+      done) icon="$I_DONE"; col="$G"; closed=$((closed + 1));; skip) icon="$I_SKIP"; col="$D"; closed=$((closed + 1));;
+      now) icon="$I_NOW"; col="$Y"; active=$((active + 1));; stop) icon="$I_STOP"; col="$RD"; active=$((active + 1));;
+      *) icon="$I_TODO"; col="$D";;
     esac
     printf ' %s%s %-11s %-31.31s%s %.40s\n' "$col" "$icon" "$stage" "$owner" "$N" "$doing"
   done < <(awk -F'|' -v now="$now" '
@@ -64,6 +68,13 @@ draw() { # <TICKET>: a handful of processes in all (each one is slow on Windows)
       print kind "\t" stage "\t" owner "\t" doing
     }' "$d/STATUS.md" 2>/dev/null)
   line
+  # estimated progress: a stage done or skipped counts in full, the one under way (or stopped) as half; no process spawned
+  if [ "$total" -gt 0 ]; then
+    pct=$(( (closed * 2 + active) * 50 / total )); bar=""; txt=""
+    for ((i=0; i<20; i++)); do if [ "$i" -lt $((pct / 5)) ]; then bar="$bar#"; else bar="$bar."; fi; done
+    [ "$active" -gt 0 ] && txt=", $active under way"
+    printf ' %sprogress%s [%s] %3d%%  %s%d of %d stages done or skipped%s%s\n' "$B" "$N" "$bar" "$pct" "$D" "$closed" "$total" "$txt" "$N"
+  fi
   envs="$(awk '/^(Dev|QA|Staging|Production):/ { k=tolower($1); sub(/:$/,"",k); v[k]=substr($2,1,7) }
     END { printf "dev %s  qa %s  staging %s  prod %s", (v["dev"]?v["dev"]:"-"), (v["qa"]?v["qa"]:"-"), (v["staging"]?v["staging"]:"-"), (v["production"]?v["production"]:"-") }' "$d/releases.md" 2>/dev/null)"
   open="$(awk -F'|' '{ k=$3; s=$6; gsub(/ /,"",k); gsub(/ /,"",s) } k=="defect" && s ~ /^(open|in-progress|reopened|fixed)$/ { n++ } END { print n+0 }' "$d/tickets.md" 2>/dev/null)"
@@ -84,14 +95,16 @@ all() { # one line per ticket in flight: the first stage not done or skipped
     [ -f "$d" ] || continue
     awk -F'|' -v t="$(basename "$(dirname "$d")")" '
       function trim(x) { gsub(/^[ \t]+|[ \t]+$/, "", x); return x }
-      /^\|/ && NR > 2 { st=trim($5); s=trim($3); o=trim($4); sub(/ *\(.*$/, "", o)
+      /^\|/ && NR > 2 { st=trim($5); s=trim($3); o=trim($4); sub(/ *\(.*$/, "", o); l=tolower(st)
         if (s == "" || s == "Stage" || s ~ /^-+$/ || s == "intake") next
-        if (tolower(st) !~ /^(done|skipped)/) { printf "%-10s %-11s %-22.22s %.30s\n", t, s, o, st; exit } }' "$d"
+        n++; if (l ~ /^(done|skipped)/) u+=2; else if (l ~ /^(in-progress|running|active|current|blocked|on-hold|failed|waiting)/) u++
+        if (!f && l !~ /^(done|skipped)/) { f=sprintf("%-10s %-11s %-22.22s %-30.30s", t, s, o, st) } }
+      END { if (f) printf "%s %3d%%\n", f, u * 50 / n }' "$d"
   done
 }
 
 case "${1:-}" in
-  ""|-h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+  ""|-h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
   --all) all; exit 0;;
 esac
 ticket="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; shift
