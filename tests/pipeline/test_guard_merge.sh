@@ -362,6 +362,7 @@ if [ -n "$bref" ]; then
 fi
 # AC-30 (FR-15): /ship and the personas never use the route
 leak="$(cd "$REPO_SRC" && grep -l 'install-merge' commands/ship.md agents/*.md .claude/agents/*.md 2>/dev/null || true)"
+leak="$leak$(cd "$REPO_SRC" && grep -l 'install-merge' skills/*/SKILL.md 2>/dev/null | grep -v '^skills/pipeline-init/' || true)"   # the plugin's slash commands live in skills/
 assert_eq "AC-30: /ship and the personas do not name install-merge" "" "$leak"
 fi
 summary

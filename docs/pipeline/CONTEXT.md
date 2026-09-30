@@ -25,7 +25,7 @@ The personas are generic; THIS file is what makes them behave correctly here. Th
 ## Stack & commands
 - Language: **Bash** (`#!/usr/bin/env bash`, `set -euo pipefail`). No runtime dependencies beyond
   git, bash and coreutils; `python3` (stdlib `json`, plus `yaml`) is used by the test suite only.
-- Agents and commands are **Markdown with YAML frontmatter** (`agents/*.md`, `commands/*.md`);
+- Agents and skills are **Markdown with YAML frontmatter** (`agents/*.md`, `skills/<name>/SKILL.md`);
   `template/` holds the copies scaffolded into a consuming project.
 - Tests: `bash tests/pipeline/run-all.sh`, which runs `test_config.sh test_init.sh test_gate.sh
   test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh
@@ -36,7 +36,7 @@ The personas are generic; THIS file is what makes them behave correctly here. Th
 - Lint/build: none. Syntax is checked in-suite (`bash -n`); keep every `scripts/**/*.sh` executable.
 - Docker: **not applicable.** No image is built or promoted; the promoted artefact is the git sha,
   then the version tag.
-- Architecture docs to keep updated: `README.md` (layout + install), `docs/pipeline/BRANCHING.md`,
+- Architecture docs to keep updated: `README.md` (layout + install), `CONNECTORS.md`, `docs/pipeline/BRANCHING.md`,
   `docs/pipeline/TICKETS.md`, `docs/pipeline/CLOUD.md`.
 - Version lives in `.claude-plugin/plugin.json`; it must match the `vX.Y.Z` tag cut at go-live.
 
@@ -62,7 +62,7 @@ Declared in `scripts/pipeline/pipeline.env`; both default to `yes` and are off o
 
 ## Engineering rules
 - The six personas stay **project-agnostic**. No product, person, vendor or project-type names in
-  `agents/*.md` or `commands/*.md` — the test suite enforces this. The persona files live at
+  `agents/*.md` or `skills/*/SKILL.md` — the test suite enforces this. The persona files live at
   `agents/*.md` (the `template/` tree holds no personas), mirrored at `.claude/agents/*.md` for this
   repo's own use; **edit both copies together**.
 - Everything project-specific belongs in `docs/pipeline/CONTEXT.md` and `RELEASE_CHECKLIST.md`,
@@ -73,7 +73,13 @@ Declared in `scripts/pipeline/pipeline.env`; both default to `yes` and are off o
 - Changing a tooling path, an agent name or a template filename is a **breaking change for every
   installed project**. Bump the minor version and say so in the release notes.
 - `template/` is the source of what gets scaffolded; the plugin's own top-level `agents/` and
-  `commands/` are what Claude Code loads when this repo itself is installed as a plugin.
+  `skills/` are what Claude Code loads when this repo itself is installed as a plugin.
+- The plugin follows the layout of Anthropic's knowledge-work plugins: one slash command per
+  `skills/<name>/SKILL.md` (no `commands/` directory), whose frontmatter has `name` (the directory
+  name), a `description` that says what it does and "Use when …", and an `argument-hint`. A skill
+  that pushes, merges, tags or changes the tracker sets `disable-model-invocation: true`. Tools are
+  named by `~~category` placeholders defined in `CONNECTORS.md`; there is no `.mcp.json` (CLIs
+  first). The test suite enforces all of this.
 - Stop and ask before: renaming or removing a script in `scripts/pipeline/`, changing the gate's
   pass/fail conditions, changing the branch/tag model, or altering the write-boundary hooks.
 

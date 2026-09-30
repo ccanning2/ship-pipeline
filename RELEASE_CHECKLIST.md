@@ -47,7 +47,7 @@ is verified by installing it, not by deploying it.
 - [ ] CHANGELOG.md has one section for the release, with upgrade steps when an install needs any.
 - [ ] Anything an installing developer sees (README, command UX, `/pipeline-init` output, release
       notes) reads correctly and matches what the release actually does.
-- [ ] No product, person, vendor or project-type names introduced into `agents/*.md` or `commands/*.md`
+- [ ] No product, person, vendor or project-type names introduced into `agents/*.md` or `skills/*/SKILL.md`
       (the seven personas must stay project-agnostic — enforced by the test suite).
 
 ## 7. Tickets (blocking)

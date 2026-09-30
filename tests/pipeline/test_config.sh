@@ -3,7 +3,7 @@ source "$(dirname "$0")/lib.sh"
 echo "plugin layout / agents / commands / workflows"
 cd "$REPO_SRC"
 # Locate agents/commands whether we run in the plugin repo or an installed project.
-if [ -d agents ] && [ -f .claude-plugin/plugin.json ]; then A=agents; C=commands; else A=.claude/agents; C=.claude/commands; fi
+if [ -d agents ] && [ -f .claude-plugin/plugin.json ]; then A=agents; C=skills; else A=.claude/agents; C=.claude/commands; fi
 agents=(product-owner business-analyst senior-engineer devops qa-tester app-specialist)
 fm() { awk 'NR==1 && $0=="---"{f=1;next} f && $0=="---"{exit} f' "$1"; }
 fmval() { fm "$1" | grep -m1 -E "^$2:" | sed -E "s/^$2:[[:space:]]*//"; }
@@ -46,8 +46,8 @@ for a in qa-tester app-specialist; do grep -q "defect" "$A/$a.md" && ok "$a rais
 for a in "${agents[@]}"; do grep -qi "marketing\|market-researcher" "$A/$a.md" && bad "3.0: $a no longer mentions marketing" || ok "3.0: $a no longer mentions marketing"; done
 
 if [ "$A" = agents ]; then
-s="$C/ship.md"; [ -f "$s" ] && ok "/ship exists" || bad "/ship exists"
-for step in intake.sh "promote-dev" "promote-staging" "promote-production" "next-version.sh" "Version:" "Go-live: approved by" "argument-hint: <TICKET-ID>" "scripts/pipeline/tracker.sh" "CLAUDE_CODE_REMOTE" ".pipeline-ticket" "/pipeline-init"; do
+s="$C/ship/SKILL.md"; [ -f "$s" ] && ok "/ship exists" || bad "/ship exists"
+for step in intake.sh "promote-dev" "promote-staging" "promote-production" "next-version.sh" "Version:" "Go-live: approved by" "argument-hint: '<TICKET-ID>" "scripts/pipeline/tracker.sh" "CLAUDE_CODE_REMOTE" ".pipeline-ticket" "/pipeline-init"; do
   grep -qF "$step" "$s" && ok "/ship includes: $step" || bad "/ship includes: $step"
 done
 if grep -qiwE "reputabill|curate|chris" "$s"; then bad "/ship project-agnostic"; else ok "/ship project-agnostic"; fi
@@ -72,15 +72,27 @@ grep -q "Plan-mode personas" "$s" && grep -q "NEW-n" "$s" && ok "/ship applies t
 # AC-31 / NFR-10: no vendor, product or person name in ANY persona or command file (the persona loop above only sees agents/)
 # "curate" is matched as a whole word only, so ordinary words such as "accurate" are not flagged; the
 # distinctive names are still matched anywhere, so a compound like "HetznerCloud" is caught too.
-leak=$( { grep -niE "hetzner|reputabill|paystack|ship-pipeline" "$A"/*.md "$C"/*.md; grep -niwE "curate" "$A"/*.md "$C"/*.md; } || true)
-[ -z "$leak" ] && ok "AC-31: no vendor/product name in agents/*.md or commands/*.md" || bad "AC-31: no vendor/product name in agents/*.md or commands/*.md" "$leak"
-[ -f "$C/pipeline-status.md" ] && ok "/pipeline-status exists" || bad "/pipeline-status exists"
+leak=$( { grep -niE "hetzner|reputabill|paystack|ship-pipeline" "$A"/*.md "$C"/*/SKILL.md; grep -niwE "curate" "$A"/*.md "$C"/*/SKILL.md; } || true)
+[ -z "$leak" ] && ok "AC-31: no vendor/product name in agents/*.md or skills/*/SKILL.md" || bad "AC-31: no vendor/product name in agents/*.md or skills/*/SKILL.md" "$leak"
+[ -f "$C/pipeline-status/SKILL.md" ] && ok "/pipeline-status exists" || bad "/pipeline-status exists"
+# plugin layout: one skill per slash command (skills/<name>/SKILL.md), each described with when to use it
+for k in ship pipeline-init pipeline-status pipeline-doctor; do
+  f="$C/$k/SKILL.md"
+  [ "$(fmval "$f" name)" = "$k" ] && ok "skill $k: name matches its directory" || bad "skill $k: name matches its directory"
+  fmval "$f" description | grep -q 'Use when' && ok "skill $k: description says when to use it" || bad "skill $k: description says when to use it"
+  [ -n "$(fmval "$f" argument-hint)" ] && ok "skill $k: argument-hint" || bad "skill $k: argument-hint"
+  grep -qF '(../../CONNECTORS.md)' "$f" && ok "skill $k: points to CONNECTORS.md" || bad "skill $k: points to CONNECTORS.md"
+done
+for k in ship pipeline-init; do [ "$(fmval "$C/$k/SKILL.md" disable-model-invocation)" = true ] && ok "skill $k: runs only when the owner types it" || bad "skill $k: runs only when the owner types it"; done
+for k in pipeline-status pipeline-doctor; do [ -z "$(fmval "$C/$k/SKILL.md" disable-model-invocation)" ] && ok "skill $k: read-only, model-invocable" || bad "skill $k: read-only, model-invocable"; done
+[ -f CONNECTORS.md ] && grep -q '~~project tracker' CONNECTORS.md && grep -q '~~code host' CONNECTORS.md && ok "CONNECTORS.md defines the placeholders" || bad "CONNECTORS.md defines the placeholders"
+[ -e .mcp.json ] && bad "no .mcp.json: CLIs, not MCP connectors" || ok "no .mcp.json: CLIs, not MCP connectors"
 fi
 if [ "$A" = agents ]; then
-  [ -f "$C/pipeline-init.md" ] && grep -q 'CLAUDE_PLUGIN_ROOT' "$C/pipeline-init.md" && ok "/pipeline-init uses plugin root" || bad "/pipeline-init uses plugin root"
-  # commands/ and agents/ are the plugin's default locations; plugin.json only needs to name and version it.
+  [ -f "$C/pipeline-init/SKILL.md" ] && grep -q 'CLAUDE_PLUGIN_ROOT' "$C/pipeline-init/SKILL.md" && ok "/pipeline-init uses plugin root" || bad "/pipeline-init uses plugin root"
+  # skills/ and agents/ are the plugin's default locations; plugin.json only needs to name and version it.
   $PY -c 'import json,re; d=json.load(open(".claude-plugin/plugin.json")); assert d["name"]=="ship-pipeline" and re.match(r"^\d+\.\d+\.\d+$", d["version"])' \
-    && [ -d commands ] && [ -d agents ] && ok "plugin.json valid" || bad "plugin.json valid"
+    && [ -d skills ] && [ ! -d commands ] && [ -d agents ] && ok "plugin.json valid" || bad "plugin.json valid"
   $PY -c 'import json; d=json.load(open(".claude-plugin/marketplace.json")); assert d["plugins"][0]["name"]=="ship-pipeline"' && ok "marketplace.json valid" || bad "marketplace.json valid"
   [ -d profiles/reputabill ] && [ -f profiles/reputabill/CONTEXT.md ] && ok "reputabill profile present" || bad "reputabill profile present"
   T=template
@@ -205,9 +217,9 @@ if [ -f "$SCH" ]; then
   grep -q "single-select" "$TK" && ok "item 5: TICKETS.md says the label groups are single-select" || bad "item 5: TICKETS.md says the label groups are single-select"
 else bad "item 5: tracker-schema.txt exists"; fi
 if [ "$A" = agents ]; then
-  [ -f "$C/pipeline-doctor.md" ] && grep -q 'doctor.sh' "$C/pipeline-doctor.md" && ok "item 1: /pipeline-doctor exists" || bad "item 1: /pipeline-doctor exists"
-  grep -q 'doctor' "$C/pipeline-init.md" && grep -q -- '--base-branch' "$C/pipeline-init.md" && ok "item 1/2: /pipeline-init asks for the base branch and ends with the doctor" || bad "item 1/2: /pipeline-init asks for the base branch and ends with the doctor"
-  grep -q 'enforcement.sh' "$C/pipeline-status.md" && ok "item 6: /pipeline-status reports the enforcement mode" || bad "item 6: /pipeline-status reports the enforcement mode"
+  [ -f "$C/pipeline-doctor/SKILL.md" ] && grep -q 'doctor.sh' "$C/pipeline-doctor/SKILL.md" && ok "item 1: /pipeline-doctor exists" || bad "item 1: /pipeline-doctor exists"
+  grep -q 'doctor' "$C/pipeline-init/SKILL.md" && grep -q -- '--base-branch' "$C/pipeline-init/SKILL.md" && ok "item 1/2: /pipeline-init asks for the base branch and ends with the doctor" || bad "item 1/2: /pipeline-init asks for the base branch and ends with the doctor"
+  grep -q 'enforcement.sh' "$C/pipeline-status/SKILL.md" && ok "item 6: /pipeline-status reports the enforcement mode" || bad "item 6: /pipeline-status reports the enforcement mode"
   # the one allowed mention: /pipeline-init offers main or master as the answer to its branching question
   lit="$(grep -rnw 'master' "$A" "$C" template | grep -v '^template/profiles' | grep -v 'Branching strategy (trunk)' || true)"
   assert_eq "item 2: no 'master' literal in agents, commands or template" "" "$lit"
