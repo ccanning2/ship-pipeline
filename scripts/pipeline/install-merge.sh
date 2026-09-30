@@ -63,6 +63,14 @@ for k,v in d.items():
   [ -f "$p/scripts/init.sh" ] && [ -f "$p/.claude-plugin/plugin.json" ] || return 1
   printf '%s' "$p"
 }
+runnable_root() { # <plugin root> <empty private dir>: the root, or (its scripts checked out with CRLF, which bash off
+  # Windows cannot run) a copy in the dir with CR stripped from every .sh. Comparisons ignore CR, so the check is the same.
+  local p="$1" t="$2/plugin"
+  grep -q $'\r' "$p/scripts/init.sh" 2>/dev/null || { printf '%s' "$p"; return 0; }
+  mkdir "$t" && cp -R "$p/." "$t/" || return 1
+  find "$t" -type f -name '*.sh' -exec sh -c 'for f; do tr -d "\r" < "$f" > "$f.lf" && mv "$f.lf" "$f" || exit 1; done' sh {} + || return 1
+  printf '%s' "$t"
+}
 one_line() { tr -d '\r' | sed '/^[[:space:]]*$/d' | head -n 1 | cut -c1-300; }
 # host_tip <var>: the trunk's head as the host reports it (one attempt); on failure <var> holds the reason, exit 1
 host_tip() {
@@ -107,7 +115,8 @@ if [ "$mode" = merge ]; then
     echo "install-merge: nothing to merge: HEAD is already on the host's $base ($T)" >&2; exit 1
   fi
   # FR-17.3: the proof against T, by the plugin's own verifier, before anything leaves this machine
-  if ! out="$(bash "$ref/scripts/init.sh" --verify-install --trunk-tip "$T" --project-dir "$(pwd)" 2>&1)"; then
+  run="$(runnable_root "$ref" "$nograft")" || { echo "NOT-INSTALL: the plugin's installed copy could not be prepared for the check"; exit 4; }
+  if ! out="$(bash "$run/scripts/init.sh" --verify-install --trunk-tip "$T" --project-dir "$(pwd)" 2>&1)"; then
     p="${out%%$'\t'*}"; r="${out#*$'\t'}"; [ "$r" != "$out" ] || r="the install check failed: $(printf '%s' "$out" | one_line)"
     r="$(printf '%s' "$r" | one_line)"
     if [ "$p" = - ] || [ "$p" = "$out" ]; then echo "NOT-INSTALL: $r"; else echo "NOT-INSTALL $p: $r"; fi
