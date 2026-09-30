@@ -1,7 +1,14 @@
 ---
-description: Run the delivery pipeline for one tracker ticket — product owner → business analyst → engineer → devops (dev) → QA → devops (staging) → app specialist → go-live → devops (production tag), with the project's selected teams. Tickets are the handoffs. Resumable.
-argument-hint: <TICKET-ID> [a change for this ticket only, in words: "with analysis", "no QA", "already on qa"]
+name: ship
+description: Run the delivery pipeline for one tracker ticket — product owner → business analyst → engineer → devops (dev) → QA → devops (staging) → app specialist → go-live → devops (production tag), with the project's selected teams. Tickets are the handoffs. Resumable. Use when the owner asks to ship, start, resume or continue a ticket, or to run one ticket with other teams ("with analysis", "no QA", "already on qa").
+argument-hint: '<TICKET-ID> [a change for this ticket only, in words: "with analysis", "no QA", "already on qa"]'
+disable-model-invocation: true
 ---
+
+# /ship
+
+> The code host and tracker are reached through their CLIs. If you see unfamiliar placeholders or need to check which tools are used, see [CONNECTORS.md](../../CONNECTORS.md).
+
 You are the pipeline orchestrator for ticket `$ARGUMENTS` in THIS project.
 
 - Take the first token and uppercase it: that is the ticket id. Any other text is the owner asking for a change to this run: see **Changing this ticket's setup** below. With no other text, change nothing and ask nothing about the setup.
@@ -59,7 +66,7 @@ Only when the owner asks, in the text after the ticket id or later in this conve
 - **Another code host, repository or tracker:** that is the project's setup, not this ticket's. Stop, and tell the owner to run `/pipeline-init` with the matching flag (`--git-host`, `--git-url`, `--tracker`, `--tracker-url`, `--team-key`): it asks only what those flags leave open, installs the adapter and says which `pipeline.env` line changes. Then `/ship <TICKET>` resumes where it stopped.
 
 ## Standing rules
-- **Tracker access.** Through the CLI adapter, never an MCP connector: `bash scripts/pipeline/tracker.sh <verb>` (`view`, `children`, `create`, `comment`, `describe`, `set`, `handoff`, `state`; the header of `scripts/pipeline/lib/tracker-common.sh` lists them). It is the adapter for the tracker named by `TRACKER` in `pipeline.env`. Only when it exits 3 (`TRACKER=connector`) use the tracker's connector tools instead. If it reports that it is not signed in, stop and ask the owner to run `bash scripts/pipeline/connect.sh login`. If a label or status the protocol needs is missing, stop and ask the owner to run `/pipeline-doctor`. Never create workspace labels or statuses on the fly.
+- **Tracker access.** Through the CLI adapter, never an MCP connector: `bash scripts/pipeline/tracker.sh <verb>` (`view`, `children`, `create`, `comment`, `describe`, `set`, `handoff`, `state`; the header of `scripts/pipeline/lib/tracker-common.sh` lists them). It is the adapter for the tracker named by `TRACKER` in `pipeline.env`. Only when it exits 3 (`TRACKER=connector`) use the ~~project tracker connector's tools instead. If it reports that it is not signed in, stop and ask the owner to run `bash scripts/pipeline/connect.sh login`. If a label or status the protocol needs is missing, stop and ask the owner to run `/pipeline-doctor`. Never create workspace labels or statuses on the fly.
 - **Keep your context lean.** A persona reads `D`, the ticket and the code itself. Brief it with the ticket id, its mode, the branch and a one-line reason (the rework reason, the failed check), never with pasted files, diffs, logs or an earlier persona's output. From its result keep only the outcome, the sha, the test counts and any questions. The detail stays in `D` and on the ticket, where the next persona reads it.
 - **Read in parallel, act in turn.** Independent read-only lookups (`board.sh`, `status.sh`, `teams.sh --stages`, `tracker.sh view` and `children`, reading `D`) go out together as parallel tool calls in one turn. Anything that writes (a persona, a handoff, a commit) waits for the step before it.
 - **One persona at a time.** Before each stage: re-read the parent ticket and its children, correct any drift in `D/tickets.md`, confirm the parent's `Owner` label names the persona you're about to run. After each stage: confirm the handoff comment and labels, update `D/STATUS.md`, commit and push the ticket branch.

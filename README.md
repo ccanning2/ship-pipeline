@@ -9,16 +9,53 @@ ticket ─► product owner ─► business analyst ─► senior engineer ─�
 
 **Supported hosts:** GitHub, GitLab (including self-managed) and Bitbucket Cloud, each with its own CI.
 **Trackers:** Jira, Linear, GitHub Issues and GitLab issues, or any tracker with an MCP connector as a fallback.
-Everything runs through CLIs (`gh`, `glab`, `acli`, the Linear API), not MCP connectors.
+Everything runs through CLIs (`gh`, `glab`, `acli`, the Linear API), not MCP connectors: see [CONNECTORS.md](CONNECTORS.md).
 
-## Install (once per machine)
-```
-/plugin marketplace add <you>/ship-pipeline
-/plugin install ship-pipeline@chris-plugins
-```
-For a local checkout: `/plugin marketplace add /path/to/ship-pipeline`. To update: `/plugin update ship-pipeline`.
+## Installation
 
-## Set up a project: `/pipeline-init`
+Once per machine:
+
+```bash
+claude plugin marketplace add <you>/ship-pipeline
+claude plugin install ship-pipeline@chris-plugins
+```
+
+Inside a session the same is `/plugin marketplace add <you>/ship-pipeline` and `/plugin install ship-pipeline@chris-plugins`. For a local checkout: `claude plugin marketplace add /path/to/ship-pipeline`. To update: `claude plugin update ship-pipeline`.
+
+## Commands
+
+Explicit workflows you invoke with a slash command. Each one is a skill in `skills/<name>/SKILL.md`.
+
+| Command | Description |
+|---|---|
+| `/ship` | Run one tracker ticket through the pipeline, from requirement to a production tag, with the project's teams. Resumable |
+| `/pipeline-init` | Install or update the pipeline in a repository: one interview up front, then CLIs, branches, tracker workspace and CI set up unattended |
+| `/pipeline-status` | Where a ticket is, what it waits on, and which sha is in each environment |
+| `/pipeline-doctor` | Is this repository ready for `/ship`? Read-only, takes seconds |
+
+`/ship` and `/pipeline-init` push, merge, tag and change the tracker, so they run only when you type them (`disable-model-invocation`). `/pipeline-status` and `/pipeline-doctor` are read-only, and Claude also uses them on its own when you ask where a ticket is or whether a repository is ready.
+
+## Agents
+
+The personas `/ship` hands each stage to. `/pipeline-init` installs them into the project's `.claude/agents/`.
+
+| Agent | Team | Does |
+|---|---|---|
+| `product-owner` | Analysis | Turns the requirement into a product definition (`product.md`). Plan mode, read-only |
+| `business-analyst` | Analysis | Turns the product definition into requirements and `eng` tickets (`requirements.md`). Plan mode, read-only |
+| `senior-engineer` | Engineering | Builds the change and its tests; hands the build to devops. Never deploys |
+| `devops` | DevOps | Merges to dev, checks it, promotes the same sha to qa, staging and a production tag; rolls back. Never edits application code |
+| `qa-tester` | QA | Tests on qa against `requirements.md`; raises `defect` tickets. Edits test code only |
+| `app-specialist` | Sign-off | Checks staging against `RELEASE_CHECKLIST.md`; approves for go-live or raises `defect` tickets. Never edits code |
+
+## Example workflows
+
+### Set up a project
+
+```
+/pipeline-init
+```
+
 Run it in the repository. It asks everything before installing, in at most three rounds (paused once for the sign-in), with detected answers already selected:
 
 | Question | Options |
@@ -41,7 +78,8 @@ Then it runs unattended:
 
 Every answer is also an `init.sh` flag, so setup can be scripted: `--git-host`, `--git-url`, `--base-branch`, `--staging-branch`, `--tracker`, `--tracker-url`, `--team-key`, `--deploy-mode`, `--no-deploy-envs`, `--*-url`, `--teams`, `--create-branches`. A re-run refreshes the tooling and never overwrites your project files.
 
-## Use
+### Ship a ticket
+
 ```
 /ship ABC-142                 # start or resume a ticket; stops whenever it needs you (questions, go-live)
 /ship ABC-142 with analysis   # this ticket only: other teams than the project's, in your own words
@@ -80,6 +118,19 @@ To watch it live:
 The detail stays in `docs/pipeline/ABC-142/` and on the tracker ticket.
 
 **Work without a ticket** (the install commit, a CI change, a dependency bump): open a PR/MR, and a human marks it infra so the Pipeline Gate skips the ticket requirement. On GitHub and GitLab that is the `infra` label; on Bitbucket it is a source branch named `infra/…`. Agents can never mark it infra themselves. The one exception is the pipeline's own install or upgrade: with "Branches" ticked, `/pipeline-init` merges its install request itself, without a human review, through `scripts/pipeline/install-merge.sh`, which accepts nothing but the plugin's own files. If the host or the guard refuses (a required review or check, a missing permission), the request stays open, and you mark it infra and merge it. Want a human review of the install? Leave "Branches" unticked, or keep a required review on the trunk.
+
+## Integrations
+
+> If you see unfamiliar `~~category` placeholders or need to check which tools are used, see [CONNECTORS.md](CONNECTORS.md).
+
+| Category | Supported | What it enables |
+|---|---|---|
+| **Code host** | GitHub, GitLab, Bitbucket Cloud | branches, pull requests, merges, tags, branch protection |
+| **Project tracker** | Jira, Linear, GitHub Issues, GitLab issues; any tracker's MCP connector as a fallback | the handoffs: Stage/Owner labels, child tickets, comments, statuses |
+| **CI/CD** | GitHub Actions, GitLab CI, Bitbucket Pipelines | the required Pipeline Gate check, the deploys |
+| **Deploy target** | docker compose over SSH, or your own script | dev, qa, staging and production environments and their smoke tests |
+
+The plugin ships no `.mcp.json`: every category is reached through a CLI, signed in once by `/pipeline-init`.
 
 ## How it works
 
@@ -123,7 +174,10 @@ Protocol: `docs/pipeline/TICKETS.md`.
 - `hooks/allow-paths.sh` and `hooks/allow-commands.sh` confine each persona to the files and commands of its role.
 - The CI Pipeline Gate re-checks pull requests. Branch protection makes it required where the plan allows; otherwise the pipeline says it runs in **local hook only** mode.
 
-### Configuration: `scripts/pipeline/pipeline.env`
+## Settings
+
+`/pipeline-init` writes the project's settings to `scripts/pipeline/pipeline.env` from your answers, and asks for them interactively when they are missing. A re-run never overwrites it; it proposes each change as a diff.
+
 | Key | Meaning |
 |---|---|
 | `GIT_HOST`, `GIT_HOST_URL` | `github` / `gitlab` / `bitbucket`; the base URL of a self-hosted host |
@@ -138,8 +192,9 @@ Project knowledge lives in `docs/pipeline/CONTEXT.md` and `RELEASE_CHECKLIST.md`
 ## Repository layout
 ```
 .claude-plugin/          plugin.json + marketplace.json
-commands/                /ship, /pipeline-init, /pipeline-status, /pipeline-doctor
+skills/<name>/SKILL.md   /ship, /pipeline-init, /pipeline-status, /pipeline-doctor
 agents/                  the six personas (installed into .claude/agents/)
+CONNECTORS.md            the ~~category placeholders and the CLI behind each
 scripts/init.sh          the installer
 scripts/pipeline/        gate, promote, intake, handover, board, status, next-version, doctor, connect, ci-gate, ci-resolve,
                          install-merge (init's merge of its own install)

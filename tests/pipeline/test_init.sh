@@ -30,7 +30,7 @@ for s in macos-14 UTF-8 v1.45.0-jammy; do
   (cd "$P" && bash scripts/pipeline/ticket-id.sh "$s" >/dev/null) && bad "item 3: $s is not a ticket" || ok "item 3: $s is not a ticket"
 done
 assert_contains "item 9: PIPELINE_REMOTE defaults to origin" "$(cat "$P/scripts/pipeline/pipeline.env")" 'PIPELINE_REMOTE="origin"'
-[ -f "$P/.claude/commands/ship.md" ] && bad "commands stay in the plugin (not copied)" || ok "commands stay in the plugin (not copied)"
+{ [ -e "$P/.claude/commands/ship.md" ] || [ -e "$P/.claude/skills/ship/SKILL.md" ]; } && bad "skills stay in the plugin (not copied)" || ok "skills stay in the plugin (not copied)"
 
 # the plugin's test suite stays in the plugin: an install is quick and ships no tests
 [ -e "$P/tests" ] && bad "no test suite is installed into the project" || ok "no test suite is installed into the project"
@@ -112,7 +112,7 @@ after6=$(cd "$P6" && find . -path ./.git -prune -o -type f -exec cksum {} \; | s
 assert_eq "AC-27: second run changes nothing" "$before6" "$after6"
 
 # AC-28: /pipeline-init asks the two capability questions
-I="$REPO_SRC/commands/pipeline-init.md"
+I="$REPO_SRC/skills/pipeline-init/SKILL.md"
 for s in "--no-deploy-envs" "deployable environments" "CONTEXT.md" \
          "AskUserQuestion" "Teams: plan and build" "Teams: ship" "--teams" "--normalize" "Git platform" "Branching strategy" "Ticketing platform" "ticket prefix" "Deployment strategy" \
          "--git-host" "--git-url" "--tracker" "--tracker-url" "--deploy-mode" "--create-branches" "connect.sh login" "tracker.sh setup"; do
@@ -420,7 +420,7 @@ done
 assert_eq "--list writes nothing into the project" "scripts" "$(ls "$Pl0/p")"
 out=$(bash "$INIT" --list relative/dir --project-dir "$Pl0/p" 2>&1); assert_exit "--list needs an absolute directory" 1 $? "$out"
 out=$(bash "$INIT" --project-dir "$Pi" --open-only 2>&1); assert_exit "--open-only belongs to --verify-install" 1 $? "$out"
-I="$REPO_SRC/commands/pipeline-init.md"
+I="$REPO_SRC/skills/pipeline-init/SKILL.md"
 q7="$(sed -n '/^7\. \*\*Consent\*\*/,/^This one answer/p' "$I")"
 assert_eq "AC-44: question 7 still has four options" 4 "$(printf '%s\n' "$q7" | grep -c '^   - \*\*')"
 br="$(printf '%s\n' "$q7" | grep '^   - \*\*Branches:')"
@@ -442,7 +442,7 @@ for f in docs/pipeline/BRANCHING.md template/docs/pipeline/BRANCHING.md README.m
   case "$m" in *"without a human review"*) ok "AC-48: $f names the route, without a human review";; *) bad "AC-48: $f names the route, without a human review";; esac
   grep -qiE 'mark(s)? it infra and merge' "$REPO_SRC/$f" && ok "AC-48: $f describes the owner fallback" || bad "AC-48: $f describes the owner fallback"
 done
-rv="$(cd "$REPO_SRC" && grep -liE 'reviewed install|install is reviewed' README.md CHANGELOG.md docs/pipeline/*.md template/docs/pipeline/*.md commands/pipeline-init.md || true)"
+rv="$(cd "$REPO_SRC" && grep -liE 'reviewed install|install is reviewed' README.md CHANGELOG.md docs/pipeline/*.md template/docs/pipeline/*.md skills/pipeline-init/SKILL.md || true)"
 assert_eq "AC-49: nothing says the install is reviewed" "" "$rv"
 pv="$($PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])' 2>/dev/null || (cd "$REPO_SRC" && $PY -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])'))"
 v32="$(sed -n '/^## v3.2.0/,/^## v3.1.0/p' "$REPO_SRC/CHANGELOG.md")"

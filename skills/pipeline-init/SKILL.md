@@ -1,7 +1,14 @@
 ---
-description: Install or update the ship pipeline in the current project. Asks every question up front, then installs, connects the code host and tracker CLIs, sets up branches, tracker labels/fields/statuses and CI in one pass (never overwrites your project-specific files).
-argument-hint: [--git-host H] [--git-url URL] [--base-branch B] [--staging-branch B] [--tracker T] [--tracker-url URL] [--team-key KEY] [--no-deploy-envs] [--deploy-mode merge|explicit] [--teams analysis,engineering,devops,qa,signoff]
+name: pipeline-init
+description: Install or update the ship pipeline in the current project. Asks every question up front, then installs, connects the code host and tracker CLIs, sets up branches, tracker labels/fields/statuses and CI in one pass (never overwrites your project-specific files). Use when setting the pipeline up in a repository for the first time, upgrading an install to a newer plugin version, or changing the project's code host, tracker, branches, teams or deploy settings.
+argument-hint: "[--git-host H] [--git-url URL] [--base-branch B] [--staging-branch B] [--tracker T] [--tracker-url URL] [--team-key KEY] [--no-deploy-envs] [--deploy-mode merge|explicit] [--teams analysis,engineering,devops,qa,signoff]"
+disable-model-invocation: true
 ---
+
+# /pipeline-init
+
+> The code host and tracker are reached through their CLIs. If you see unfamiliar placeholders or need to check which tools are used, see [CONNECTORS.md](../../CONNECTORS.md).
+
 The goal is that the owner answers questions once, at the start, and does nothing else except the one sign-in step
 that only they can do. Work fast: detect before asking, ask everything in one go, run nothing slow. The plugin's test
 suite is **not** run here; it tests the plugin, not this project.
@@ -88,7 +95,7 @@ Then relay the output:
   - It creates the labels, label groups, custom fields and statuses in `scripts/pipeline/tracker-schema.txt`. It maps pipeline states onto the tracker's statuses, and writes `scripts/pipeline/tracker.map`.
   - Relay each `CREATED`, `MAPPED` and `NOTE` line.
   - A Jira status it creates still has to be added to the project's workflow before it is used. Until then it is mapped to the nearest existing status, so nothing blocks.
-  - With `TRACKER=connector`, do the same through the connector's tools instead.
+  - With `TRACKER=connector`, do the same through the ~~project tracker connector's tools instead.
 - Branch protection ("Branches") comes last, in step 8, after the install is merged: the protection requires the Pipeline Gate check, which a request with no ticket would fail.
 - "Deploys on": `bash scripts/pipeline/host.sh var-set PIPELINE_DEPLOY_ENABLED true`.
 
