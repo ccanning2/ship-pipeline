@@ -5,6 +5,7 @@ Branch: <branch>
 Teams: project (<the teams: scripts/pipeline/teams.sh; "project" follows pipeline.env, a list is this ticket's own choice>)
 Arrives at: <analysis|engineering|devops|qa: the first selected team, or qa when the build is already on qa>
 Rework loops used: 0/3
+Halt: none <!-- none | usage-limit (resume with no decision needed) | owner-input (see Waiting on the owner) | done -->
 
 | # | Stage | Owner | State | Outcome |
 |---|---|---|---|---|

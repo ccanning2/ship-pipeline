@@ -80,6 +80,12 @@ Only when the owner asks, in the text after the ticket id or later in this conve
 - **Rework limit.** A code change after the dev deploy always goes back through dev → qa → staging. After 3 rework loops, set Owner: human, Stage: on-hold, and stop. "Back to the engineer" means back to the owner when the build stage's mode is `owner`.
 - **No ticket, no promotion.** When the guard hook blocks a push or merge, follow the ways forward it prints. Never retry it in another form, force-push, or add the `infra` label yourself.
 - **Waiting on the owner.** Whenever a stage hands off to the human owner, stop and say exactly what's needed in one message. On resume, record the answer and continue.
+- **Halt signal, for unattended runs.** `D/STATUS.md` carries one `Halt:` line under `Rework loops used:` (add it there if a ticket started before this line existed). Set it to `Halt: none` when a run starts or resumes. Whenever you stop, set it before the final commit and push:
+  - `usage-limit`: a checkpoint only, nothing to decide. This is the *only* value that means "just run `/ship <TICKET>` again", so an autonomous supervisor (a loop, a schedule, or the owner) can tell a resumable pause from a real question without reading the rest of the file. Never send a push notification for it.
+  - `owner-input`: the owner has to decide or do something: a `blocked`/`rejected` result, open `To: Owner` questions, a stop-and-ask from the engineer, a stage handed to the owner because its team is not selected (mode `owner`), an on-hold, or the go-live ask in step 7.
+  - `done`: the parent reached Stage: done, or the last selected stage handed the ticket to the owner because devops is not selected (mode `off`).
+
+  For `owner-input` and `done`, if a push-notification tool is available in this session, send exactly one, with the same ask (or the release summary) you show the owner; if none is available, say so in your reply instead of skipping it silently. A stage that hands off to the *next persona* (not the owner) is not a halt: keep going in the same run without stopping.
 
 ## 0. Resume or intake
 - **Resume** if `D/brief.md` exists (intake.sh has run): apply any change the owner asked for (above), then continue from the first stage not `done`/`skipped` (`bash scripts/pipeline/status.sh <TICKET>` shows gate progress).
@@ -132,7 +138,7 @@ Any defects → step 3 (a fix passes through dev and QA again). Continue only wh
 Tags the sha, waits for the deploy, verifies, rolls back on failure. Ends with the parent at Stage: done / Done and a release summary (version, image tag, tickets).
 
 ## Usage-limit safety
-Before each stage, if the session may be near its usage limit: stop cleanly, make sure `D/STATUS.md` and the ticket labels are correct, commit and push, and tell the owner to run `/ship <TICKET>` to resume.
+Before each stage, if the session may be near its usage limit: stop cleanly, make sure `D/STATUS.md` and the ticket labels are correct, write `Halt: usage-limit` (see Standing rules), commit and push, and tell the owner to run `/ship <TICKET>` to resume. An autonomous supervisor may do that without the owner, since `Halt: usage-limit` means no decision is needed.
 
 ## Output to the owner
 Only this, when the run stops or finishes:

@@ -2,6 +2,17 @@
 
 Each release in one section, newest first. Upgrading notes sit under the release that needs them.
 
+## v3.4.0
+
+Lets `/ship` run unattended overnight without the owner having to notice a pause and re-type `/ship <TICKET>`.
+
+- **`Halt:` line in `STATUS.md`.** A run sets it to `none` when it starts or resumes and, whenever it stops, to `usage-limit` (a checkpoint only: run `/ship <TICKET>` again, no decision needed), `owner-input` (the owner has to decide or do something, including a stage handed to them because its team is not selected) or `done`. An autonomous supervisor (a `/loop`, a schedule or a script) can read this one line to tell a resumable pause from a real question. A ticket started before this release gets the line on its next resume.
+- **Push notification on every `owner-input` or `done` halt**, with the same message shown to the owner, when a push-notification tool is available in the session. Never sent for `usage-limit`.
+- **One blocked ticket no longer stalls the build.** A ticket that hits a stop-and-ask (a destructive migration, a breaking API/auth/payment change) is recorded and left in-progress; the engineer moves on to the next unblocked ticket instead of ending the run. The run itself only stops once every remaining open ticket is blocked this way, or none is.
+- **Everything else is unchanged.** Every gate, path-restriction hook and the guard hook behave as before; this only changes when the next `/ship` invocation happens after a pause, never what it may do. Go-live still always asks the owner.
+
+Upgrading from 3.3.0: re-run `/pipeline-init` to refresh `docs/pipeline/_templates/STATUS.md`.
+
 ## v3.3.0
 
 Faster tooling and a progress estimate on the board (SHI-54). No tooling path, agent or template name changes.
