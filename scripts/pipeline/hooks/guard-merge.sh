@@ -205,8 +205,16 @@ for k,v in d.items():
   [ -f "$p/scripts/init.sh" ] && [ -f "$p/.claude-plugin/plugin.json" ] || return 1
   printf '%s' "$p"
 }
+runnable_root() { # <plugin root> <empty private dir>: the root, or (its scripts checked out with CRLF, which bash off
+  # Windows cannot run) a copy in the dir with CR stripped from every .sh. Comparisons ignore CR, so the check is the same.
+  local p="$1" t="$2/plugin"
+  grep -q $'\r' "$p/scripts/init.sh" 2>/dev/null || { printf '%s' "$p"; return 0; }
+  mkdir "$t" && cp -R "$p/." "$t/" || return 1
+  find "$t" -type f -name '*.sh' -exec sh -c 'for f; do tr -d "\r" < "$f" > "$f.lf" && mv "$f.lf" "$f" || exit 1; done' sh {} + || return 1
+  printf '%s' "$t"
+}
 check_route() { # after every segment: route_seg, route_path, route_args and route_alone describe the route's call
-  local ref out r cwd abs d want a k=0 mode=""
+  local ref run tmp out r cwd abs d want a k=0 mode=""
   [ "${PIPELINE_BYPASS:-0}" = 1 ] && { bypassed=1; return 0; }
   refuse() {
     block "PIPELINE GATE: blocked '$route_seg' (install route): $1. This route merges only the pipeline's own install: every changed file must be one that scripts/init.sh installs, and each tooling file must match the plugin's copy. Way forward: run 'bash scripts/pipeline/install-merge.sh --open-only' and leave the request for the owner to mark infra and merge. Do not try to get around this hook."
@@ -223,7 +231,11 @@ check_route() { # after every segment: route_seg, route_path, route_args and rou
   done
   # c, d. the plugin's own init.sh checks the route's files and, to merge, the install commit
   ref="$(plugin_root)" || refuse "the plugin's installed copy could not be found"
-  if ! out="$(bash "$ref/scripts/init.sh" --verify-install $mode --project-dir "$project" 2>&1)"; then
+  tmp="$(mktemp -d)" || refuse "no private directory for the install check"
+  run="$(runnable_root "$ref" "$tmp")" || { rm -rf "$tmp"; refuse "the plugin's installed copy could not be prepared for the check"; }
+  r=0; out="$(bash "$run/scripts/init.sh" --verify-install $mode --project-dir "$project" 2>&1)" || r=$?
+  rm -rf "$tmp"
+  if [ "$r" != 0 ]; then
     r="${out#*$'\t'}"; [ "$r" != "$out" ] || r="the install check failed ($(printf '%s' "$out" | tr -d '\r' | head -n 1))"
     refuse "$(printf '%s' "$r" | head -n 1)"
   fi
