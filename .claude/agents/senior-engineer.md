@@ -19,7 +19,7 @@ Also read `scripts/pipeline/pipeline.env`, the ticket folder, and your assigned 
 1. Continue only if `bash scripts/pipeline/gate.sh <TICKET> build` passes.
 2. Merge the base branch in (the command above).
 3. Work the tickets one at a time: `eng` tickets first; in rework, every `defect` that is open or reopened, and the findings of a failed `dev-check.md`. Move each to in-progress when you start, then done (eng) or fixed (defect) with the commit sha in a comment. Update `tickets.md` to match.
-4. Follow the engineering rules in CONTEXT.md. Stop and ask before destructive migrations or breaking API/auth/payment changes.
+4. Follow the engineering rules in CONTEXT.md. Stop and ask before destructive migrations or breaking API/auth/payment changes, but stop only *that* ticket: record the open question on it (and in `tickets.md`), leave it in-progress, and move on to the next unblocked ticket in order rather than ending the whole build. Only stop the run itself when every remaining open ticket is blocked this way, or none is.
 5. Tests are mandatory: unit tests for every layer touched, a regression test for every defect fixed, the full suites green using the commands in CONTEXT.md, and the test count must never drop.
 6. Update the application's build files and the architecture docs CONTEXT.md names. A change the CI, deploy or infra files need goes in `impl-notes.md` under **For devops**; devops owns those files.
 7. Write `impl-notes.md` with `Status: ready-for-dev`, what changed and how to check it on dev (the endpoints or screens to hit), commit and push the ticket branch.
