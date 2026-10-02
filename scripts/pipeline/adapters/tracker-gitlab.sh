@@ -59,7 +59,7 @@ gl_setup() {
   for l in $(group_values Owner); do want+=("Owner::$l|#1d76db"); done
   for l in $(kinds); do want+=("$l|#5319e7"); done
   want+=("state::in-progress|#fbca04" "state::fixed|#c2e0c6" "state::wontfix|#cccccc")
-  for l in "${want[@]}"; do printf '%s\n' "$have_labels" | grep -qxF "${l%%|*}" || missing+=("$l"); done
+  for l in "${want[@]}"; do grep -qxF -- "${l%%|*}" <<<"$have_labels" || missing+=("$l"); done
   report_missing "label" "${missing[@]+"${missing[@]}"}" || return 0
   for l in "${missing[@]}"; do gl -X POST "projects/:id/labels" -f name="${l%%|*}" -f color="${l##*|}" >/dev/null && echo "CREATED label ${l%%|*}"; done
   write_map gitlab

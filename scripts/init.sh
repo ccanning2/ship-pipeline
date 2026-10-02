@@ -621,7 +621,7 @@ fi
 if [ "$deploy_envs" = no ]; then dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""; fi
 urlesc() { printf '%s' "$1" | sed 's/[&#]/\\&/g'; }
 for f in scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md; do
-  if printf '%s\n' "${created[@]}" | grep -qx "$f"; then
+  if grep -qx -- "$f" <<<"$(printf '%s\n' "${created[@]}")"; then
     sed -i.bak -e "s/__PROJECT_NAME__/$name/g" -e "s/__TEAM_KEY__/$key/g" \
       -e "s#__DEV_URL__#$(urlesc "$dev_url")#g" -e "s#__QA_URL__#$(urlesc "$qa_url")#g" \
       -e "s#__STAGING_URL__#$(urlesc "$stg_url")#g" -e "s#__PRODUCTION_URL__#$(urlesc "$prod_url")#g" \
@@ -631,7 +631,7 @@ for f in scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md; do
   fi
 done
 # record the declared capabilities in a freshly created pipeline.env (an existing one is project-owned)
-if printf '%s\n' "${created[@]}" | grep -qx scripts/pipeline/pipeline.env; then
+if grep -qx scripts/pipeline/pipeline.env <<<"$(printf '%s\n' "${created[@]}")"; then
   e=scripts/pipeline/pipeline.env
   if [ "$deploy_envs" = no ]; then
     de_line='PIPELINE_HAS_DEPLOY_ENVS="no"  # this project has no deployable environments: the deploy wait, the staging dispatch and smoke are skipped, and the deploy keys below are intentionally empty'
@@ -708,13 +708,13 @@ if [ ${#customised[@]} -gt 0 ]; then
   for f in "${customised[@]}"; do printf '  customised, kept %s (new version beside it: %s.new)\n' "$f" "$f"; done
   echo 'These tooling files were edited by hand since the last install. Merge each <file>.new by hand, or re-run with --force-tooling to take the new versions. Keep project-specific rules in docs/pipeline/CONTEXT.md so the tooling can stay stock.'
 fi
-if printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeline/pipeline.env && ! grep -qE '^[[:space:]]*(export[[:space:]]+)?PIPELINE_REMOTE=' scripts/pipeline/pipeline.env; then
+if grep -qx scripts/pipeline/pipeline.env <<<"$(printf '%s\n' "${kept[@]}")" && ! grep -qE '^[[:space:]]*(export[[:space:]]+)?PIPELINE_REMOTE=' scripts/pipeline/pipeline.env; then
   echo 'This install predates v1.1.0. Its pipeline.env and workflows are yours and were not changed: run /pipeline-doctor and act on each [upgrade] finding (/pipeline-init shows every change as a diff first).'
 fi
-if [ "$had_manifest" = 0 ] && [ ${#updated[@]} -gt 0 ] && [ -f scripts/pipeline/gate.sh ] && ! printf '%s\n' "${created[@]}" | grep -qx scripts/pipeline/gate.sh; then
+if [ "$had_manifest" = 0 ] && [ ${#updated[@]} -gt 0 ] && [ -f scripts/pipeline/gate.sh ] && ! grep -qx scripts/pipeline/gate.sh <<<"$(printf '%s\n' "${created[@]}")"; then
   echo 'No install record existed, so every tooling file was refreshed. If you had edited any of them, git diff shows what changed. From now on hand edits are detected and kept.'
 fi
-if [ "$deploy_envs" = no ] && [ "$declared_deploy_envs" != no ] && printf '%s\n' "${kept[@]}" | grep -qx scripts/pipeline/pipeline.env; then
+if [ "$deploy_envs" = no ] && [ "$declared_deploy_envs" != no ] && grep -qx scripts/pipeline/pipeline.env <<<"$(printf '%s\n' "${kept[@]}")"; then
   echo 'This project declared no deployable environments. Existing deploy files were left untouched — set PIPELINE_HAS_DEPLOY_ENVS="no" in scripts/pipeline/pipeline.env yourself, and delete scripts/deploy/* and .github/workflows/deploy.yml if you no longer want them.'
 fi
 cat <<MSG

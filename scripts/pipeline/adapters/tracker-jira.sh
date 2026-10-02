@@ -87,7 +87,7 @@ jira_setup() {
     fi
   done
   for s in $(states); do name="$(state_name "$s")"
-    printf '%s' "$statuses" | jq -e --arg n "$name" 'index($n)' >/dev/null || { printf '%s\n' "${missing[@]+"${missing[@]}"}" | grep -qxF "status|$name|$s" || missing+=("status|$name|$s"); }
+    printf '%s' "$statuses" | jq -e --arg n "$name" 'index($n)' >/dev/null || { grep -qxF -- "status|$name|$s" <<<"$(printf '%s\n' "${missing[@]+"${missing[@]}"}")" || missing+=("status|$name|$s"); }
   done
   jira_map_extra="jira:subtask-type|$ty"
   if ! report_missing "item" "${missing[@]+"${missing[@]}"}"; then jira_map_extra="$jira_map_extra

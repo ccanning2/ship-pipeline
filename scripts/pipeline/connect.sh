@@ -51,8 +51,8 @@ tools=(git jq)
 case "$host" in github) tools+=(gh);; gitlab) tools+=(glab);; bitbucket) tools+=(curl bitbucket);; esac
 case "$tracker" in
   jira) tools+=(acli curl jira);; linear) tools+=(curl linear);;
-  github) printf '%s\n' "${tools[@]}" | grep -qx gh || tools+=(gh);;
-  gitlab) printf '%s\n' "${tools[@]}" | grep -qx glab || tools+=(glab);;
+  github) grep -qx gh <<<"$(printf '%s\n' "${tools[@]}")" || tools+=(gh);;
+  gitlab) grep -qx glab <<<"$(printf '%s\n' "${tools[@]}")" || tools+=(glab);;
 esac
 tools=($(printf '%s\n' "${tools[@]}" | awk '!seen[$0]++'))
 

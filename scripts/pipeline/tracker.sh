@@ -77,7 +77,7 @@ lin_setup() {
   done
   for v in $(kinds); do printf '%s' "$labels" | jq -e --arg v "$v" 'any(.[]; .name==$v and .parent==null and (.isGroup|not))' >/dev/null || missing+=("label||$v"); done
   for s in $(states); do name="$(state_name "$s")"
-    printf '%s' "$t" | jq -e --arg n "$name" 'any(.states.nodes[]; .name==$n)' >/dev/null || { printf '%s\n' "${missing[@]+"${missing[@]}"}" | grep -qxF "state|$name" || missing+=("state|$name"); }
+    printf '%s' "$t" | jq -e --arg n "$name" 'any(.states.nodes[]; .name==$n)' >/dev/null || { grep -qxF -- "state|$name" <<<"$(printf '%s\n' "${missing[@]+"${missing[@]}"}")" || missing+=("state|$name"); }
   done
   report_missing "item" "${missing[@]+"${missing[@]}"}" || return 0
   for m in "${missing[@]}"; do
