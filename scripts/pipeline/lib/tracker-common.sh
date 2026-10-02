@@ -57,7 +57,7 @@ state_name() {
   esac
 }
 valid_in() { # <value> <list...>
-  local v="$1"; shift; printf '%s\n' "$@" | grep -qxF "$v"
+  local v="$1"; shift; grep -qxF -- "$v" <<<"$(printf '%s\n' "$@")"
 }
 num_of() { printf '%s' "$1" | sed -E 's/^[A-Za-z0-9]+-//'; }
 upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
