@@ -29,7 +29,8 @@ The personas are generic; THIS file is what makes them behave correctly here. Th
   `template/` holds the copies scaffolded into a consuming project.
 - Tests: `bash tests/pipeline/run-all.sh`, which runs `test_config.sh test_init.sh test_gate.sh
   test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh
-  test_doctor.sh test_deploy_scripts.sh test_adapters.sh test_install_merge.sh` (in parallel; `PIPELINE_TESTS_SERIAL=1`
+  test_doctor.sh test_deploy_scripts.sh test_adapters.sh test_install_merge.sh test_tracker_adapters.sh
+  test_host_adapters.sh` (in parallel; `PIPELINE_TESTS_SERIAL=1`
   runs them in turn). This is the only test command; there is no separate
   frontend/backend suite. `python-docx`, `pandoc` and `poppler-utils` are **optional**: the
   `intake.sh` document tests skip themselves when they are absent, they do not fail.

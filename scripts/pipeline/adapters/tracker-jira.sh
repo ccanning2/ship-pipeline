@@ -18,7 +18,7 @@ jira_rest() { # method path [json]
   $curl_cmd -fsS -u "${JIRA_EMAIL:-}:$JIRA_API_TOKEN" -H 'Accept: application/json' -X "$1" "$site/rest/api/3/$2" ${b[@]+"${b[@]}"}
 }
 jcli() { $acli_cmd jira "$@"; }
-adf() { jq -Rsc '{type:"doc",version:1,content:[split("\n\n")[] | select(length>0) | {type:"paragraph",content:[{type:"text",text:.}]}]}' <<<"$1"; }
+adf() { printf '%s' "$1" | jq -Rsc '{type:"doc",version:1,content:[split("\n\n")[] | select(length>0) | {type:"paragraph",content:[{type:"text",text:.}]}]}'; }   # printf: a here-string would add a newline to the last paragraph
 adf_text() { jq -r '[.. | objects | select(.type=="text") | .text] | join("")'; }
 jira_mode() { map_get jira:groups || echo labels; }   # fields | labels
 jira_check() {

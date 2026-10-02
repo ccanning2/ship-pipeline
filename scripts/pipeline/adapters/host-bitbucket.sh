@@ -31,7 +31,7 @@ bb_merge() { # branch base title
   local r id; r="$(bb_repo)"
   id="$(bb GET "$r/pullrequests?state=OPEN&q=$(urlenc "source.branch.name=\"$1\" AND destination.branch.name=\"$2\"")" 2>/dev/null | json '.values[0].id // empty')"
   if [ -z "$id" ]; then
-    id="$(bb POST "$r/pullrequests" "{\"title\":\"$3\",\"source\":{\"branch\":{\"name\":\"$1\"}},\"destination\":{\"branch\":{\"name\":\"$2\"}},\"description\":\"Pipeline ticket. See docs/pipeline/.\"}" | json '.id')" \
+    id="$(bb POST "$r/pullrequests" "$(jq -nc --arg t "$3" --arg s "$1" --arg d "$2"         '{title:$t, source:{branch:{name:$s}}, destination:{branch:{name:$d}}, description:"Pipeline ticket. See docs/pipeline/."}')" | json '.id')" \
       || die "could not create a pull request"
   fi
   bb POST "$r/pullrequests/$id/merge" '{"merge_strategy":"merge_commit"}' >/dev/null || die "Bitbucket refused to merge PR #$id"

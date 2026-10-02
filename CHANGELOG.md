@@ -2,6 +2,18 @@
 
 Each release in one section, newest first. Upgrading notes sit under the release that needs them.
 
+## v3.5.1
+
+Tests for every tracker and code-host adapter's write verbs, and the three bugs they found.
+
+- **Fix: Bitbucket uuids were not URL-encoded.** Bitbucket pipeline and variable uuids are `{...}`, and curl reads braces in a URL as a glob and drops them, so `host.sh wait` after a Bitbucket dispatch and `host.sh var-set` on an existing variable asked for the wrong path. `urlenc` now encodes `{` and `}`.
+- **Fix: a Bitbucket merge with a `"` in the title failed.** `host.sh merge` built the pull request's JSON by pasting the title in; it now builds it with jq, as `request-open` already did.
+- **Fix: Jira descriptions gained a trailing newline.** `tracker.sh describe` on Jira added a newline to the last paragraph.
+- **`tests/pipeline/test_tracker_adapters.sh`** drives the Linear, Jira and GitLab issues adapters through fake CLIs and checks the requests they send: view, children, create, comment, describe, set, handoff and state, the `tracker.map` overrides, and the errors (a missing label or status, a refused transition, an API error). GitHub Issues was already covered in `test_adapters.sh`.
+- **`tests/pipeline/test_host_adapters.sh`** does the same for the GitHub, GitLab and Bitbucket host adapters: merge, request-open, request-info, branch-head, request-merge refusals, set-ref, dispatch, wait, var-get/var-set, protect and enforcement. The fake `gh` applies each `-q` filter with jq, so the adapters' own filters are tested too.
+
+Upgrading from 3.5.0: re-run `/pipeline-init` to refresh the tooling (`lib/host-common.sh`, the Bitbucket host adapter, the Jira tracker adapter).
+
 ## v3.5.0
 
 The deploy templates work for any project, and a deploy only talks to a host whose SSH key it already knows.

@@ -51,7 +51,8 @@ have() { command -v "${1%% *}" >/dev/null 2>&1; }
 remote_path() { # the path part of the remote URL: owner/repo
   git remote get-url "$remote" 2>/dev/null | sed -E 's#^(git@|ssh://git@|https?://)([^@/]+@)?[^/:]+(:[0-9]+)?[/:]##; s#\.git$##'
 }
-urlenc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's#/#%2F#g' -e 's/ /%20/g' -e 's/:/%3A/g'; }
+# braces too: Bitbucket uuids are {...}, and curl would otherwise read them as a URL glob and drop them
+urlenc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's#/#%2F#g' -e 's/ /%20/g' -e 's/:/%3A/g' -e 's/{/%7B/g' -e 's/}/%7D/g'; }
 json() { have jq || die "needs jq to read the $host API (/pipeline-init installs it)"; jq -r "$1"; }
 refused() { printf '%s\n' "$*" | tr -d '\r' | sed '/^[[:space:]]*$/d' | head -n 1 | cut -c1-300; exit 3; }   # one line, no payload
 
