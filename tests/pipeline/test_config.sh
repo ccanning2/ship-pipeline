@@ -165,9 +165,9 @@ if [ "$A" = agents ]; then
   # release notes live in CHANGELOG.md, one section per release; plugin.json carries the newest
   CL=CHANGELOG.md
   grep -q 'behaves exactly as it did before' "$CL" && ok "AC-34: the changelog states existing installs are unaffected" || bad "AC-34: the changelog states existing installs are unaffected"
-  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="3.5.0" else 1)' \
-    && ok "plugin.json version is 3.5.0" || bad "plugin.json version is 3.5.0"
-  for v in v3.5.0 v3.4.0 v3.3.0 v3.2.0 v3.1.0 v3.0.0 v2.0.0 v1.1.0 v1.0.0; do assert_eq "exactly one '## $v' changelog heading" "1" "$(grep -c "^## $v" "$CL" || true)"; done
+  $PY -c 'import json,sys; sys.exit(0 if json.load(open(".claude-plugin/plugin.json"))["version"]=="3.5.1" else 1)' \
+    && ok "plugin.json version is 3.5.1" || bad "plugin.json version is 3.5.1"
+  for v in v3.5.1 v3.5.0 v3.4.0 v3.3.0 v3.2.0 v3.1.0 v3.0.0 v2.0.0 v1.1.0 v1.0.0; do assert_eq "exactly one '## $v' changelog heading" "1" "$(grep -c "^## $v" "$CL" || true)"; done
   for u in "Upgrading from v2" "Upgrading from v1.1.0" "Upgrading from v1.0.0"; do grep -q "^### $u" "$CL" && ok "changelog: $u" || bad "changelog: $u"; done
   assert_eq "no 'Unreleased' changelog heading" "0" "$(grep -c '^## Unreleased' "$CL" || true)"
   grep -q '^## Release notes\|^### v[0-9]' README.md && bad "README carries no release notes (they are in CHANGELOG.md)" || ok "README carries no release notes (they are in CHANGELOG.md)"

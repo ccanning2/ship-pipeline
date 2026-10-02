@@ -4,7 +4,7 @@
 # order, as soon as it and every file before it have finished, with a [n/N] progress line; a total follows.
 # PIPELINE_TESTS_SERIAL=1 runs them one after another instead.
 cd "$(dirname "$0")"
-tests=(test_config.sh test_init.sh test_gate.sh test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh test_doctor.sh test_deploy_scripts.sh test_adapters.sh test_install_merge.sh)
+tests=(test_config.sh test_init.sh test_gate.sh test_promote.sh test_intake_status.sh test_allow_paths.sh test_guard_merge.sh test_doctor.sh test_deploy_scripts.sh test_adapters.sh test_install_merge.sh test_tracker_adapters.sh test_host_adapters.sh)
 status=0; passed=0; failed=0; n=0
 present=(); for t in "${tests[@]}"; do [ -f "$t" ] && present+=("$t"); done
 out="$(mktemp -d)"; trap 'rm -rf "$out"' EXIT
