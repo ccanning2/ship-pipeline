@@ -173,6 +173,15 @@ if [ -f .github/workflows/deploy.yml ]; then
     fi
   fi
 fi
+# scripts/deploy/* are project-owned, so an upgrade never replaces them: flag what older copies still do
+for f in scripts/deploy/deploy.sh scripts/deploy/rollback.sh; do
+  [ -f "$f" ] || continue
+  if grep -q 'StrictHostKeyChecking=accept-new' "$f"; then
+    warn "deploy: $f accepts any SSH host key on a fresh CI runner; refresh it with scripts/init.sh --force-tooling (the new version verifies the key against DEPLOY_KNOWN_HOSTS)"
+  elif grep -q 'OWNER/reputabill' "$f"; then
+    warn "deploy: $f still defaults IMAGE_REPO and DEPLOY_PATH to another project's values; refresh it with scripts/init.sh --force-tooling"
+  fi
+done
 
 # ---- stale branch names ----
 if [ "$base" != master ]; then

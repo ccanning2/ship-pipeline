@@ -12,7 +12,7 @@
 # decides, and only a plain KEY=value there counts). The process environment's values of those keys are ignored.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-data_keys=" GIT_HOST GIT_HOST_URL TRACKER BASE_BRANCH STAGING_BRANCH PIPELINE_REMOTE DEPLOY_MODE PIPELINE_HAS_DEPLOY_ENVS "
+data_keys=" GIT_HOST GIT_HOST_URL TRACKER BASE_BRANCH STAGING_BRANCH PIPELINE_REMOTE DEPLOY_MODE PIPELINE_HAS_DEPLOY_ENVS HEALTH_PATH SMOKE_EXPECT "
 env_text=""
 env_value() { # KEY -> its literal value when the last line naming it is a plain assignment; nothing otherwise
   local key="$1" l line="" v re="(^|[^A-Za-z0-9_])$1([^A-Za-z0-9_]|\$)"

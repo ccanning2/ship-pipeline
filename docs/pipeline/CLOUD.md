@@ -21,7 +21,7 @@ The pipeline in this repo is already GitHub-based, so **A is the shortest path**
 ### One-time setup
 1. **Move the repo to GitHub** (keep GitLab as a read-only mirror for a while if you like):
    ```bash
-   gh repo create <you>/reputabill --private --source . --push
+   gh repo create <you>/<project> --private --source . --push
    git push --all origin && git push --tags origin
    ```
    Run these yourself, in your own terminal: they move every branch and tag at once, so the guard hook refuses them from an agent. If GitHub created the repository with its own first commit (a README), the histories are unrelated; decide how to reconcile them before pushing. `/pipeline-doctor` checks this.
@@ -74,24 +74,24 @@ Create a routine (a scheduled cloud session) such as "Every weekday 07:00: list 
 Use this if you stay on GitLab. It requires the GitLab port of `deploy.yml` / `pipeline-gate.yml` and `glab` instead of `gh`.
 
 1. Create a small Hetzner VM and install git, Java 21, Maven, Node 20, Docker, pandoc, poppler-utils and the Claude Code CLI.
-2. Clone the repo to `/srv/reputabill`. As the service user, run `claude`, then `/login` (claude.ai account), and accept workspace trust.
+2. Clone the repo to `/srv/<project>`. As the service user, run `claude`, then `/login` (claude.ai account), and accept workspace trust.
 3. Run `claude remote-control` once interactively and answer `y` to enable Remote Control.
 4. Install a service at `/etc/systemd/system/claude-rc.service`:
    ```ini
    [Unit]
-   Description=Claude Code Remote Control (reputabill)
+   Description=Claude Code Remote Control (<project>)
    After=network-online.target
    [Service]
    User=claude
-   WorkingDirectory=/srv/reputabill
-   ExecStart=/usr/bin/env claude remote-control --name reputabill --spawn worktree
+   WorkingDirectory=/srv/<project>
+   ExecStart=/usr/bin/env claude remote-control --name <project> --spawn worktree
    Restart=always
    RestartSec=10
    [Install]
    WantedBy=multi-user.target
    ```
    Then enable it: `sudo systemctl enable --now claude-rc`.
-5. In the iOS app or Desktop app, open the **Code** tab. The `reputabill` server shows with a green dot. Start a session and run `/ship …`.
+5. In the iOS app or Desktop app, open the **Code** tab. The `<project>` server shows with a green dot. Start a session and run `/ship …`.
 
 Notes:
 - `--spawn worktree` gives each session its own git worktree, so parallel tickets don't collide.

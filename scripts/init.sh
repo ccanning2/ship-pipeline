@@ -617,7 +617,7 @@ fi
 # URLs: the flags, else .invalid placeholders that never resolve (the doctor flags them)
 [ -n "$dev_url" ] || dev_url="https://dev.$name.example.invalid"; [ -n "$qa_url" ] || qa_url="https://qa.$name.example.invalid"
 [ -n "$stg_url" ] || stg_url="https://staging.$name.example.invalid"; [ -n "$prod_url" ] || prod_url="https://$name.example.invalid"
-[ -n "$health" ] || health="/actuator/health"
+[ -n "$health" ] || health="/"
 if [ "$deploy_envs" = no ]; then dev_url=""; qa_url=""; stg_url=""; prod_url=""; health=""; fi
 urlesc() { printf '%s' "$1" | sed 's/[&#]/\\&/g'; }
 for f in scripts/pipeline/pipeline.env docs/pipeline/CONTEXT.md; do

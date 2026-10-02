@@ -8,7 +8,9 @@
 # OFF until the environments exist: every job is skipped unless the CI/CD variable PIPELINE_DEPLOY_ENABLED is "true"
 # (/pipeline-init sets it once the environment URLs are known).
 # Per environment (CI/CD variables scoped to environments dev, qa, staging, production): DEPLOY_HOST, DEPLOY_USER,
-# DEPLOY_PATH, APP_URL, and DEPLOY_SSH_KEY (type File, protected). The image goes to this project's container registry.
+# DEPLOY_PATH, APP_URL, DEPLOY_SSH_KEY (type File, protected) and DEPLOY_KNOWN_HOSTS (the host's known_hosts line(s):
+# `ssh-keyscan <host>`, checked against the fingerprint the host itself shows; the key is verified). The image goes to
+# this project's container registry.
 # Jobs run in the .post stage (always present) and are ordered with needs, so the project's own stages are untouched.
 # Adapt the "ship-build" test commands and Dockerfile step to this project (the engineer does this on first build).
 .ship-rules:

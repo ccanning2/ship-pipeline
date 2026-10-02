@@ -129,4 +129,17 @@ for f in "PIPELINE_REMOTE is not set" "also matches macos-14" "pipeline-gate.yml
   case "$out" in *"$f"*"[upgrade: run /pipeline-init to review the change]"*) ok "upgrade: '$f' is marked [upgrade]";; *) bad "upgrade: '$f' is marked [upgrade]" "$out";; esac
 done
 case "$(printf '%s\n' "$out" | grep '^FAIL' | grep -v "remote named\|share no commit\|files: missing" || true)" in "") ok "upgrade: a v1.0.0 install raises no FAIL of its own";; *) bad "upgrade: a v1.0.0 install raises no FAIL of its own" "$out";; esac
+# project-owned deploy scripts from an older install: flagged, never replaced
+mkdir -p "$R/scripts/deploy"
+printf 'IMAGE_REPO=ghcr.io/OWNER/reputabill
+ssh -o StrictHostKeyChecking=accept-new x
+' > "$R/scripts/deploy/deploy.sh"
+printf ': "${IMAGE_REPO:=ghcr.io/OWNER/reputabill}"
+ssh -o StrictHostKeyChecking=yes x
+' > "$R/scripts/deploy/rollback.sh"
+out=$(doc --offline)
+assert_contains "deploy: an old deploy.sh that accepts any host key is flagged" "$out" "WARN  deploy: scripts/deploy/deploy.sh accepts any SSH host key"
+assert_contains "deploy: an old rollback.sh with another project's defaults is flagged" "$out" "WARN  deploy: scripts/deploy/rollback.sh still defaults IMAGE_REPO"
+cp "$REPO_SRC/scripts/deploy/deploy.sh" "$REPO_SRC/scripts/deploy/rollback.sh" "$R/scripts/deploy/"
+case "$(doc --offline)" in *"WARN  deploy:"*) bad "deploy: the plugin's own deploy scripts raise no warning";; *) ok "deploy: the plugin's own deploy scripts raise no warning";; esac
 summary
