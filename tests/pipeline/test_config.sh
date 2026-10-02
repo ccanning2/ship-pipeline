@@ -187,6 +187,12 @@ fi
 for f in scripts/pipeline/{gate,check-signoff,promote,intake,handover,teams,board,status,next-version,cloud-setup,ticket-id,base-ref,enforcement,doctor,host,tracker,connect,ci-gate,ci-resolve}.sh scripts/pipeline/hooks/{allow-paths,guard-merge,allow-commands}.sh scripts/pipeline/lib/*.sh $( [ "$A" = agents ] && echo scripts/pipeline/adapters/*.sh); do
   case "$f" in */lib/*) bash -n "$f" && ok "$f syntax (sourced, not run)" || bad "$f syntax";; *) [ -x "$f" ] && bash -n "$f" && ok "$f executable + syntax" || bad "$f executable + syntax";; esac
 done
+# nothing pipes into grep -q: under pipefail, grep exiting on its first match can leave the writer with EPIPE and make a
+# match read as "no match" (seen as flaky AC-38 and tracker --check failures on a loaded runner). Use grep -q PAT <<<"$x".
+if [ "$A" = agents ]; then
+  gp="$(grep -rnE --include='*.sh' '\|[[:space:]]*grep[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-[a-zA-Z]*q' scripts || true)"
+  assert_eq "no script pipes into grep -q (SIGPIPE race under pipefail)${gp:+: $(printf '%s' "$gp" | head -n 3 | tr '\n' ' ')}" "" "$gp"
+fi
 # one adapter per platform, each marked with what it is (the doctor matches it against pipeline.env)
 if [ "$A" = agents ]; then
   for a in host:github host:gitlab host:bitbucket tracker:jira tracker:linear tracker:github tracker:gitlab tracker:connector; do
