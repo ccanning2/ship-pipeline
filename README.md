@@ -185,7 +185,7 @@ Protocol: `docs/pipeline/TICKETS.md`.
 | `TRACKER`, `TRACKER_URL`, `TRACKER_CLOUD_ID`, `TRACKER_TEAM_KEY` | tracker, site, Jira cloudId, ticket prefix |
 | `PIPELINE_TEAMS` | the teams that run `/ship`: `analysis`, `engineering`, `devops`, `qa`, `signoff` (installs before 3.1.0 have `PIPELINE_START_LEVEL` instead, read as that level and every team after it) |
 | `DEPLOY_MODE`, `PIPELINE_HAS_DEPLOY_ENVS` | `merge` / `explicit`; `no` when there is nothing to deploy |
-| `DEV_URL` … `PRODUCTION_URL`, `HEALTH_PATH` | the environments and their health check |
+| `DEV_URL` … `PRODUCTION_URL`, `HEALTH_PATH`, `SMOKE_EXPECT` | the environments and their smoke test: `<URL><HEALTH_PATH>` must answer 2xx and, when set, contain `SMOKE_EXPECT` |
 
 Project knowledge lives in `docs/pipeline/CONTEXT.md` and `RELEASE_CHECKLIST.md`. Put instructions for a persona under **Persona notes** in CONTEXT.md; the agent files are tooling and get refreshed.
 
@@ -203,7 +203,7 @@ scripts/pipeline/        gate, promote, intake, handover, board, status, next-ve
   lib/                   the code the adapters share
   hooks/                 guard-merge, allow-paths, allow-commands
   tracker-schema.txt     the labels, fields and statuses the tracker needs
-scripts/deploy/          deploy / rollback / smoke templates (docker compose over SSH)
+scripts/deploy/          deploy / rollback / smoke templates (docker compose over SSH; the host key is verified against DEPLOY_KNOWN_HOSTS)
 template/                files scaffolded into a project (docs, CI for each host, pipeline.env, checklist)
 profiles/<name>/         saved CONTEXT.md + RELEASE_CHECKLIST.md per product
 tests/pipeline/          the plugin's test suite (never installed into projects)

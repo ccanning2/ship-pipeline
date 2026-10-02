@@ -6,7 +6,8 @@ name: Deploy
 #   workflow_dispatch staging -> gate "staging"    -> deploy :<sha> to staging
 #   push tag vX.Y.Z           -> gate "production" -> re-tag image :<version> + :latest, deploy to production
 # Configure GitHub environments dev, qa, staging, production with:
-#   secret DEPLOY_SSH_KEY; vars DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, APP_URL
+#   secret DEPLOY_SSH_KEY; vars DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, APP_URL, and DEPLOY_KNOWN_HOSTS (the host's
+#   known_hosts line(s): `ssh-keyscan <host>`, checked against the fingerprint the host itself shows; the key is verified)
 # Adapt the "Backend tests" / "Frontend tests" / Dockerfile steps to this project (the engineer does this on first build).
 # OFF until the environments exist: every job is skipped unless the repository variable PIPELINE_DEPLOY_ENABLED is
 # 'true' (Settings -> Secrets and variables -> Actions -> Variables), so CI is not red from day one.
@@ -142,11 +143,11 @@ jobs:
       - name: SSH key
         run: install -m 700 -d ~/.ssh && echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
       - name: Deploy
-        env: { DEPLOY_HOST: "${{ vars.DEPLOY_HOST }}", DEPLOY_USER: "${{ vars.DEPLOY_USER }}", DEPLOY_PATH: "${{ vars.DEPLOY_PATH }}" }
+        env: { DEPLOY_HOST: "${{ vars.DEPLOY_HOST }}", DEPLOY_USER: "${{ vars.DEPLOY_USER }}", DEPLOY_PATH: "${{ vars.DEPLOY_PATH }}", DEPLOY_KNOWN_HOSTS: "${{ vars.DEPLOY_KNOWN_HOSTS }}" }
         run: bash scripts/deploy/deploy.sh "${{ needs.resolve.outputs.env }}" "${{ needs.resolve.outputs.sha }}"
       - name: Smoke test
         run: bash scripts/deploy/smoke.sh "${{ vars.APP_URL }}"
       - name: Roll back on failure
         if: failure() && needs.resolve.outputs.env == 'production'
-        env: { DEPLOY_HOST: "${{ vars.DEPLOY_HOST }}", DEPLOY_USER: "${{ vars.DEPLOY_USER }}", DEPLOY_PATH: "${{ vars.DEPLOY_PATH }}" }
+        env: { DEPLOY_HOST: "${{ vars.DEPLOY_HOST }}", DEPLOY_USER: "${{ vars.DEPLOY_USER }}", DEPLOY_PATH: "${{ vars.DEPLOY_PATH }}", DEPLOY_KNOWN_HOSTS: "${{ vars.DEPLOY_KNOWN_HOSTS }}" }
         run: bash scripts/deploy/rollback.sh production

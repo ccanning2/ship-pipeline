@@ -2,6 +2,19 @@
 
 Each release in one section, newest first. Upgrading notes sit under the release that needs them.
 
+## v3.5.0
+
+The deploy templates work for any project, and a deploy only talks to a host whose SSH key it already knows.
+
+- **SSH host keys are verified.** `deploy.sh` and `rollback.sh` no longer use `StrictHostKeyChecking=accept-new`, which on a fresh CI runner trusted whatever key the host presented. They now connect with `StrictHostKeyChecking=yes` and trust only `DEPLOY_KNOWN_HOSTS`, the host's known_hosts line(s) (`ssh-keyscan <host>`, checked against the fingerprint the host itself shows), or `~/.ssh/known_hosts` when it is not set. A refused host says how to trust it. GitHub: a `DEPLOY_KNOWN_HOSTS` variable on each environment (`deploy.yml` passes it). GitLab: a `DEPLOY_KNOWN_HOSTS` CI/CD variable. Bitbucket: the host under Repository settings -> SSH keys -> Known hosts.
+- **No other project's defaults.** `IMAGE_REPO` and `DEPLOY_PATH` are required instead of defaulting to one product's image and `/opt/...` path. Every shipped workflow already sets them.
+- **A generic smoke test.** `smoke.sh` passes when `<URL><HEALTH_PATH>` answers 2xx and, when the new `SMOKE_EXPECT` is set, its body contains that text. It no longer requires a Spring Boot `"status":"UP"` body. A new install's `HEALTH_PATH` defaults to `/` instead of `/actuator/health`.
+- **Fix: `HEALTH_PATH` was ignored.** `promote.sh` and the CI workflows never passed it to `smoke.sh`, so every smoke test checked `/actuator/health`. `smoke.sh` now reads `HEALTH_PATH` and `SMOKE_EXPECT` from `pipeline.env` itself, as data (never run), unless the environment sets them.
+- **`/pipeline-doctor` flags old deploy scripts.** `scripts/deploy/*` are project-owned, so an upgrade never replaces them: the doctor warns when they still accept any host key or carry the old defaults.
+- `docs/pipeline/CLOUD.md` uses `<project>` placeholders instead of one product's name.
+
+Upgrading from 3.4.0: re-run `/pipeline-init` to refresh the tooling (`base-ref.sh`, `doctor.sh`, `CLOUD.md`). Your `scripts/deploy/*` and CI files are yours and are not changed: either copy the plugin's versions (`scripts/init.sh --force-tooling` refreshes `scripts/deploy/*`) and add `DEPLOY_KNOWN_HOSTS` to each environment before the next deploy, or keep them and accept that the old scripts trust any host key. If you relied on the old smoke check of `/actuator/health` for `"status":"UP"`, set `HEALTH_PATH="/actuator/health"` and `SMOKE_EXPECT="UP"` in `pipeline.env`.
+
 ## v3.4.0
 
 Lets `/ship` run unattended overnight without the owner having to notice a pause and re-type `/ship <TICKET>`.

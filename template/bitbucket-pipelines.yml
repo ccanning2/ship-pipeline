@@ -9,7 +9,8 @@
 # "true" (/pipeline-init sets it once the environment URLs are known).
 # Repository variables: REGISTRY_IMAGE (e.g. docker.io/acme/app), REGISTRY_USER, REGISTRY_PASSWORD (secured), and per
 # environment <ENV>_DEPLOY_HOST, <ENV>_DEPLOY_USER, <ENV>_DEPLOY_PATH, <ENV>_APP_URL (ENV = DEV, QA, STAGING, PRODUCTION).
-# The deploy SSH key is the repository's SSH key (Repository settings -> SSH keys).
+# The deploy SSH key is the repository's SSH key (Repository settings -> SSH keys). Add each deploy host under Known
+# hosts on the same page: the host key is verified, so a host missing there is refused.
 # Infra pull requests (repository maintenance with no ticket): Bitbucket has no PR labels, so a source branch named
 # infra/<anything> skips the ticket gate. Only a human pushes such a branch (the guard hook refuses agents); the PR
 # still needs that human to merge it.
