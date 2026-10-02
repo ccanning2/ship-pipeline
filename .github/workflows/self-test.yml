@@ -1,0 +1,17 @@
+name: Self-test
+# This repository only (not installed into projects): runs the tooling self-test on every push to master, so a
+# merge that skipped or overrode the PR's Pipeline Gate still shows a red check on master. The ticket gate stays
+# PR-only (pipeline-gate.yml); a push has no ticket to check. Run it on demand from the Actions tab.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Pipeline tooling self-test
+        run: bash tests/pipeline/run-all.sh
